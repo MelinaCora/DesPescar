@@ -1,0 +1,15 @@
+target/
+bin/
+.metadata/
+
+*.class
+*.log
+
+.idea/
+.vscode/
+
+.DS_Store
+
+spring.log
+
+.mvn/wrapper/maven-wrapper.jar
