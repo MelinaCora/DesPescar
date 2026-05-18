@@ -9,12 +9,12 @@ public class UserMapper {
 
 	public UserResponse toResponse(User user) {
 
-	        return new UserResponse(
-	                user.getId(),
-	                user.getFirstName(),
-	                user.getLastName(),
-	                user.getEmail(),
-	                user.getRole().getName()
+		return new UserResponse(
+				user.getId(),
+	            user.getFirstName(),
+	            user.getLastName(),
+	            user.getEmail(),
+	            user.getRole().getName()
 	        );
-	   }
+	 }
 }
