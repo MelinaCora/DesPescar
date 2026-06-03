@@ -11,6 +11,7 @@ import com.despescar.identityservice.exception.RoleNotFoundException;
 import com.despescar.identityservice.mapper.UserMapper;
 import com.despescar.identityservice.repository.RoleRepository;
 import com.despescar.identityservice.repository.UserRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 @Service
 public class UserService {
@@ -18,12 +19,18 @@ public class UserService {
 	private final UserRepository userRepository;
 	private final RoleRepository roleRepository;
 	private final UserMapper userMapper;
+	private final PasswordEncoder passwordEncoder;
 	    
-	public UserService(UserRepository userRepository,RoleRepository roleRepository, UserMapper userMapper) {
+	public UserService(
+	        UserRepository userRepository,
+	        RoleRepository roleRepository,
+	        UserMapper userMapper,
+	        PasswordEncoder passwordEncoder) {
 
 		 this.userRepository = userRepository;
 		 this.roleRepository = roleRepository;
 		 this.userMapper = userMapper;
+		 this.passwordEncoder = passwordEncoder;
 	}
 	
 	public UserResponse registerUser(RegisterUserRequest request) {
@@ -40,7 +47,9 @@ public class UserService {
 	    user.setFirstName(request.getFirstName());
 	    user.setLastName(request.getLastName());
 	    user.setEmail(request.getEmail());
-	    user.setPassword(request.getPassword());
+	    user.setPassword(
+	            passwordEncoder.encode(request.getPassword())
+	    );
 	    user.setRegistrationDate(LocalDate.now());
 	    user.setIsActive(true);
 	    user.setRole(role);
