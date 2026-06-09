@@ -8,19 +8,24 @@ import com.despescar.identityservice.dto.response.LoginResponse;
 import com.despescar.identityservice.entity.User;
 import com.despescar.identityservice.exception.InvalidCredentialsException;
 import com.despescar.identityservice.repository.UserRepository;
+import com.despescar.identityservice.security.JwtService;
 
 @Service
 public class AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
 
     public AuthService(
             UserRepository userRepository,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            JwtService jwtService
+            ) {
 
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
     }
 
     public LoginResponse login(
@@ -43,8 +48,11 @@ public class AuthService {
             throw new InvalidCredentialsException();
         }
 
-        return new LoginResponse(
-                "LOGIN_OK"
+        String token = jwtService.generateToken(
+                user.getEmail(),
+                user.getRole().getName()
         );
+
+        return new LoginResponse(token);
     }
 }
