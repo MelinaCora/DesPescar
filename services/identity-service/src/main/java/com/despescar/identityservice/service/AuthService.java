@@ -25,6 +25,25 @@ public class AuthService {
     public LoginResponse login(
             LoginRequest request) {
 
-        return null;
+        User user = userRepository
+                .findByEmail(request.getEmail())
+                .orElseThrow(
+                        InvalidCredentialsException::new
+                );
+
+        boolean validPassword =
+                passwordEncoder.matches(
+                        request.getPassword(),
+                        user.getPassword()
+                );
+
+        if (!validPassword) {
+
+            throw new InvalidCredentialsException();
+        }
+
+        return new LoginResponse(
+                "LOGIN_OK"
+        );
     }
 }
