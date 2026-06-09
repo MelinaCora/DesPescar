@@ -14,6 +14,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import com.despescar.identityservice.entity.User;
 import com.despescar.identityservice.dto.response.CurrentUserResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+
 
 @RestController
 @RequestMapping("/auth")
@@ -43,6 +45,7 @@ public class AuthController {
 	    return authService.login(request);
 	}
 	
+	@io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
 	@GetMapping("/me")
 	public CurrentUserResponse me(
 	        Authentication authentication
