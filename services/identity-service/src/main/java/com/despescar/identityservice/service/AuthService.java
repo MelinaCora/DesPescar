@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import com.despescar.identityservice.dto.request.LoginRequest;
 import com.despescar.identityservice.dto.response.LoginResponse;
 import com.despescar.identityservice.entity.User;
+import com.despescar.identityservice.exception.InvalidCredentialsException;
 import com.despescar.identityservice.repository.UserRepository;
 
 @Service
