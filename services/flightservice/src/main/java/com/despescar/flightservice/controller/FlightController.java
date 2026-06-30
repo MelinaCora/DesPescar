@@ -1,5 +1,13 @@
 package com.despescar.flightservice.controller;
 
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
 public class FlightController {
-	//el controller recibe las peticiones HTTP
+
+    @GetMapping("/test")
+    public String test() {
+        return "Flight Service funcionando correctamente";
+    }
 }
