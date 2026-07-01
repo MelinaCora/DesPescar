@@ -1,4 +1,4 @@
-package com.despescar.payment_service.config;
+package com.despescar.reservationservice.config;
 
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
@@ -14,7 +14,7 @@ public class SwaggerConfig {
         return new OpenAPI()
                 .info(
                         new Info()
-                                .title("DesPescar - Payment Service API")
+                                .title("DesPescar - Reservation Service API")
                                 .version("1.0")
                                 .description("Microservicio encargado de la gestión de vuelos.")
                 );
