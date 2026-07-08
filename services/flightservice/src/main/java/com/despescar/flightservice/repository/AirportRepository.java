@@ -1,5 +1,18 @@
 package com.despescar.flightservice.repository;
 
-public class AirportRepository {
+import java.util.Optional;
+import java.util.UUID;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.despescar.flightservice.entity.Airport;
+
+public interface AirportRepository extends JpaRepository<Airport, UUID> {
+
+    Optional<Airport> findByCode(String code);
+
+    List<Airport> findByCountry(String country);
+
+    List<Airport> findByCity(String city);
 
 }
