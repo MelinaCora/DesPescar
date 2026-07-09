@@ -7,7 +7,6 @@ import com.despescar.flightservice.repository.AirportRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import com.despescar.flightservice.entity.Airport;
-import com.despescar.flightservice.mapper.AirportMapper;
 
 import java.util.List;
 import java.util.UUID;
