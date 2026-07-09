@@ -1,7 +1,7 @@
 package com.despescar.flightservice.mapper;
 
 import org.springframework.stereotype.Component;
-import com.despescar.flightservce.dto..airlines.request.AirlineRequest;
+import com.despescar.flightservce.dto.airlines.request.AirlineRequest;
 import com.despescar.fligthservice.dto.airlines.response.AirlineResponse;
 import com.despescar.flightservice.entity.Airline;
 
