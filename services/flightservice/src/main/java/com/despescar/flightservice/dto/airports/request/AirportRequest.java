@@ -1,4 +1,4 @@
-package com.despescar.flightservice.dto.airports.request.;
+package com.despescar.flightservice.dto.airports.request;
 
 import lombok.Data;
 
