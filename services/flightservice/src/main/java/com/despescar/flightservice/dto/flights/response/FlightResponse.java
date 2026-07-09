@@ -4,6 +4,8 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
+import com.despescar.flightservice.dto.airlines.response.AirlineResponse;
+import com.despescar.flightservice.dto.airports.response.AirportResponse;
 import com.despescar.flightservice.enums.FlightStatus;
 
 import lombok.Builder;
@@ -17,11 +19,11 @@ public class FlightResponse {
 
     private String flightNumber;
 
-    private String airline;
+    private AirlineResponse airline;
 
-    private String originAirport;
+    private AirportResponse originAirport;
 
-    private String destinationAirport;
+    private AirportResponse destinationAirport;
 
     private LocalDateTime departureTime;
 
