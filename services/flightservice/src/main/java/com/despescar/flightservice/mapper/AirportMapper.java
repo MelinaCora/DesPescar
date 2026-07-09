@@ -25,7 +25,7 @@ public class AirportMapper {
     /**
      * Convierte una entidad Airport a AirportResponse.
      */
-    public AirportResponse toResponse(Airport airport) {
+    public static AirportResponse toResponse(Airport airport) {
         return AirportResponse.builder()
                 .id(airport.getId())
                 .name(airport.getName())

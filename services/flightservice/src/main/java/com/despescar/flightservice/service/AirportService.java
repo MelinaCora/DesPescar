@@ -7,7 +7,7 @@ import com.despescar.flightservice.repository.AirportRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import com.despescar.flightservice.entity.Airport;
-import com.despescar.flightservice.service.AirportService;
+import com.despescar.flightservice.mapper.AirportMapper;
 
 import java.util.List;
 import java.util.UUID;
@@ -18,63 +18,78 @@ import java.util.stream.Collectors;
 public class AirportService {
 
     private final AirportRepository airportRepository;
-    private final AirportMapper airportMapper;
 
     public AirportResponse createAirport(AirportRequest request) {
 
         if (airportRepository.findByCode(request.getCode()).isPresent()) {
-            throw new RuntimeException("Airport code already exist.");
+            throw new RuntimeException("Airport code already exists.");
         }
+
         Airport airport = AirportMapper.toEntity(request);
+
         airportRepository.save(airport);
 
-        return airportMapper.toResponse(airport);
+        return AirportMapper.toResponse(airport);
     }
 
     public AirportResponse getAirportById(UUID id) {
-        Airport airport = airportRepository.findById(id).orElseThrow(() -> new RuntimeException("Airport not found."));
-        return
-                airportMapper.toResponse(airport);
+
+        Airport airport = airportRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Airport not found."));
+
+        return AirportMapper.toResponse(airport);
     }
 
     public List<AirportResponse> getAllAirports() {
+
         return airportRepository.findAll()
                 .stream()
-                .map(airportMapper::toResponse)
+                .map(AirportMapper::toResponse)
                 .collect(Collectors.toList());
     }
 
     public List<AirportResponse> getAirportsByCountry(String country) {
+
         return airportRepository.findByCountry(country)
                 .stream()
-                .map(airportMapper::toResponse)
+                .map(AirportMapper::toResponse)
                 .collect(Collectors.toList());
     }
 
     public List<AirportResponse> getAirportsByCity(String city) {
+
         return airportRepository.findByCity(city)
                 .stream()
-                .map(airportMapper::toResponse)
+                .map(AirportMapper::toResponse)
                 .collect(Collectors.toList());
     }
 
     public AirportResponse getAirportByCode(String code) {
-        Airport airport = airportRepository.findByCode(code).orElseThrow(() -> new RuntimeException("Airport not found"));
-        return
-                airportMapper.toResponse(airport);
+
+        Airport airport = airportRepository.findByCode(code)
+                .orElseThrow(() -> new RuntimeException("Airport not found."));
+
+        return AirportMapper.toResponse(airport);
     }
 
     public AirportResponse updateAirport(UUID id, AirportRequest request) {
-        Airport airport = airportRepository.findById(id).orElseThrow(() -> new RuntimeException("Airport not found"));
+
+        Airport airport = airportRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Airport not found."));
+
         AirportMapper.updateEntity(airport, request);
+
         airportRepository.save(airport);
 
-        return airportMapper.toResponse(airport);
+        return AirportMapper.toResponse(airport);
     }
 
     public void deleteAirport(UUID id) {
-        Airport airport = airportRepository.findById(id).orElseThrow(() -> new RuntimeException("Airport not found."));
+
+        Airport airport = airportRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Airport not found."));
+
         airportRepository.delete(airport);
     }
-}// Implementar
+}
 
