@@ -2,6 +2,7 @@ package com.despescar.flightservice.dto.airports.request;
 
 import lombok.Data;
 
+@Data
 public class AirportRequest {
 
     private String name;
