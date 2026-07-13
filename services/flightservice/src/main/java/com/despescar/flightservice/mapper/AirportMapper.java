@@ -3,7 +3,9 @@ package com.despescar.flightservice.mapper;
 import com.despescar.flightservice.dto.airports.request.AirportRequest;
 import com.despescar.flightservice.dto.airports.response.AirportResponse;
 import com.despescar.flightservice.entity.Airport;
+import org.springframework.stereotype.Component;
 
+@Component
 public class AirportMapper {
 
     private AirportMapper() {
