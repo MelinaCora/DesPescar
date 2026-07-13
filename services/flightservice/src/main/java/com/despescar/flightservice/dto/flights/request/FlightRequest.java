@@ -24,7 +24,7 @@ public class FlightRequest {
 
     private BigDecimal price;
 
-    private Integer avaibleSeates;
+    private Integer availableSeats;
 
 
 }
