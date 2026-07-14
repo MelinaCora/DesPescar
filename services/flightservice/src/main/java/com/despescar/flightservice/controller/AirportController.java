@@ -96,7 +96,7 @@ public class AirportController {
     @PutMapping("/{id}")
     public ResponseEntity<AirportResponse> updateAirport(
             @PathVariable UUID id,
-            @RequestBody AirportRequest request) {
+            @Valid @RequestBody AirportRequest request) {
 
         return ResponseEntity.ok(
                 airportService.updateAirport(id, request)
