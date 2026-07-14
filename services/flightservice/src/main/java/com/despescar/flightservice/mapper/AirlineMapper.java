@@ -20,7 +20,7 @@ public class AirlineMapper {
                 .build();
     }
 
-    public AirlineResponse toResponse(Airline airline){
+    public static AirlineResponse toResponse(Airline airline){
         if (airline == null) {
             return null;
         }
