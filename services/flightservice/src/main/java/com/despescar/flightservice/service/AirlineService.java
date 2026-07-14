@@ -19,45 +19,85 @@ import java.util.stream.Collectors;
 public class AirlineService {
 
     private final AirlineRepository airlineRepository;
-    private final AirlineMapper airlineMapper; // Inyectamos el mapper como corresponde
 
-    public AirlineResponse createAirline(AirlineRequest request){
-        if (airlineRepository.findByCode(request.getCode()).isPresent()){
+    /**
+     * Crea una nueva aerolínea.
+     */
+    public AirlineResponse createAirline(AirlineRequest request) {
+
+        if (airlineRepository.findByCode(request.getCode()).isPresent()) {
             throw new AirlineAlreadyExistsException();
         }
-        Airline airline = airlineMapper.toEntity(request);
+
+        Airline airline = AirlineMapper.toEntity(request);
+
         airlineRepository.save(airline);
-        return airlineMapper.toResponse(airline);
+
+        return AirlineMapper.toResponse(airline);
     }
 
+    /**
+     * Obtiene una aerolínea por su ID.
+     */
     public AirlineResponse getAirlineById(UUID id) {
-        Airline airline = airlineRepository.findById(id).orElseThrow(AirlineNotFoundException::new);
-        return airlineMapper.toResponse(airline);
+
+        Airline airline = airlineRepository.findById(id)
+                .orElseThrow(AirlineNotFoundException::new);
+
+        return AirlineMapper.toResponse(airline);
     }
 
-    public List<AirlineResponse> getAllAirlines(){
-        return airlineRepository.findAll().stream()
-                .map(airlineMapper::toResponse)
+    /**
+     * Obtiene todas las aerolíneas.
+     */
+    public List<AirlineResponse> getAllAirlines() {
+
+        return airlineRepository.findAll()
+                .stream()
+                .map(AirlineMapper::toResponse)
                 .collect(Collectors.toList());
     }
 
-    public AirlineResponse getAirlineByCode(String code){
-        Airline airline = airlineRepository.findByCode(code).orElseThrow(AirlineNotFoundException::new);
-        return airlineMapper.toResponse(airline);
+    /**
+     * Obtiene una aerolínea por su código.
+     */
+    public AirlineResponse getAirlineByCode(String code) {
+
+        Airline airline = airlineRepository.findByCode(code)
+                .orElseThrow(AirlineNotFoundException::new);
+
+        return AirlineMapper.toResponse(airline);
     }
 
+    /**
+     * Actualiza una aerolínea.
+     */
     public AirlineResponse updateAirline(UUID id, AirlineRequest request) {
-        Airline airline = airlineRepository.findById(id).orElseThrow(AirlineNotFoundException::new);
 
-        // CORREGIDO: Ahora sí existe updateEntity en el mapper y se llama mediante la instancia
-        airlineMapper.updateEntity(airline, request);
+        Airline airline = airlineRepository.findById(id)
+                .orElseThrow(AirlineNotFoundException::new);
+
+        airlineRepository.findByCode(request.getCode())
+                .filter(a -> !a.getId().equals(id))
+                .ifPresent(a -> {
+                    throw new AirlineAlreadyExistsException();
+                });
+
+        AirlineMapper.updateEntity(airline, request);
 
         airlineRepository.save(airline);
-        return airlineMapper.toResponse(airline);
+
+        return AirlineMapper.toResponse(airline);
     }
 
+    /**
+     * Elimina una aerolínea.
+     */
     public void deleteAirline(UUID id) {
-        Airline airline = airlineRepository.findById(id).orElseThrow(AirlineNotFoundException::new);
+
+        Airline airline = airlineRepository.findById(id)
+                .orElseThrow(AirlineNotFoundException::new);
+
         airlineRepository.delete(airline);
     }
 }

@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 @Component // Habilita a Spring para que pueda inyectar este mapper en los servicios
 public class AirlineMapper {
 
-    public Airline toEntity(AirlineRequest request) {
+    public static Airline toEntity(AirlineRequest request) {
         if (request == null) {
             return null;
         }
@@ -34,7 +34,7 @@ public class AirlineMapper {
     }
 
     // ¡ESTE ERA EL MÉTODO QUE TE FALTABA CREAR!
-    public void updateEntity(Airline airline, AirlineRequest request) {
+    public static void updateEntity(Airline airline, AirlineRequest request) {
         if (airline == null || request == null) {
             return;
         }
