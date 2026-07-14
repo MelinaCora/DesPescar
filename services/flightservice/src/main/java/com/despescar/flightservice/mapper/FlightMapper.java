@@ -27,6 +27,7 @@ public class FlightMapper {
                 .arrivalTime(request.getArrivalTime())
                 .price(request.getPrice())
                 .availableSeats(request.getAvailableSeats())
+                .status(request.getStatus())
                 .build();
     }
 
