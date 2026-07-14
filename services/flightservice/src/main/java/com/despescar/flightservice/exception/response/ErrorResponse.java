@@ -17,7 +17,7 @@ public class ErrorResponse {
 
     private String error;
 
-    private String message;
+    private Object message;
 
     private String path;
 
