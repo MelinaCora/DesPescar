@@ -37,7 +37,9 @@ public class FlightController {
      */
     @GetMapping
     public ResponseEntity<List<FlightResponse>> getAllFlights() {
-
+       // List<FlightResponse> flights = flightService.getAllFlights();
+        // 200 OK: la petición se procesó correctamente.
+       // return new ResponseEntity<>(flights, HttpStatus.OK);
         return ResponseEntity.ok(
                 flightService.getAllFlights()
         );
