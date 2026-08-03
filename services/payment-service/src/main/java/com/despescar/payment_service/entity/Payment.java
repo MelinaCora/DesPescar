@@ -1,6 +1,7 @@
 package com.despescar.payment_service.entity;
 
 import com.despescar.payment_service.enums.PaymentMethod;
+import com.despescar.payment_service.enums.PaymentProvider;
 import com.despescar.payment_service.enums.PaymentStatus;
 import jakarta.persistence.*;
 import lombok.*;
@@ -28,6 +29,8 @@ public class Payment {
     @Column(nullable = false)
     private UUID userId;
 
+    private UUID passengerId;
+
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal amount;
 
@@ -46,5 +49,9 @@ public class Payment {
 
     @Column(length = 3)
     private String currency;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private PaymentProvider provider;
 
 }
