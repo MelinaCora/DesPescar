@@ -23,3 +23,4 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     List<PaymentHistory> findByPaymentIdOrderByChangedAtAsc(UUID paymentId);
 
 }
+
