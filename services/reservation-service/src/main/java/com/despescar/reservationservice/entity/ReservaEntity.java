@@ -1,5 +1,6 @@
 package com.despescar.reservationservice.entity;
 
+import com.despescar.reservationservice.enums.EstadoReserva;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -28,8 +29,9 @@ public class ReservaEntity {
     @Column(name = "vuelo_codigo", nullable = false, length = 20)
     private String vueloCodigo;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "estado_reserva", nullable = false)
-    private String estado;
+    private EstadoReserva estado;
 
     @Column(name = "limite_tiempo", nullable = false)
     private LocalDateTime limiteTiempo;

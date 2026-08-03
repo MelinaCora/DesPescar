@@ -37,7 +37,7 @@ public class BookingController {
     }
 
     @PatchMapping("/{id}/pasajero")
-    public ResponseEntity<Void> cargarDocumentacio(
+    public ResponseEntity<Void> cargarDocumentacion(
             @PathVariable Long id,
             @RequestBody CargarPasajeroDTO dto) {
         bookingService.cargarDocumentacion(id, dto);

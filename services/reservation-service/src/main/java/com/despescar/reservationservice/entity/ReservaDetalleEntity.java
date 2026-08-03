@@ -1,5 +1,6 @@
 package com.despescar.reservationservice.entity;
 
+import com.despescar.reservationservice.enums.EstadoPagoReserva;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -34,8 +35,9 @@ public class ReservaDetalleEntity {
     @Column(name = "precio_asiento", nullable = false)
     private Double precio;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "estado_pago", nullable = false)
-    private String estadoPago;
+    private EstadoPagoReserva estadoPago;
 
     @Column(name = "nombre_pasajero", nullable = true, length = 100)
     private String nombrePasajero;

@@ -2,6 +2,7 @@ package com.despescar.reservationservice.service;
 
 import com.despescar.reservationservice.dto.ReservaResponseDTO;
 import com.despescar.reservationservice.entity.ReservaEntity;
+import com.despescar.reservationservice.enums.EstadoReserva;
 import com.despescar.reservationservice.repository.BookingRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,13 +26,13 @@ public class BookingScheduler {
     @Scheduled(fixedRate = 1000)
     @Transactional
     public void verificarCarritosExpirados() {
-        List<ReservaEntity> reservasPendientes = bookingRepository.findByEstado("PENDIENTE");
+        List<ReservaEntity> reservasPendientes = bookingRepository.findByEstado(EstadoReserva.PENDIENTE);
         LocalDateTime ahora = LocalDateTime.now();
 
         for (ReservaEntity reserva :  reservasPendientes) {
 
             if(ahora.isAfter(reserva.getLimiteTiempo())) {
-                reserva.setEstado("EXPIRADA");
+                reserva.setEstado(EstadoReserva.EXPIRADA);
                 bookingRepository.save(reserva);
 
                 log.warn("Cron Job: El carrito ID {} ha expirado tras 15 minutos. Liberando inventario.", reserva.getId());

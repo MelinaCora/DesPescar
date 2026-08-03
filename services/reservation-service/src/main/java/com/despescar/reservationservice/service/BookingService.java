@@ -3,6 +3,8 @@ package com.despescar.reservationservice.service;
 import com.despescar.reservationservice.dto.*;
 import com.despescar.reservationservice.entity.ReservaDetalleEntity;
 import com.despescar.reservationservice.entity.ReservaEntity;
+import com.despescar.reservationservice.enums.EstadoPagoReserva;
+import com.despescar.reservationservice.enums.EstadoReserva;
 import com.despescar.reservationservice.exception.BookingException; // Tu clase de excepciones
 import com.despescar.reservationservice.repository.BookingDetailRepository;
 import com.despescar.reservationservice.repository.BookingRepository;
@@ -32,7 +34,7 @@ public class BookingService {
     @Transactional
     public ReservaResponseDTO crearReserva(CrearReservaDTO dto) {
 
-        List<ReservaEntity> reservasActivasDelCreador = bookingRepository.findByEstado("PENDIENTE");
+        List<ReservaEntity> reservasActivasDelCreador = bookingRepository.findByEstado(EstadoReserva.PENDIENTE);
         boolean yaTieneCarritoActivo = reservasActivasDelCreador.stream()
                 .anyMatch(r -> r.getCreadorId().equals(dto.getCreadorId()));
 
@@ -53,7 +55,7 @@ public class BookingService {
         }
 
         for(CrearReservaDTO.AsientoSeleccionadoDTO asientoDto : dto.getAsientos()) {
-            boolean asientoYaReservado = bookingRepository.findByEstado("PENDIENTE").stream()
+            boolean asientoYaReservado = bookingRepository.findByEstado(EstadoReserva.PENDIENTE).stream()
                     .filter(r -> r.getVueloCodigo().equals(dto.getVueloCodigo()))
                     .flatMap(r -> r.getDetalles().stream())
                     .anyMatch(d -> d.getNumeroAsiento().equals(asientoDto.getNumeroAsiento()));
@@ -70,7 +72,7 @@ public class BookingService {
         ReservaEntity reserva = ReservaEntity.builder()
                 .creadorId(dto.getCreadorId())
                 .vueloCodigo(dto.getVueloCodigo())
-                .estado("PENDIENTE")
+                .estado(EstadoReserva.PENDIENTE)
                 .limiteTiempo(limiteTiempo)
                 .build();
 
@@ -88,7 +90,7 @@ public class BookingService {
                     .pagadorId(asientoDto.getPagadorId())
                     .numeroAsiento(asientoDto.getNumeroAsiento())
                     .precio(precioSimulado)
-                    .estadoPago("PENDIENTE")
+                    .estadoPago(EstadoPagoReserva.PENDIENTE)
                     .nombrePasajero(null)
                     .dniPasaporte(null)
                     .build();
@@ -114,7 +116,7 @@ public class BookingService {
         ReservaEntity reserva = bookingRepository.findById(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
 
-        if(!"PENDIENTE".equals(reserva.getEstado())) {
+        if(!EstadoReserva.PENDIENTE.equals(reserva.getEstado())) {
             throw new BookingException("MODIFICACION_PROHIBIDA",
                     "No se puede modificar la documentación porque esta reserva ya está " +  reserva.getEstado(),
                     HttpStatus.BAD_REQUEST);
@@ -139,9 +141,14 @@ public class BookingService {
         ReservaEntity reserva = bookingRepository.findById(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
 
+        if(!EstadoReserva.PENDIENTE.equals(reserva.getEstado())) {
+            throw new BookingException("MODIFICACION_PROHIBIDA",
+                    "No se puede realizar el pago, ya que esta reserva está " + reserva.getEstado(), HttpStatus.BAD_REQUEST);
+        }
+
         validarExpiracion(reserva);
 
-        List<ReservaDetalleEntity> asientosAPagar = detailRepository.findByReservaIdAndPagadorIdAndEstadoPago(id, dto.getPagadorId(), "PENDIENTE");
+        List<ReservaDetalleEntity> asientosAPagar = detailRepository.findByReservaIdAndPagadorIdAndEstadoPago(id, dto.getPagadorId(), EstadoPagoReserva.PENDIENTE);
         if(asientosAPagar.isEmpty()) {
             throw new BookingException("SIN_DEUDAS", "No tienes pagos pendientes en este carrito.", HttpStatus.BAD_REQUEST);
         }
@@ -159,16 +166,16 @@ public class BookingService {
             throw new BookingException("PAGO_RECHAZADO", "La tarjeta no tiene fondos o fue rechazada.", HttpStatus.PAYMENT_REQUIRED);
         }
 
-        asientosAPagar.forEach(asiento -> asiento.setEstadoPago("PAGADO"));
+        asientosAPagar.forEach(asiento -> asiento.setEstadoPago(EstadoPagoReserva.PAGADO));
         detailRepository.saveAll(asientosAPagar);
 
-        long pendientesTotales = detailRepository.countByReservaIdAndEstadoPago(id, "PENDIENTE");
+        long pendientesTotales = detailRepository.countByReservaIdAndEstadoPago(id, EstadoPagoReserva.PENDIENTE);
         if(pendientesTotales == 0) {
-            reserva.setEstado("COMPLETADA");
+            reserva.setEstado(EstadoReserva.COMPLETADA);
             bookingRepository.save(reserva);
 
             notificarCambioEnTiempoReal(reserva);
-            return "Reseva Completada! Todos los pagos listos, boletos emitidos.";
+            return "Reserva Completada! Todos los pagos listos, boletos emitidos.";
         }
 
         notificarCambioEnTiempoReal(reserva);
@@ -181,15 +188,26 @@ public class BookingService {
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
 
         if(!reserva.getCreadorId().equals(usuarioId)) {
-            throw new BookingException("ACCESO_DENEGADO", "Solo el creado del grupo puede cancelar este carrito.", HttpStatus.FORBIDDEN);
+            throw new BookingException("ACCESO_DENEGADO", "Solo el creador del grupo puede cancelar este carrito.", HttpStatus.FORBIDDEN);
         }
 
-        if(!"PENDIENTE".equals(reserva.getEstado())) {
+        if(!EstadoReserva.PENDIENTE.equals(reserva.getEstado())) {
             throw new BookingException("ESTADO_INVALIDO", "Esta reserva ya no se puede cancelar porque está " + reserva.getEstado(), HttpStatus.BAD_REQUEST);
         }
 
-        reserva.setEstado("EXPIRADA");
+        reserva.setEstado(EstadoReserva.CANCELADA);
         bookingRepository.save(reserva);
+
+        List<ReservaDetalleEntity> todosLosAsientos = detailRepository.findByReservaId(reserva.getId());
+        for(ReservaDetalleEntity asiento: todosLosAsientos) {
+            if(EstadoPagoReserva.PAGADO.equals(asiento.getEstadoPago())) {
+                asiento.setEstadoPago(EstadoPagoReserva.REEMBOLSADO);
+            } else if(EstadoPagoReserva.PENDIENTE.equals(asiento.getEstadoPago())) {
+                asiento.setEstadoPago(EstadoPagoReserva.CANCELADO);
+            }
+        }
+
+        detailRepository.saveAll(todosLosAsientos);
 
         log.info("El creador ID {} ha cancelado manualmente el carrito ID {}. Asientos liberados.", usuarioId, id);
 
@@ -197,9 +215,22 @@ public class BookingService {
     }
 
     private void validarExpiracion(ReservaEntity reserva) {
-        if(LocalDateTime.now().isAfter(reserva.getLimiteTiempo()) && "PENDIENTE".equals(reserva.getEstado())) {
-            reserva.setEstado("EXPIRADA");
+        if(LocalDateTime.now().isAfter(reserva.getLimiteTiempo()) && EstadoReserva.PENDIENTE.equals(reserva.getEstado())) {
+            reserva.setEstado(EstadoReserva.EXPIRADA);
+
             bookingRepository.save(reserva);
+
+            List<ReservaDetalleEntity> todosLosAsientos = detailRepository.findByReservaId(reserva.getId());
+            for(ReservaDetalleEntity asiento: todosLosAsientos) {
+                if(EstadoPagoReserva.PAGADO.equals(asiento.getEstadoPago())) {
+                    asiento.setEstadoPago(EstadoPagoReserva.REEMBOLSADO);
+                } else if(EstadoPagoReserva.PENDIENTE.equals(asiento.getEstadoPago())) {
+                    asiento.setEstadoPago(EstadoPagoReserva.CANCELADO);
+                }
+            }
+
+            detailRepository.saveAll(todosLosAsientos);
+
             throw new BookingException("CARRITO_EXPIRADO", "El tiempo límite de 15 minutos se termino.", HttpStatus.GONE);
         }
     }
