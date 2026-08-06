@@ -1,5 +1,6 @@
 package com.despescar.reservationservice.dto.reservation.response;
 
+import com.despescar.reservationservice.dto.extraBaggage.response.ExtraBaggageResponse;
 import com.despescar.reservationservice.enums.ReservationPaymentState;
 import com.despescar.reservationservice.enums.ReservationState;
 import lombok.AllArgsConstructor;
@@ -32,5 +33,7 @@ public class ReservationResponse {
         private String nombrePasajero;
         private String dniPasaporte;
     }
+
+    private List<ExtraBaggageResponse> equipajes;
 
 }

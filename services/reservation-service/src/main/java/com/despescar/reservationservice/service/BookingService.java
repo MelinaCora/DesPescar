@@ -1,6 +1,6 @@
 package com.despescar.reservationservice.service;
 
-import com.despescar.reservationservice.dto.*;
+import com.despescar.reservationservice.dto.passengers.request.PessengerRequest;
 import com.despescar.reservationservice.dto.reservation.request.CreateReservationRequest;
 import com.despescar.reservationservice.dto.reservation.request.ProcessPaymentRequest;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
@@ -36,40 +36,77 @@ public class BookingService {
     @Transactional
     public ReservationResponse crearReserva(CreateReservationRequest dto) {
 
-        List<Reservation> reservasActivasDelCreador = bookingRepository.findByEstado(ReservationState.PENDIENTE);
+
+        if (dto.getAsientos() == null || dto.getAsientos().isEmpty()) {
+            throw new BookingException(
+                    "SIN_ASIENTOS",
+                    "Debe seleccionar al menos un asiento para crear la reserva.",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
+
+        List<Reservation> reservasActivasDelCreador =
+                bookingRepository.findByEstado(ReservationState.PENDIENTE);
+
+
         boolean yaTieneCarritoActivo = reservasActivasDelCreador.stream()
                 .anyMatch(r -> r.getCreadorId().equals(dto.getCreadorId()));
 
-        if(yaTieneCarritoActivo) {
-            throw new BookingException("CARRITO_DUPLICADO",
+
+        if (yaTieneCarritoActivo) {
+            throw new BookingException(
+                    "CARRITO_DUPLICADO",
                     "Ya tienes un carrito compartido activo. Espera a que expire o completa el pago.",
-                    HttpStatus.BAD_REQUEST);
+                    HttpStatus.BAD_REQUEST
+            );
         }
+
 
         long asientosUnicosEnPeticion = dto.getAsientos().stream()
                 .map(CreateReservationRequest.AsientoSeleccionadoDTO::getNumeroAsiento)
                 .distinct()
                 .count();
 
-        if(asientosUnicosEnPeticion < dto.getAsientos().size()) {
-            throw new BookingException("PETICION_INVALIDA",
-                    "No puedes solicitar el mismo asiento más de una vez en la misma reserva.", HttpStatus.BAD_REQUEST);
+
+        if (asientosUnicosEnPeticion < dto.getAsientos().size()) {
+            throw new BookingException(
+                    "PETICION_INVALIDA",
+                    "No puedes solicitar el mismo asiento más de una vez en la misma reserva.",
+                    HttpStatus.BAD_REQUEST
+            );
         }
 
-        for(CreateReservationRequest.AsientoSeleccionadoDTO asientoDto : dto.getAsientos()) {
-            boolean asientoYaReservado = bookingRepository.findByEstado(ReservationState.PENDIENTE).stream()
-                    .filter(r -> r.getVueloCodigo().equals(dto.getVueloCodigo()))
-                    .flatMap(r -> r.getDetalles().stream())
-                    .anyMatch(d -> d.getNumeroAsiento().equals(asientoDto.getNumeroAsiento()));
+
+        for (CreateReservationRequest.AsientoSeleccionadoDTO asientoDto : dto.getAsientos()) {
+
+
+            boolean asientoYaReservado =
+                    bookingRepository.findByEstado(ReservationState.PENDIENTE)
+                            .stream()
+                            .filter(r -> r.getVueloCodigo().equals(dto.getVueloCodigo()))
+                            .flatMap(r -> r.getDetalles().stream())
+                            .anyMatch(d ->
+                                    d.getNumeroAsiento()
+                                            .equals(asientoDto.getNumeroAsiento())
+                            );
+
 
             if (asientoYaReservado) {
-                throw new BookingException("ASIENTO_OCUPADO",
-                        "El asiento " + asientoDto.getNumeroAsiento() + " ya está reservado temporalmente por otro grupo.",
-                        HttpStatus.CONFLICT);
+
+                throw new BookingException(
+                        "ASIENTO_OCUPADO",
+                        "El asiento " + asientoDto.getNumeroAsiento()
+                                + " ya está reservado temporalmente por otro grupo.",
+                        HttpStatus.CONFLICT
+                );
             }
         }
 
-        LocalDateTime limiteTiempo = LocalDateTime.now().plusMinutes(15);
+
+        LocalDateTime limiteTiempo =
+                LocalDateTime.now().plusMinutes(15);
+
 
         Reservation reserva = Reservation.builder()
                 .creadorId(dto.getCreadorId())
@@ -78,43 +115,61 @@ public class BookingService {
                 .limiteTiempo(limiteTiempo)
                 .build();
 
+
         reserva = bookingRepository.save(reserva);
+
 
         List<ReservationDetail> detalles = new ArrayList<>();
 
+
         for (CreateReservationRequest.AsientoSeleccionadoDTO asientoDto : dto.getAsientos()) {
 
-            Double precioSimulado = 150.00;
 
-            ReservationDetail detalle = ReservationDetail.builder()
-                    .reserva(reserva)
-                    .usuarioId(asientoDto.getUsuarioId())
-                    .pagadorId(asientoDto.getPagadorId())
-                    .numeroAsiento(asientoDto.getNumeroAsiento())
-                    .precio(precioSimulado)
-                    .estadoPago(ReservationPaymentState.PENDIENTE)
-                    .nombrePasajero(null)
-                    .dniPasaporte(null)
-                    .build();
+            Double precioAsiento = 150.00;
+
+
+            ReservationDetail detalle =
+                    ReservationDetail.builder()
+                            .reserva(reserva)
+                            .usuarioId(asientoDto.getUsuarioId())
+                            .pagadorId(asientoDto.getPagadorId())
+                            .numeroAsiento(asientoDto.getNumeroAsiento())
+                            .precio(precioAsiento)
+                            .estadoPago(ReservationPaymentState.PENDIENTE)
+                            .nombrePasajero(asientoDto.getNombrePasajero())
+                            .dniPasaporte(asientoDto.getDniPasaporte())
+                            .equipajes(new ArrayList<>())
+                            .build();
+
 
             detalles.add(detailRepository.save(detalle));
         }
 
+
         reserva.setDetalles(detalles);
+
+
         return mapearAResponseDTO(reserva);
     }
 
     public ReservationResponse obtenerReserva(Long id) {
+
         Reservation reserva = bookingRepository.findById(id)
-                .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
+                .orElseThrow(() -> new BookingException(
+                        "RESERVA_NO_ENCONTRADA",
+                        "La reserva no existe.",
+                        HttpStatus.NOT_FOUND
+                ));
+
 
         validarExpiracion(reserva);
+
 
         return mapearAResponseDTO(reserva);
     }
 
     @Transactional
-    public void cargarDocumentacion(Long id, CargarPasajeroDTO dto) {
+    public void cargarDocumentacion(Long id, PessengerRequest dto) {
         Reservation reserva = bookingRepository.findById(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
 
@@ -217,23 +272,45 @@ public class BookingService {
     }
 
     private void validarExpiracion(Reservation reserva) {
-        if(LocalDateTime.now().isAfter(reserva.getLimiteTiempo()) && ReservationState.PENDIENTE.equals(reserva.getEstado())) {
+
+
+        if (LocalDateTime.now().isAfter(reserva.getLimiteTiempo())
+                && ReservationState.PENDIENTE.equals(reserva.getEstado())) {
+
+
             reserva.setEstado(ReservationState.EXPIRADA);
+
+
+            reserva.getDetalles().forEach(detalle -> {
+
+
+                if (ReservationPaymentState.PAGADO
+                        .equals(detalle.getEstadoPago())) {
+
+
+                    detalle.setEstadoPago(
+                            ReservationPaymentState.REEMBOLSADO
+                    );
+
+
+                } else {
+
+
+                    detalle.setEstadoPago(
+                            ReservationPaymentState.CANCELADO
+                    );
+                }
+            });
+
 
             bookingRepository.save(reserva);
 
-            List<ReservationDetail> todosLosAsientos = detailRepository.findByReservaId(reserva.getId());
-            for(ReservationDetail asiento: todosLosAsientos) {
-                if(ReservationPaymentState.PAGADO.equals(asiento.getEstadoPago())) {
-                    asiento.setEstadoPago(ReservationPaymentState.REEMBOLSADO);
-                } else if(ReservationPaymentState.PENDIENTE.equals(asiento.getEstadoPago())) {
-                    asiento.setEstadoPago(ReservationPaymentState.CANCELADO);
-                }
-            }
 
-            detailRepository.saveAll(todosLosAsientos);
-
-            throw new BookingException("CARRITO_EXPIRADO", "El tiempo límite de 15 minutos se termino.", HttpStatus.GONE);
+            throw new BookingException(
+                    "CARRITO_EXPIRADO",
+                    "El tiempo límite de 15 minutos se terminó.",
+                    HttpStatus.GONE
+            );
         }
     }
 

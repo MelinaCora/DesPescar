@@ -2,6 +2,7 @@ package com.despescar.reservationservice.service;
 
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
 import com.despescar.reservationservice.entity.Reservation;
+import com.despescar.reservationservice.enums.ReservationPaymentState;
 import com.despescar.reservationservice.enums.ReservationState;
 import com.despescar.reservationservice.repository.BookingRepository;
 import lombok.RequiredArgsConstructor;
@@ -20,41 +21,93 @@ import java.util.stream.Collectors;
 @Slf4j
 public class BookingScheduler {
 
+
     private final BookingRepository bookingRepository;
     private final SimpMessagingTemplate messagingTemplate;
 
-    @Scheduled(fixedRate = 1000)
+
+    @Scheduled(fixedRate = 60000)
     @Transactional
     public void verificarCarritosExpirados() {
-        List<Reservation> reservasPendientes = bookingRepository.findByEstado(ReservationState.PENDIENTE);
+
+
+        List<Reservation> reservasPendientes =
+                bookingRepository.findByEstado(ReservationState.PENDIENTE);
+
+
         LocalDateTime ahora = LocalDateTime.now();
 
-        for (Reservation reserva :  reservasPendientes) {
 
-            if(ahora.isAfter(reserva.getLimiteTiempo())) {
+        for (Reservation reserva : reservasPendientes) {
+
+
+            if (ahora.isAfter(reserva.getLimiteTiempo())) {
+
+
                 reserva.setEstado(ReservationState.EXPIRADA);
+
+
+                reserva.getDetalles().forEach(detalle -> {
+
+                    if (ReservationPaymentState.PAGADO
+                            .equals(detalle.getEstadoPago())) {
+
+                        detalle.setEstadoPago(
+                                ReservationPaymentState.REEMBOLSADO
+                        );
+
+                    } else {
+
+                        detalle.setEstadoPago(
+                                ReservationPaymentState.CANCELADO
+                        );
+                    }
+                });
+
+
                 bookingRepository.save(reserva);
 
-                log.warn("Cron Job: El carrito ID {} ha expirado tras 15 minutos. Liberando inventario.", reserva.getId());
 
-                ReservationResponse responseExpirada = mapearAResponseDTO(reserva);
-                messagingTemplate.convertAndSend("/topic/reserva/" + reserva.getId(), responseExpirada);
+                log.warn(
+                        "Cron Job: El carrito ID {} expiró. Liberando inventario.",
+                        reserva.getId()
+                );
+
+
+                ReservationResponse responseExpirada =
+                        mapearAResponseDTO(reserva);
+
+
+                messagingTemplate.convertAndSend(
+                        "/topic/reserva/" + reserva.getId(),
+                        responseExpirada
+                );
             }
         }
     }
 
-    private ReservationResponse mapearAResponseDTO(Reservation reserva) {
-        List<ReservationResponse.AsientoDetalleDTO> asientosDto = reserva.getDetalles().stream()
-                .map(d -> ReservationResponse.AsientoDetalleDTO.builder()
-                        .numeroAsiento(d.getNumeroAsiento())
-                        .usuarioId(d.getUsuarioId())
-                                .pagadorId(d.getPagadorId())
-                                .precio(d.getPrecio())
-                                .estadoPago(d.getEstadoPago())
-                                .nombrePasajero(d.getNombrePasajero())
-                                .dniPasaporte(d.getDniPasaporte())
-                                .build())
+
+    private ReservationResponse mapearAResponseDTO(
+            Reservation reserva
+    ) {
+
+
+        List<ReservationResponse.AsientoDetalleDTO> asientosDto =
+                reserva.getDetalles()
+                        .stream()
+                        .map(d ->
+                                ReservationResponse.AsientoDetalleDTO.builder()
+                                        .numeroAsiento(d.getNumeroAsiento())
+                                        .usuarioId(d.getUsuarioId())
+                                        .pagadorId(d.getPagadorId())
+                                        .precio(d.getPrecio())
+                                        .estadoPago(d.getEstadoPago())
+                                        .nombrePasajero(d.getNombrePasajero())
+                                        .dniPasaporte(d.getDniPasaporte())
+                                        .build()
+                        )
                         .collect(Collectors.toList());
+
 
         return ReservationResponse.builder()
                 .idCarrito(reserva.getId())
@@ -64,5 +117,4 @@ public class BookingScheduler {
                 .asientos(asientosDto)
                 .build();
     }
-
 }

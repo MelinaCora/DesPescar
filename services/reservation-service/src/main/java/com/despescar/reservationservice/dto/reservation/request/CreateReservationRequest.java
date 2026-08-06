@@ -10,14 +10,24 @@ import java.util.List;
 public class CreateReservationRequest {
 
     private Long creadorId;
+
     private String vueloCodigo;
+
     private List<AsientoSeleccionadoDTO> asientos;
 
-    @Data
-    public static class AsientoSeleccionadoDTO {
-        private String numeroAsiento;
-        private Long usuarioId;
-        private Long pagadorId;
-    }
 
+    @Data
+    @NoArgsConstructor
+    public static class AsientoSeleccionadoDTO {
+
+        private String numeroAsiento;
+
+        private Long usuarioId;
+
+        private Long pagadorId;
+
+        private String nombrePasajero;
+
+        private String dniPasaporte;
+    }
 }

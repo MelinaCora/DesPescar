@@ -1,6 +1,6 @@
 package com.despescar.reservationservice.controller;
 
-import com.despescar.reservationservice.dto.*;
+import com.despescar.reservationservice.dto.passengers.request.PessengerRequest;
 import com.despescar.reservationservice.dto.reservation.request.CreateReservationRequest;
 import com.despescar.reservationservice.dto.reservation.request.ProcessPaymentRequest;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
@@ -41,7 +41,7 @@ public class BookingController {
     @PatchMapping("/{id}/pasajero")
     public ResponseEntity<Void> cargarDocumentacion(
             @PathVariable Long id,
-            @RequestBody CargarPasajeroDTO dto) {
+            @RequestBody PessengerRequest dto) {
         bookingService.cargarDocumentacion(id, dto);
         return ResponseEntity.ok().build();
     }
