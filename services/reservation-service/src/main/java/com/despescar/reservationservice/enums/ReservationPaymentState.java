@@ -1,6 +1,6 @@
 package com.despescar.reservationservice.enums;
 
-public enum EstadoPagoReserva {
+public enum ReservationPaymentState {
     PENDIENTE,
     PAGADO,
     CANCELADO,

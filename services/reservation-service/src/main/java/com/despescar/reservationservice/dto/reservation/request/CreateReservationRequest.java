@@ -1,4 +1,4 @@
-package com.despescar.reservationservice.dto;
+package com.despescar.reservationservice.dto.reservation.request;
 
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -7,7 +7,7 @@ import java.util.List;
 
 @Data
 @NoArgsConstructor
-public class CrearReservaDTO {
+public class CreateReservationRequest {
 
     private Long creadorId;
     private String vueloCodigo;

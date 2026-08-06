@@ -1,6 +1,6 @@
 package com.despescar.reservationservice.enums;
 
-public enum EstadoReserva {
+public enum ReservationState {
     PENDIENTE,
     COMPLETADA,
     EXPIRADA,

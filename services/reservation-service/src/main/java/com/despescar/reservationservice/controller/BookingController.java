@@ -1,9 +1,11 @@
 package com.despescar.reservationservice.controller;
 
 import com.despescar.reservationservice.dto.*;
+import com.despescar.reservationservice.dto.reservation.request.CreateReservationRequest;
+import com.despescar.reservationservice.dto.reservation.request.ProcessPaymentRequest;
+import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
 import com.despescar.reservationservice.service.BookingService;
 import lombok.RequiredArgsConstructor;
-import org.apache.catalina.connector.Response;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -16,14 +18,14 @@ public class BookingController {
     private final BookingService bookingService;
 
     @PostMapping
-    public ResponseEntity<ReservaResponseDTO> crearReserva(@RequestBody CrearReservaDTO dto) {
-        ReservaResponseDTO respuesta = bookingService.crearReserva(dto);
+    public ResponseEntity<ReservationResponse> crearReserva(@RequestBody CreateReservationRequest dto) {
+        ReservationResponse respuesta = bookingService.crearReserva(dto);
         return new ResponseEntity<>(respuesta, HttpStatus.CREATED);
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ReservaResponseDTO> obtenerReserva(@PathVariable Long id) {
-        ReservaResponseDTO respuesta = bookingService.obtenerReserva(id);
+    public ResponseEntity<ReservationResponse> obtenerReserva(@PathVariable Long id) {
+        ReservationResponse respuesta = bookingService.obtenerReserva(id);
         return ResponseEntity.ok(respuesta);
     }
 
@@ -47,7 +49,7 @@ public class BookingController {
     @PostMapping("/{id}/pagar")
     public ResponseEntity<String> procesarPago(
             @PathVariable Long id,
-            @RequestBody ProcesarPagoDTO dto) {
+            @RequestBody ProcessPaymentRequest dto) {
         String mensaje = bookingService.procesarPago(id, dto);
         return ResponseEntity.ok(mensaje);
     }

@@ -1,13 +1,12 @@
 package com.despescar.reservationservice.entity;
 
-import com.despescar.reservationservice.enums.EstadoReserva;
+import com.despescar.reservationservice.enums.ReservationState;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -17,7 +16,7 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ReservaEntity {
+public class Reservation {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -31,7 +30,7 @@ public class ReservaEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "estado_reserva", nullable = false)
-    private EstadoReserva estado;
+    private ReservationState estado;
 
     @Column(name = "limite_tiempo", nullable = false)
     private LocalDateTime limiteTiempo;
@@ -40,7 +39,7 @@ public class ReservaEntity {
     private LocalDateTime creadoEn;
 
     @OneToMany(mappedBy = "reserva", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private List<ReservaDetalleEntity> detalles;
+    private List<ReservationDetail> detalles;
 
 
 }

@@ -1,14 +1,14 @@
 package com.despescar.reservationservice.repository;
 
-import com.despescar.reservationservice.entity.ReservaEntity;
-import com.despescar.reservationservice.enums.EstadoReserva;
+import com.despescar.reservationservice.entity.Reservation;
+import com.despescar.reservationservice.enums.ReservationState;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 import java.util.List;
 
 @Repository
-public interface BookingRepository extends JpaRepository<ReservaEntity, Long>{
+public interface BookingRepository extends JpaRepository<Reservation, Long>{
 
-    List<ReservaEntity> findByEstado(EstadoReserva estado);
+    List<Reservation> findByEstado(ReservationState estado);
 
 }

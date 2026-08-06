@@ -1,14 +1,16 @@
 package com.despescar.reservationservice.service;
 
 import com.despescar.reservationservice.dto.*;
-import com.despescar.reservationservice.entity.ReservaDetalleEntity;
-import com.despescar.reservationservice.entity.ReservaEntity;
-import com.despescar.reservationservice.enums.EstadoPagoReserva;
-import com.despescar.reservationservice.enums.EstadoReserva;
+import com.despescar.reservationservice.dto.reservation.request.CreateReservationRequest;
+import com.despescar.reservationservice.dto.reservation.request.ProcessPaymentRequest;
+import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
+import com.despescar.reservationservice.entity.ReservationDetail;
+import com.despescar.reservationservice.entity.Reservation;
+import com.despescar.reservationservice.enums.ReservationPaymentState;
+import com.despescar.reservationservice.enums.ReservationState;
 import com.despescar.reservationservice.exception.BookingException; // Tu clase de excepciones
 import com.despescar.reservationservice.repository.BookingDetailRepository;
 import com.despescar.reservationservice.repository.BookingRepository;
-import com.sun.net.httpserver.HttpsServer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -32,9 +34,9 @@ public class BookingService {
     private final SimpMessagingTemplate messagingTemplate;
 
     @Transactional
-    public ReservaResponseDTO crearReserva(CrearReservaDTO dto) {
+    public ReservationResponse crearReserva(CreateReservationRequest dto) {
 
-        List<ReservaEntity> reservasActivasDelCreador = bookingRepository.findByEstado(EstadoReserva.PENDIENTE);
+        List<Reservation> reservasActivasDelCreador = bookingRepository.findByEstado(ReservationState.PENDIENTE);
         boolean yaTieneCarritoActivo = reservasActivasDelCreador.stream()
                 .anyMatch(r -> r.getCreadorId().equals(dto.getCreadorId()));
 
@@ -45,7 +47,7 @@ public class BookingService {
         }
 
         long asientosUnicosEnPeticion = dto.getAsientos().stream()
-                .map(CrearReservaDTO.AsientoSeleccionadoDTO::getNumeroAsiento)
+                .map(CreateReservationRequest.AsientoSeleccionadoDTO::getNumeroAsiento)
                 .distinct()
                 .count();
 
@@ -54,8 +56,8 @@ public class BookingService {
                     "No puedes solicitar el mismo asiento más de una vez en la misma reserva.", HttpStatus.BAD_REQUEST);
         }
 
-        for(CrearReservaDTO.AsientoSeleccionadoDTO asientoDto : dto.getAsientos()) {
-            boolean asientoYaReservado = bookingRepository.findByEstado(EstadoReserva.PENDIENTE).stream()
+        for(CreateReservationRequest.AsientoSeleccionadoDTO asientoDto : dto.getAsientos()) {
+            boolean asientoYaReservado = bookingRepository.findByEstado(ReservationState.PENDIENTE).stream()
                     .filter(r -> r.getVueloCodigo().equals(dto.getVueloCodigo()))
                     .flatMap(r -> r.getDetalles().stream())
                     .anyMatch(d -> d.getNumeroAsiento().equals(asientoDto.getNumeroAsiento()));
@@ -69,28 +71,28 @@ public class BookingService {
 
         LocalDateTime limiteTiempo = LocalDateTime.now().plusMinutes(15);
 
-        ReservaEntity reserva = ReservaEntity.builder()
+        Reservation reserva = Reservation.builder()
                 .creadorId(dto.getCreadorId())
                 .vueloCodigo(dto.getVueloCodigo())
-                .estado(EstadoReserva.PENDIENTE)
+                .estado(ReservationState.PENDIENTE)
                 .limiteTiempo(limiteTiempo)
                 .build();
 
         reserva = bookingRepository.save(reserva);
 
-        List<ReservaDetalleEntity> detalles = new ArrayList<>();
+        List<ReservationDetail> detalles = new ArrayList<>();
 
-        for (CrearReservaDTO.AsientoSeleccionadoDTO asientoDto : dto.getAsientos()) {
+        for (CreateReservationRequest.AsientoSeleccionadoDTO asientoDto : dto.getAsientos()) {
 
             Double precioSimulado = 150.00;
 
-            ReservaDetalleEntity detalle = ReservaDetalleEntity.builder()
+            ReservationDetail detalle = ReservationDetail.builder()
                     .reserva(reserva)
                     .usuarioId(asientoDto.getUsuarioId())
                     .pagadorId(asientoDto.getPagadorId())
                     .numeroAsiento(asientoDto.getNumeroAsiento())
                     .precio(precioSimulado)
-                    .estadoPago(EstadoPagoReserva.PENDIENTE)
+                    .estadoPago(ReservationPaymentState.PENDIENTE)
                     .nombrePasajero(null)
                     .dniPasaporte(null)
                     .build();
@@ -102,8 +104,8 @@ public class BookingService {
         return mapearAResponseDTO(reserva);
     }
 
-    public ReservaResponseDTO obtenerReserva(Long id) {
-        ReservaEntity reserva = bookingRepository.findById(id)
+    public ReservationResponse obtenerReserva(Long id) {
+        Reservation reserva = bookingRepository.findById(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
 
         validarExpiracion(reserva);
@@ -113,10 +115,10 @@ public class BookingService {
 
     @Transactional
     public void cargarDocumentacion(Long id, CargarPasajeroDTO dto) {
-        ReservaEntity reserva = bookingRepository.findById(id)
+        Reservation reserva = bookingRepository.findById(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
 
-        if(!EstadoReserva.PENDIENTE.equals(reserva.getEstado())) {
+        if(!ReservationState.PENDIENTE.equals(reserva.getEstado())) {
             throw new BookingException("MODIFICACION_PROHIBIDA",
                     "No se puede modificar la documentación porque esta reserva ya está " +  reserva.getEstado(),
                     HttpStatus.BAD_REQUEST);
@@ -124,7 +126,7 @@ public class BookingService {
 
         validarExpiracion(reserva);
 
-        ReservaDetalleEntity detalle = detailRepository.findByReservaIdAndUsuarioId(id, dto.getUsuarioId());
+        ReservationDetail detalle = detailRepository.findByReservaIdAndUsuarioId(id, dto.getUsuarioId());
         if(detalle == null) {
             throw new BookingException("ASIENTO_NO_ASIGNADO", "El usuario no tiene un asiento en esta reserva.", HttpStatus.BAD_REQUEST);
         }
@@ -137,41 +139,41 @@ public class BookingService {
     }
 
     @Transactional
-    public String procesarPago(Long id, ProcesarPagoDTO dto) {
-        ReservaEntity reserva = bookingRepository.findById(id)
+    public String procesarPago(Long id, ProcessPaymentRequest dto) {
+        Reservation reserva = bookingRepository.findById(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
 
-        if(!EstadoReserva.PENDIENTE.equals(reserva.getEstado())) {
+        if(!ReservationState.PENDIENTE.equals(reserva.getEstado())) {
             throw new BookingException("MODIFICACION_PROHIBIDA",
                     "No se puede realizar el pago, ya que esta reserva está " + reserva.getEstado(), HttpStatus.BAD_REQUEST);
         }
 
         validarExpiracion(reserva);
 
-        List<ReservaDetalleEntity> asientosAPagar = detailRepository.findByReservaIdAndPagadorIdAndEstadoPago(id, dto.getPagadorId(), EstadoPagoReserva.PENDIENTE);
+        List<ReservationDetail> asientosAPagar = detailRepository.findByReservaIdAndPagadorIdAndEstadoPago(id, dto.getPagadorId(), ReservationPaymentState.PENDIENTE);
         if(asientosAPagar.isEmpty()) {
             throw new BookingException("SIN_DEUDAS", "No tienes pagos pendientes en este carrito.", HttpStatus.BAD_REQUEST);
         }
 
-        for (ReservaDetalleEntity asiento : asientosAPagar) {
+        for (ReservationDetail asiento : asientosAPagar) {
             if(asiento.getNombrePasajero() == null || asiento.getDniPasaporte() == null) {
                 throw new BookingException("DOCUMENTACION_INCOMPLETA", "Debes cargar los datos de pasajero antes de pagar el asiento " + asiento.getNumeroAsiento(), HttpStatus.BAD_REQUEST);
             }
         }
 
-        double montoTotal = asientosAPagar.stream().mapToDouble(ReservaDetalleEntity::getPrecio).sum();
+        double montoTotal = asientosAPagar.stream().mapToDouble(ReservationDetail::getPrecio).sum();
 
         boolean pagoExitoso = true;
         if(!pagoExitoso) {
             throw new BookingException("PAGO_RECHAZADO", "La tarjeta no tiene fondos o fue rechazada.", HttpStatus.PAYMENT_REQUIRED);
         }
 
-        asientosAPagar.forEach(asiento -> asiento.setEstadoPago(EstadoPagoReserva.PAGADO));
+        asientosAPagar.forEach(asiento -> asiento.setEstadoPago(ReservationPaymentState.PAGADO));
         detailRepository.saveAll(asientosAPagar);
 
-        long pendientesTotales = detailRepository.countByReservaIdAndEstadoPago(id, EstadoPagoReserva.PENDIENTE);
+        long pendientesTotales = detailRepository.countByReservaIdAndEstadoPago(id, ReservationPaymentState.PENDIENTE);
         if(pendientesTotales == 0) {
-            reserva.setEstado(EstadoReserva.COMPLETADA);
+            reserva.setEstado(ReservationState.COMPLETADA);
             bookingRepository.save(reserva);
 
             notificarCambioEnTiempoReal(reserva);
@@ -184,26 +186,26 @@ public class BookingService {
 
     @Transactional
     public void cancelarReservaManualmente(Long id, Long usuarioId) {
-        ReservaEntity reserva = bookingRepository.findById(id)
+        Reservation reserva = bookingRepository.findById(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
 
         if(!reserva.getCreadorId().equals(usuarioId)) {
             throw new BookingException("ACCESO_DENEGADO", "Solo el creador del grupo puede cancelar este carrito.", HttpStatus.FORBIDDEN);
         }
 
-        if(!EstadoReserva.PENDIENTE.equals(reserva.getEstado())) {
+        if(!ReservationState.PENDIENTE.equals(reserva.getEstado())) {
             throw new BookingException("ESTADO_INVALIDO", "Esta reserva ya no se puede cancelar porque está " + reserva.getEstado(), HttpStatus.BAD_REQUEST);
         }
 
-        reserva.setEstado(EstadoReserva.CANCELADA);
+        reserva.setEstado(ReservationState.CANCELADA);
         bookingRepository.save(reserva);
 
-        List<ReservaDetalleEntity> todosLosAsientos = detailRepository.findByReservaId(reserva.getId());
-        for(ReservaDetalleEntity asiento: todosLosAsientos) {
-            if(EstadoPagoReserva.PAGADO.equals(asiento.getEstadoPago())) {
-                asiento.setEstadoPago(EstadoPagoReserva.REEMBOLSADO);
-            } else if(EstadoPagoReserva.PENDIENTE.equals(asiento.getEstadoPago())) {
-                asiento.setEstadoPago(EstadoPagoReserva.CANCELADO);
+        List<ReservationDetail> todosLosAsientos = detailRepository.findByReservaId(reserva.getId());
+        for(ReservationDetail asiento: todosLosAsientos) {
+            if(ReservationPaymentState.PAGADO.equals(asiento.getEstadoPago())) {
+                asiento.setEstadoPago(ReservationPaymentState.REEMBOLSADO);
+            } else if(ReservationPaymentState.PENDIENTE.equals(asiento.getEstadoPago())) {
+                asiento.setEstadoPago(ReservationPaymentState.CANCELADO);
             }
         }
 
@@ -214,18 +216,18 @@ public class BookingService {
         notificarCambioEnTiempoReal(reserva);
     }
 
-    private void validarExpiracion(ReservaEntity reserva) {
-        if(LocalDateTime.now().isAfter(reserva.getLimiteTiempo()) && EstadoReserva.PENDIENTE.equals(reserva.getEstado())) {
-            reserva.setEstado(EstadoReserva.EXPIRADA);
+    private void validarExpiracion(Reservation reserva) {
+        if(LocalDateTime.now().isAfter(reserva.getLimiteTiempo()) && ReservationState.PENDIENTE.equals(reserva.getEstado())) {
+            reserva.setEstado(ReservationState.EXPIRADA);
 
             bookingRepository.save(reserva);
 
-            List<ReservaDetalleEntity> todosLosAsientos = detailRepository.findByReservaId(reserva.getId());
-            for(ReservaDetalleEntity asiento: todosLosAsientos) {
-                if(EstadoPagoReserva.PAGADO.equals(asiento.getEstadoPago())) {
-                    asiento.setEstadoPago(EstadoPagoReserva.REEMBOLSADO);
-                } else if(EstadoPagoReserva.PENDIENTE.equals(asiento.getEstadoPago())) {
-                    asiento.setEstadoPago(EstadoPagoReserva.CANCELADO);
+            List<ReservationDetail> todosLosAsientos = detailRepository.findByReservaId(reserva.getId());
+            for(ReservationDetail asiento: todosLosAsientos) {
+                if(ReservationPaymentState.PAGADO.equals(asiento.getEstadoPago())) {
+                    asiento.setEstadoPago(ReservationPaymentState.REEMBOLSADO);
+                } else if(ReservationPaymentState.PENDIENTE.equals(asiento.getEstadoPago())) {
+                    asiento.setEstadoPago(ReservationPaymentState.CANCELADO);
                 }
             }
 
@@ -235,17 +237,17 @@ public class BookingService {
         }
     }
 
-    private void notificarCambioEnTiempoReal(ReservaEntity reserva) {
-        ReservaResponseDTO response = mapearAResponseDTO(reserva);
+    private void notificarCambioEnTiempoReal(Reservation reserva) {
+        ReservationResponse response = mapearAResponseDTO(reserva);
 
         messagingTemplate.convertAndSend("/topic/reserva/" + reserva.getId(), response);
     }
 
-    private ReservaResponseDTO mapearAResponseDTO(ReservaEntity reserva) {
+    private ReservationResponse mapearAResponseDTO(Reservation reserva) {
         long segundos = Duration.between(LocalDateTime.now(), reserva.getLimiteTiempo()).toSeconds();
 
-        List<ReservaResponseDTO.AsientoDetalleDTO> asientosDto = reserva.getDetalles().stream()
-                .map(d -> ReservaResponseDTO.AsientoDetalleDTO.builder()
+        List<ReservationResponse.AsientoDetalleDTO> asientosDto = reserva.getDetalles().stream()
+                .map(d -> ReservationResponse.AsientoDetalleDTO.builder()
                         .numeroAsiento(d.getNumeroAsiento())
                         .usuarioId(d.getUsuarioId())
                         .pagadorId(d.getPagadorId())
@@ -256,7 +258,7 @@ public class BookingService {
                         .build())
                 .collect(Collectors.toList());
 
-        return ReservaResponseDTO.builder()
+        return ReservationResponse.builder()
                 .idCarrito(reserva.getId())
                 .vueloCodigo(reserva.getVueloCodigo())
                 .estadoGeneral(reserva.getEstado())

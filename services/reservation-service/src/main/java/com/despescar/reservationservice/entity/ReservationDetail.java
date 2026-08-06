@@ -1,6 +1,6 @@
 package com.despescar.reservationservice.entity;
 
-import com.despescar.reservationservice.enums.EstadoPagoReserva;
+import com.despescar.reservationservice.enums.ReservationPaymentState;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ReservaDetalleEntity {
+public class ReservationDetail {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -21,7 +21,7 @@ public class ReservaDetalleEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "reserva_grupo_id", nullable = false)
-    private ReservaEntity reserva;
+    private Reservation reserva;
 
     @Column(name = "usuario_id", nullable = false)
     private Long usuarioId;
@@ -37,7 +37,7 @@ public class ReservaDetalleEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "estado_pago", nullable = false)
-    private EstadoPagoReserva estadoPago;
+    private ReservationPaymentState estadoPago;
 
     @Column(name = "nombre_pasajero", nullable = true, length = 100)
     private String nombrePasajero;

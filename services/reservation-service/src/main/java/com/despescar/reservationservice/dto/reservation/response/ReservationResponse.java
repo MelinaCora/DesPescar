@@ -1,7 +1,7 @@
-package com.despescar.reservationservice.dto;
+package com.despescar.reservationservice.dto.reservation.response;
 
-import com.despescar.reservationservice.enums.EstadoPagoReserva;
-import com.despescar.reservationservice.enums.EstadoReserva;
+import com.despescar.reservationservice.enums.ReservationPaymentState;
+import com.despescar.reservationservice.enums.ReservationState;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,11 +13,11 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ReservaResponseDTO {
+public class ReservationResponse {
 
     private Long idCarrito;
     private String vueloCodigo;
-    private EstadoReserva estadoGeneral;
+    private ReservationState estadoGeneral;
     private Long segundosRestantes;
     private List<AsientoDetalleDTO> asientos;
 
@@ -28,7 +28,7 @@ public class ReservaResponseDTO {
         private Long usuarioId;
         private Long pagadorId;
         private Double precio;
-        private EstadoPagoReserva estadoPago;
+        private ReservationPaymentState estadoPago;
         private String nombrePasajero;
         private String dniPasaporte;
     }
