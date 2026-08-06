@@ -4,6 +4,7 @@ import com.despescar.flightservice.dto.flights.request.FlightRequest;
 import com.despescar.flightservice.dto.flights.response.FlightResponse;
 import com.despescar.flightservice.entity.Airline;
 import com.despescar.flightservice.entity.Airport;
+import com.despescar.flightservice.entity.BaggagePolicy;
 import com.despescar.flightservice.entity.Flight;
 import com.despescar.flightservice.exception.AirlineNotFoundException;
 import com.despescar.flightservice.exception.AirportNotFoundException;
@@ -12,6 +13,7 @@ import com.despescar.flightservice.exception.FlightNumberAlreadyExistsException;
 import com.despescar.flightservice.mapper.FlightMapper;
 import com.despescar.flightservice.repository.AirlineRepository;
 import com.despescar.flightservice.repository.AirportRepository;
+import com.despescar.flightservice.repository.BaggagePolicyRepository;
 import com.despescar.flightservice.repository.FlightRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -27,6 +29,7 @@ public class FlightService {
     private final FlightRepository flightRepository;
     private final AirlineRepository airlineRepository;
     private final AirportRepository airportRepository;
+    private final BaggagePolicyRepository baggagePolicyRepository;
 
     /**
      * Crea un nuevo vuelo.
@@ -46,11 +49,15 @@ public class FlightService {
         Airport destinationAirport = airportRepository.findById(request.getDestinationAirportId())
                 .orElseThrow(AirportNotFoundException::new);
 
+        BaggagePolicy baggagePolicy = baggagePolicyRepository.findById(request.getBaggagePolicyId())
+                .orElseThrow(() -> new RuntimeException("Baggage policy not found"));
+
         Flight flight = FlightMapper.toEntity(request);
 
         flight.setAirline(airline);
         flight.setOriginAirport(originAirport);
         flight.setDestinationAirport(destinationAirport);
+        flight.setBaggagePolicy(baggagePolicy);
 
         flightRepository.save(flight);
 
@@ -107,11 +114,15 @@ public class FlightService {
         Airport destinationAirport = airportRepository.findById(request.getDestinationAirportId())
                 .orElseThrow(AirportNotFoundException::new);
 
+        BaggagePolicy baggagePolicy = baggagePolicyRepository.findById(request.getBaggagePolicyId())
+                .orElseThrow(() -> new RuntimeException("Baggage policy not found"));
+
         FlightMapper.updateEntity(flight, request);
 
         flight.setAirline(airline);
         flight.setOriginAirport(originAirport);
         flight.setDestinationAirport(destinationAirport);
+        flight.setBaggagePolicy(baggagePolicy);
 
         flightRepository.save(flight);
 

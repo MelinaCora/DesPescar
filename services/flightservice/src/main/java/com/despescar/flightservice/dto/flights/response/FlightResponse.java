@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import com.despescar.flightservice.dto.airlines.response.AirlineResponse;
 import com.despescar.flightservice.dto.airports.response.AirportResponse;
+import com.despescar.flightservice.dto.baggage.response.BaggagePolicyResponse;
 import com.despescar.flightservice.enums.FlightStatus;
 
 import lombok.Builder;
@@ -34,5 +35,7 @@ public class FlightResponse {
     private Integer availableSeats;
 
     private FlightStatus status;
+
+    private BaggagePolicyResponse baggagePolicy;
 
 }

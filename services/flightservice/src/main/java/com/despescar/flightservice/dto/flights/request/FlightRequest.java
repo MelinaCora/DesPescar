@@ -29,4 +29,6 @@ public class FlightRequest {
 
     private FlightStatus status;
 
+    private UUID baggagePolicyId;
+
 }
