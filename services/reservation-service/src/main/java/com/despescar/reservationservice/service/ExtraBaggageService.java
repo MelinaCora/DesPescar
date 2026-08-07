@@ -8,6 +8,8 @@ import com.despescar.reservationservice.repository.ExtraBaggageRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+
 @Service
 @RequiredArgsConstructor
 public class ExtraBaggageService {
@@ -40,16 +42,16 @@ public class ExtraBaggageService {
 
 
 
-    private Double calcularPrecio(Double peso){
+    private BigDecimal calcularPrecio(Double peso){
 
         if(peso <= 15)
-            return 30.0;
+            return BigDecimal.valueOf(30.0);
 
         if(peso <= 23)
-            return 50.0;
+            return BigDecimal.valueOf(50.0);
 
 
-        return 80.0;
+        return BigDecimal.valueOf(80.0);
     }
 
 }
