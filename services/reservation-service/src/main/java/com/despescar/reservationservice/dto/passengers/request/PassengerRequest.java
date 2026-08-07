@@ -5,9 +5,12 @@ import lombok.NoArgsConstructor;
 
 @Data
 @NoArgsConstructor
-public class PessengerRequest {
+public class PassengerRequest {
 
     private Long usuarioId;
+
     private String nombrePasajero;
+
     private String dniPasaporte;
+
 }

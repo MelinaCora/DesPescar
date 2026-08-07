@@ -1,6 +1,5 @@
 package com.despescar.reservationservice.service;
 
-import com.despescar.reservationservice.dto.passengers.request.PessengerRequest;
 import com.despescar.reservationservice.dto.reservation.request.CreateReservationRequest;
 import com.despescar.reservationservice.dto.reservation.request.ProcessPaymentRequest;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
@@ -165,12 +164,6 @@ public class BookingService {
                             .estadoPago(
                                     ReservationPaymentState.PENDIENTE
                             )
-                            .nombrePasajero(
-                                    asientoDto.getNombrePasajero()
-                            )
-                            .dniPasaporte(
-                                    asientoDto.getDniPasaporte()
-                            )
                             .equipajes(new ArrayList<>())
                             .build();
 
@@ -242,69 +235,6 @@ public class BookingService {
 
 
         return reservationMapper.toResponse(reserva);
-    }
-
-
-    @Transactional
-    public void cargarDocumentacion(Long id, PessengerRequest dto) {
-
-
-        Reservation reserva =
-                bookingRepository.findById(id)
-                        .orElseThrow(() ->
-                                new BookingException(
-                                        "RESERVA_NO_ENCONTRADA",
-                                        "La reserva no existe.",
-                                        HttpStatus.NOT_FOUND
-                                )
-                        );
-
-
-        if (!ReservationState.PENDIENTE.equals(reserva.getEstado())) {
-
-            throw new BookingException(
-                    "MODIFICACION_PROHIBIDA",
-                    "No se puede modificar la documentación porque la reserva está "
-                            + reserva.getEstado(),
-                    HttpStatus.BAD_REQUEST
-            );
-        }
-
-
-        validarExpiracion(reserva);
-
-
-        ReservationDetail detalle =
-                detailRepository.findByReservaIdAndUsuarioId(
-                        id,
-                        dto.getUsuarioId()
-                );
-
-
-        if (detalle == null) {
-
-            throw new BookingException(
-                    "ASIENTO_NO_ASIGNADO",
-                    "El usuario no tiene un asiento asignado en esta reserva.",
-                    HttpStatus.BAD_REQUEST
-            );
-        }
-
-
-        detalle.setNombrePasajero(
-                dto.getNombrePasajero()
-        );
-
-
-        detalle.setDniPasaporte(
-                dto.getDniPasaporte()
-        );
-
-
-        detailRepository.save(detalle);
-
-
-        notificarCambioEnTiempoReal(reserva);
     }
 
     @Transactional

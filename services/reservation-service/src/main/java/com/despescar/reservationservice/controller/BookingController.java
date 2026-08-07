@@ -1,10 +1,11 @@
 package com.despescar.reservationservice.controller;
 
-import com.despescar.reservationservice.dto.passengers.request.PessengerRequest;
+import com.despescar.reservationservice.dto.passengers.request.PassengerRequest;
 import com.despescar.reservationservice.dto.reservation.request.CreateReservationRequest;
 import com.despescar.reservationservice.dto.reservation.request.ProcessPaymentRequest;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
 import com.despescar.reservationservice.service.BookingService;
+import com.despescar.reservationservice.service.PassengerService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 public class BookingController {
 
     private final BookingService bookingService;
+    private final PassengerService passengerService;
 
     @PostMapping
     public ResponseEntity<ReservationResponse> crearReserva(@RequestBody CreateReservationRequest dto) {
@@ -38,11 +40,15 @@ public class BookingController {
         return ResponseEntity.ok().build();
     }
 
-    @PatchMapping("/{id}/pasajero")
-    public ResponseEntity<Void> cargarDocumentacion(
+    @PatchMapping("/{id}/passenger")
+    public ResponseEntity<Void> updatePassenger(
             @PathVariable Long id,
-            @RequestBody PessengerRequest dto) {
-        bookingService.cargarDocumentacion(id, dto);
+            @RequestBody PassengerRequest dto) {
+
+
+        passengerService.updatePassengerData(id, dto);
+
+
         return ResponseEntity.ok().build();
     }
 
