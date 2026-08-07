@@ -4,6 +4,7 @@ import com.despescar.reservationservice.dto.passengers.request.PessengerRequest;
 import com.despescar.reservationservice.dto.reservation.request.CreateReservationRequest;
 import com.despescar.reservationservice.dto.reservation.request.ProcessPaymentRequest;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
+import com.despescar.reservationservice.entity.ExtraBaggage;
 import com.despescar.reservationservice.entity.ReservationDetail;
 import com.despescar.reservationservice.entity.Reservation;
 import com.despescar.reservationservice.enums.ReservationPaymentState;
@@ -11,6 +12,7 @@ import com.despescar.reservationservice.enums.ReservationState;
 import com.despescar.reservationservice.exception.BookingException; // Tu clase de excepciones
 import com.despescar.reservationservice.repository.BookingDetailRepository;
 import com.despescar.reservationservice.repository.BookingRepository;
+import com.despescar.reservationservice.repository.ExtraBaggageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -18,6 +20,10 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.despescar.reservationservice.dto.extraBaggage.response.ExtraBaggageResponse;
+
+
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -32,12 +38,14 @@ public class BookingService {
     private final BookingRepository bookingRepository;
     private final BookingDetailRepository detailRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final ExtraBaggageRepository extraBaggageRepository;
 
     @Transactional
     public ReservationResponse crearReserva(CreateReservationRequest dto) {
 
 
         if (dto.getAsientos() == null || dto.getAsientos().isEmpty()) {
+
             throw new BookingException(
                     "SIN_ASIENTOS",
                     "Debe seleccionar al menos un asiento para crear la reserva.",
@@ -50,11 +58,13 @@ public class BookingService {
                 bookingRepository.findByEstado(ReservationState.PENDIENTE);
 
 
-        boolean yaTieneCarritoActivo = reservasActivasDelCreador.stream()
-                .anyMatch(r -> r.getCreadorId().equals(dto.getCreadorId()));
+        boolean yaTieneCarritoActivo =
+                reservasActivasDelCreador.stream()
+                        .anyMatch(r -> r.getCreadorId().equals(dto.getCreadorId()));
 
 
         if (yaTieneCarritoActivo) {
+
             throw new BookingException(
                     "CARRITO_DUPLICADO",
                     "Ya tienes un carrito compartido activo. Espera a que expire o completa el pago.",
@@ -63,13 +73,16 @@ public class BookingService {
         }
 
 
-        long asientosUnicosEnPeticion = dto.getAsientos().stream()
-                .map(CreateReservationRequest.AsientoSeleccionadoDTO::getNumeroAsiento)
-                .distinct()
-                .count();
+        long asientosUnicosEnPeticion =
+                dto.getAsientos()
+                        .stream()
+                        .map(CreateReservationRequest.AsientoSeleccionadoDTO::getNumeroAsiento)
+                        .distinct()
+                        .count();
 
 
         if (asientosUnicosEnPeticion < dto.getAsientos().size()) {
+
             throw new BookingException(
                     "PETICION_INVALIDA",
                     "No puedes solicitar el mismo asiento más de una vez en la misma reserva.",
@@ -96,7 +109,8 @@ public class BookingService {
 
                 throw new BookingException(
                         "ASIENTO_OCUPADO",
-                        "El asiento " + asientoDto.getNumeroAsiento()
+                        "El asiento "
+                                + asientoDto.getNumeroAsiento()
                                 + " ya está reservado temporalmente por otro grupo.",
                         HttpStatus.CONFLICT
                 );
@@ -104,28 +118,35 @@ public class BookingService {
         }
 
 
+
         LocalDateTime limiteTiempo =
                 LocalDateTime.now().plusMinutes(15);
 
 
-        Reservation reserva = Reservation.builder()
-                .creadorId(dto.getCreadorId())
-                .vueloCodigo(dto.getVueloCodigo())
-                .estado(ReservationState.PENDIENTE)
-                .limiteTiempo(limiteTiempo)
-                .build();
+
+        Reservation reserva =
+                Reservation.builder()
+                        .creadorId(dto.getCreadorId())
+                        .vueloCodigo(dto.getVueloCodigo())
+                        .estado(ReservationState.PENDIENTE)
+                        .limiteTiempo(limiteTiempo)
+                        .build();
+
 
 
         reserva = bookingRepository.save(reserva);
 
 
+
         List<ReservationDetail> detalles = new ArrayList<>();
+
 
 
         for (CreateReservationRequest.AsientoSeleccionadoDTO asientoDto : dto.getAsientos()) {
 
 
             Double precioAsiento = 150.00;
+
 
 
             ReservationDetail detalle =
@@ -142,14 +163,65 @@ public class BookingService {
                             .build();
 
 
-            detalles.add(detailRepository.save(detalle));
+
+            ReservationDetail detalleGuardado =
+                    detailRepository.save(detalle);
+
+
+
+            // Crear equipajes asociados al pasajero
+            if (asientoDto.getEquipajes() != null
+                    && !asientoDto.getEquipajes().isEmpty()) {
+
+
+                asientoDto.getEquipajes()
+                        .forEach(equipajeDto -> {
+
+
+                            ExtraBaggage equipaje =
+                                    ExtraBaggage.builder()
+                                            .detalleReserva(detalleGuardado)
+                                            .peso(equipajeDto.getPeso())
+                                            .precio(
+                                                    calcularPrecioEquipaje(
+                                                            equipajeDto.getPeso()
+                                                    )
+                                            )
+                                            .build();
+
+
+
+                            extraBaggageRepository.save(equipaje);
+
+
+
+                            detalleGuardado
+                                    .agregarEquipaje(equipaje);
+
+                        });
+            }
+
+
+
+            detalles.add(detalleGuardado);
         }
+
 
 
         reserva.setDetalles(detalles);
 
 
+
         return mapearAResponseDTO(reserva);
+    }
+
+    private BigDecimal calcularPrecioEquipaje(Double peso) {
+
+        BigDecimal precioPorKg = BigDecimal.valueOf(5);
+
+        return precioPorKg.multiply(
+                BigDecimal.valueOf(peso)
+        );
     }
 
     public ReservationResponse obtenerReserva(Long id) {
@@ -321,19 +393,68 @@ public class BookingService {
     }
 
     private ReservationResponse mapearAResponseDTO(Reservation reserva) {
-        long segundos = Duration.between(LocalDateTime.now(), reserva.getLimiteTiempo()).toSeconds();
 
-        List<ReservationResponse.AsientoDetalleDTO> asientosDto = reserva.getDetalles().stream()
-                .map(d -> ReservationResponse.AsientoDetalleDTO.builder()
-                        .numeroAsiento(d.getNumeroAsiento())
-                        .usuarioId(d.getUsuarioId())
-                        .pagadorId(d.getPagadorId())
-                        .precio(d.getPrecio())
-                        .estadoPago(d.getEstadoPago())
-                        .nombrePasajero(d.getNombrePasajero())
-                        .dniPasaporte(d.getDniPasaporte())
-                        .build())
-                .collect(Collectors.toList());
+
+        long segundos =
+                Duration.between(
+                        LocalDateTime.now(),
+                        reserva.getLimiteTiempo()
+                ).toSeconds();
+
+
+
+        List<ReservationResponse.AsientoDetalleDTO> asientosDto =
+                reserva.getDetalles()
+                        .stream()
+                        .map(d -> {
+
+
+                            List<ExtraBaggageResponse> equipajesDto =
+                                    d.getEquipajes()
+                                            .stream()
+                                            .map(equipaje -> {
+
+
+                                                ExtraBaggageResponse response =
+                                                        new ExtraBaggageResponse();
+
+                                                response.setId(equipaje.getId());
+
+                                                response.setDetalleReservaId(
+                                                        d.getId()
+                                                );
+
+                                                response.setPeso(
+                                                        equipaje.getPeso()
+                                                );
+
+                                                response.setPrecio(
+                                                        equipaje.getPrecio()
+                                                );
+
+
+                                                return response;
+
+                                            })
+                                            .collect(Collectors.toList());
+
+
+
+                            return ReservationResponse.AsientoDetalleDTO.builder()
+                                    .numeroAsiento(d.getNumeroAsiento())
+                                    .usuarioId(d.getUsuarioId())
+                                    .pagadorId(d.getPagadorId())
+                                    .precio(d.getPrecio())
+                                    .estadoPago(d.getEstadoPago())
+                                    .nombrePasajero(d.getNombrePasajero())
+                                    .dniPasaporte(d.getDniPasaporte())
+                                    .equipajes(equipajesDto)
+                                    .build();
+
+                        })
+                        .collect(Collectors.toList());
+
+
 
         return ReservationResponse.builder()
                 .idCarrito(reserva.getId())

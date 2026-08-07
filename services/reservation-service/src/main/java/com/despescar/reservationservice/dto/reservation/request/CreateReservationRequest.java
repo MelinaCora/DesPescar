@@ -1,5 +1,6 @@
 package com.despescar.reservationservice.dto.reservation.request;
 
+import com.despescar.reservationservice.dto.extraBaggage.request.ExtraBaggageRequest;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -29,5 +30,7 @@ public class CreateReservationRequest {
         private String nombrePasajero;
 
         private String dniPasaporte;
+
+        private List<ExtraBaggageRequest> equipajes;
     }
 }

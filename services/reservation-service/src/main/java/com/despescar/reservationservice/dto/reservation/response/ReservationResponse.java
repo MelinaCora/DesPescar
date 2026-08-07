@@ -17,23 +17,36 @@ import java.util.List;
 public class ReservationResponse {
 
     private Long idCarrito;
+
     private String vueloCodigo;
+
     private ReservationState estadoGeneral;
+
     private Long segundosRestantes;
+
     private List<AsientoDetalleDTO> asientos;
 
     @Data
     @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class AsientoDetalleDTO {
-        private String numeroAsiento;
-        private Long usuarioId;
-        private Long pagadorId;
-        private Double precio;
-        private ReservationPaymentState estadoPago;
-        private String nombrePasajero;
-        private String dniPasaporte;
-    }
 
-    private List<ExtraBaggageResponse> equipajes;
+        private String numeroAsiento;
+
+        private Long usuarioId;
+
+        private Long pagadorId;
+
+        private Double precio;
+
+        private ReservationPaymentState estadoPago;
+
+        private String nombrePasajero;
+
+        private String dniPasaporte;
+
+        private List<ExtraBaggageResponse> equipajes;
+    }
 
 }
