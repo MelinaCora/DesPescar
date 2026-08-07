@@ -1,15 +1,15 @@
 package com.despescar.reservationservice.entity;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
+
+import java.math.BigDecimal;
 
 
 @Entity
 @Table(name = "equipaje_extra")
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -26,14 +26,15 @@ public class ExtraBaggage {
             name = "detalle_reserva_id",
             nullable = false
     )
+
+    @ToString.Exclude
     private ReservationDetail detalleReserva;
 
 
-    @Column(nullable = false)
+    @Column(name = "peso_kg", nullable = false)
     private Double peso;
 
-
-    @Column(nullable = false)
-    private Double precio;
+    @Column(name = "precio_extra", nullable = false)
+    private BigDecimal precio;
 
 }

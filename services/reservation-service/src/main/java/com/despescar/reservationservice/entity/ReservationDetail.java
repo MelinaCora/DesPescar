@@ -1,5 +1,7 @@
 package com.despescar.reservationservice.entity;
 
+import com.despescar.reservationservice.entity.ExtraBaggage;
+import com.despescar.reservationservice.entity.Reservation;
 import com.despescar.reservationservice.enums.ReservationPaymentState;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
@@ -7,8 +9,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.ArrayList;
 import java.util.List;
-
 
 @Entity
 @Table(name = "detalle_pasajeros_reserva")
@@ -18,17 +20,13 @@ import java.util.List;
 @AllArgsConstructor
 public class ReservationDetail {
 
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(
-            name = "reserva_grupo_id",
-            nullable = false
-    )
+    @JoinColumn(name = "reserva_grupo_id", nullable = false)
     private Reservation reserva;
 
 
@@ -61,13 +59,24 @@ public class ReservationDetail {
     private String dniPasaporte;
 
 
-    // Equipaje extra asociado a este pasajero
     @OneToMany(
             mappedBy = "detalleReserva",
             cascade = CascadeType.ALL,
             orphanRemoval = true,
             fetch = FetchType.LAZY
     )
-    private List<ExtraBaggage> equipajes;
+    @Builder.Default
+    private List<ExtraBaggage> equipajes = new ArrayList<>();
 
+
+    public void agregarEquipaje(ExtraBaggage equipaje) {
+        equipajes.add(equipaje);
+        equipaje.setDetalleReserva(this);
+    }
+
+
+    public void eliminarEquipaje(ExtraBaggage equipaje) {
+        equipajes.remove(equipaje);
+        equipaje.setDetalleReserva(null);
+    }
 }
