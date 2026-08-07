@@ -5,6 +5,7 @@ import com.despescar.reservationservice.entity.ExtraBaggage;
 import com.despescar.reservationservice.entity.ReservationDetail;
 import com.despescar.reservationservice.repository.BookingDetailRepository;
 import com.despescar.reservationservice.repository.ExtraBaggageRepository;
+import com.despescar.reservationservice.dto.extraBaggage.response.ExtraBaggageResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -20,8 +21,7 @@ public class ExtraBaggageService {
 
 
 
-    public ExtraBaggage addBaggage(Long detalleReservaId, Double peso){
-
+    public ExtraBaggageResponse addBaggage(Long detalleReservaId, double peso) {
 
         ReservationDetail detalle = bookingDetailRepository
                 .findById(detalleReservaId)
@@ -37,7 +37,27 @@ public class ExtraBaggageService {
                 .build();
 
 
-        return extraBaggageRepository.save(baggage);
+        ExtraBaggage savedBaggage = extraBaggageRepository.save(baggage);
+
+
+        ExtraBaggageResponse response = new ExtraBaggageResponse();
+
+        response.setId(savedBaggage.getId());
+
+        response.setDetalleReservaId(
+                savedBaggage.getDetalleReserva().getId()
+        );
+
+        response.setPeso(
+                savedBaggage.getPeso()
+        );
+
+        response.setPrecio(
+                savedBaggage.getPrecio()
+        );
+
+
+        return response;
     }
 
 
