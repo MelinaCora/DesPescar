@@ -4,11 +4,11 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
-import com.despescar.payment_service.service.PaymentHistoryService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.despescar.payment_service.dto.request.PaymentRequest;
+import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
 import com.despescar.payment_service.dto.response.PaymentResponse;
 import com.despescar.payment_service.entity.Payment;
 import com.despescar.payment_service.enums.PaymentStatus;
@@ -26,6 +26,7 @@ public class PaymentService {
     private final PaymentRepository paymentRepository;
     private final PaymentMapper paymentMapper;
     private final PaymentHistoryService paymentHistoryService;
+    private final PaymentGatewayService paymentGatewayService;
 
     @Transactional
     public PaymentResponse createPayment(PaymentRequest request) {
@@ -42,7 +43,40 @@ public class PaymentService {
                 "Payment created and is pending."
         );
 
-        return paymentMapper.toResponse(savedPayment);
+        PaymentGatewayResponse gatewayResponse =
+                paymentGatewayService.processPayment(
+                        savedPayment.getAmount(),
+                        savedPayment.getPaymentMethod()
+                );
+
+        if (gatewayResponse.isApproved()) {
+
+            savedPayment.setStatus(PaymentStatus.APPROVED);
+            savedPayment.setTransactionId(
+                    gatewayResponse.getTransactionId()
+            );
+            savedPayment.setPaymentDate(LocalDateTime.now());
+
+            paymentHistoryService.saveHistory(
+                    savedPayment,
+                    PaymentStatus.APPROVED,
+                    gatewayResponse.getMessage()
+            );
+
+        } else {
+
+            savedPayment.setStatus(PaymentStatus.REJECTED);
+
+            paymentHistoryService.saveHistory(
+                    savedPayment,
+                    PaymentStatus.REJECTED,
+                    gatewayResponse.getMessage()
+            );
+        }
+
+        Payment updatedPayment = paymentRepository.save(savedPayment);
+
+        return paymentMapper.toResponse(updatedPayment);
     }
 
     @Transactional(readOnly = true)
@@ -67,7 +101,8 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
-    public List<PaymentResponse> getPaymentsByReservation(UUID reservationId) {
+    public List<PaymentResponse> getPaymentsByReservation(
+            UUID reservationId) {
 
         return paymentRepository.findByReservationId(reservationId)
                 .stream()
@@ -85,6 +120,7 @@ public class PaymentService {
                         ));
 
         if (payment.getStatus() != PaymentStatus.PENDING) {
+
             throw new InvalidPaymentStateException(
                     "Payment cannot be cancelled because its current status is: "
                             + payment.getStatus()
@@ -92,7 +128,6 @@ public class PaymentService {
         }
 
         payment.setStatus(PaymentStatus.CANCELLED);
-        payment.setPaymentDate(LocalDateTime.now());
 
         Payment updatedPayment = paymentRepository.save(payment);
 
@@ -104,5 +139,4 @@ public class PaymentService {
 
         return paymentMapper.toResponse(updatedPayment);
     }
-
 }
