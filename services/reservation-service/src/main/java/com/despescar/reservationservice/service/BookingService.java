@@ -1,5 +1,7 @@
 package com.despescar.reservationservice.service;
 
+import com.despescar.reservationservice.client.FlightClient;
+import com.despescar.reservationservice.dto.flight.response.FlightLookupResponse;
 import com.despescar.reservationservice.dto.reservation.request.CreateReservationRequest;
 import com.despescar.reservationservice.dto.reservation.request.ProcessPaymentRequest;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
@@ -26,12 +28,23 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class BookingService {
+
+    private static final Set<String> ESTADOS_VUELO_NO_RESERVABLES = Set.of(
+            "CANCELLED",
+            "CANCELED",
+            "DEPARTED",
+            "ARRIVED",
+            "LANDED",
+            "COMPLETED"
+    );
 
 
     private final BookingRepository bookingRepository;
@@ -43,6 +56,8 @@ public class BookingService {
     private final SimpMessagingTemplate messagingTemplate;
 
     private final ReservationMapper reservationMapper;
+
+    private final FlightClient flightClient;
 
 
     @Transactional
@@ -57,6 +72,25 @@ public class BookingService {
                     HttpStatus.BAD_REQUEST
             );
         }
+
+
+        if (dto.getVueloCodigo() == null || dto.getVueloCodigo().isBlank()) {
+
+            throw new BookingException(
+                    "VUELO_CODIGO_INVALIDO",
+                    "Debe informar un codigo de vuelo valido.",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
+
+        FlightLookupResponse vuelo =
+                flightClient.getFlightByNumber(dto.getVueloCodigo());
+
+        validarEstadoVueloParaReserva(vuelo.getStatus(), dto.getVueloCodigo());
+
+
+        Double precioAsiento = obtenerPrecioAsiento(vuelo, dto.getVueloCodigo());
 
 
         List<Reservation> reservasActivas =
@@ -160,7 +194,7 @@ public class BookingService {
                             .usuarioId(asientoDto.getUsuarioId())
                             .pagadorId(asientoDto.getPagadorId())
                             .numeroAsiento(asientoDto.getNumeroAsiento())
-                            .precio(150.00)
+                            .precio(precioAsiento)
                             .estadoPago(
                                     ReservationPaymentState.PENDIENTE
                             )
@@ -215,6 +249,37 @@ public class BookingService {
 
         return BigDecimal.valueOf(5)
                 .multiply(BigDecimal.valueOf(peso));
+    }
+
+    private void validarEstadoVueloParaReserva(String estadoVuelo, String vueloCodigo) {
+        if (estadoVuelo == null || estadoVuelo.isBlank()) {
+            throw new BookingException(
+                    "ESTADO_VUELO_INVALIDO",
+                    "No fue posible validar el estado del vuelo " + vueloCodigo + ".",
+                    HttpStatus.BAD_GATEWAY
+            );
+        }
+
+        String estadoNormalizado = estadoVuelo.trim().toUpperCase(Locale.ROOT);
+        if (ESTADOS_VUELO_NO_RESERVABLES.contains(estadoNormalizado)) {
+            throw new BookingException(
+                    "VUELO_NO_RESERVABLE",
+                    "El vuelo " + vueloCodigo + " no admite reservas por su estado actual: " + estadoVuelo + ".",
+                    HttpStatus.CONFLICT
+            );
+        }
+    }
+
+    private Double obtenerPrecioAsiento(FlightLookupResponse vuelo, String vueloCodigo) {
+        if (vuelo.getPrice() == null || vuelo.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BookingException(
+                    "PRECIO_VUELO_INVALIDO",
+                    "Flight-Service devolvio un precio invalido para el vuelo " + vueloCodigo + ".",
+                    HttpStatus.BAD_GATEWAY
+            );
+        }
+
+        return vuelo.getPrice().doubleValue();
     }
 
     public ReservationResponse obtenerReserva(Long id) {
