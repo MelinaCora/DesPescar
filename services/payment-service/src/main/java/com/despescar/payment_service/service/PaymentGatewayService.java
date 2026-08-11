@@ -1,4 +1,4 @@
-package com.despescar.payment_service.service;
+package com.despescar.payment_service.services;
 
 import java.math.BigDecimal;
 

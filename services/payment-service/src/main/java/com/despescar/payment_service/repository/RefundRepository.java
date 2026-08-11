@@ -20,4 +20,7 @@ public interface RefundRepository extends JpaRepository<Refund, UUID> {
 
     List<Refund> findByRefundTransactionId(String refundTransactionId);
 
+    List<Refund> findByPayment_UserId(UUID userId);
+
+
 }
