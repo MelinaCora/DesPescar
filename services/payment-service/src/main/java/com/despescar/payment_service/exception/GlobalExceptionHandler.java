@@ -4,6 +4,7 @@ import java.time.LocalDateTime;
 import java.util.stream.Collectors;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,7 +24,8 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(
                 HttpStatus.NOT_FOUND,
                 ex.getMessage(),
-                request.getRequestURI());
+                request.getRequestURI()
+        );
     }
 
     @ExceptionHandler(RefundNotFoundException.class)
@@ -34,7 +36,8 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(
                 HttpStatus.NOT_FOUND,
                 ex.getMessage(),
-                request.getRequestURI());
+                request.getRequestURI()
+        );
     }
 
     @ExceptionHandler(PaymentAlreadyProcessedException.class)
@@ -45,7 +48,8 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(
                 HttpStatus.BAD_REQUEST,
                 ex.getMessage(),
-                request.getRequestURI());
+                request.getRequestURI()
+        );
     }
 
     @ExceptionHandler(RefundAlreadyProcessedException.class)
@@ -56,7 +60,8 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(
                 HttpStatus.BAD_REQUEST,
                 ex.getMessage(),
-                request.getRequestURI());
+                request.getRequestURI()
+        );
     }
 
     @ExceptionHandler(RefundAmountExceededException.class)
@@ -67,7 +72,8 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(
                 HttpStatus.BAD_REQUEST,
                 ex.getMessage(),
-                request.getRequestURI());
+                request.getRequestURI()
+        );
     }
 
     @ExceptionHandler(InvalidPaymentStateException.class)
@@ -78,7 +84,8 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(
                 HttpStatus.CONFLICT,
                 ex.getMessage(),
-                request.getRequestURI());
+                request.getRequestURI()
+        );
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -95,7 +102,25 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(
                 HttpStatus.BAD_REQUEST,
                 message,
-                request.getRequestURI());
+                request.getRequestURI()
+        );
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ErrorResponse> handleConstraintViolation(
+            ConstraintViolationException ex,
+            HttpServletRequest request) {
+
+        String message = ex.getConstraintViolations()
+                .stream()
+                .map(violation -> violation.getMessage())
+                .collect(Collectors.joining(", "));
+
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                message,
+                request.getRequestURI()
+        );
     }
 
     @ExceptionHandler(Exception.class)
@@ -105,8 +130,9 @@ public class GlobalExceptionHandler {
 
         return buildErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR,
-                ex.getMessage(),
-                request.getRequestURI());
+                "An unexpected error occurred.",
+                request.getRequestURI()
+        );
     }
 
     private ResponseEntity<ErrorResponse> buildErrorResponse(
@@ -122,7 +148,9 @@ public class GlobalExceptionHandler {
                 .path(path)
                 .build();
 
-        return ResponseEntity.status(status).body(errorResponse);
+        return ResponseEntity
+                .status(status)
+                .body(errorResponse);
     }
-
 }
+
