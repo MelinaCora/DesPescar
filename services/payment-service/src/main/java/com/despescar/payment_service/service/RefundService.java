@@ -1,6 +1,7 @@
 package com.despescar.payment_service.service;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.despescar.payment_service.dto.request.RefundRequest;
+import com.despescar.payment_service.dto.response.RefundGatewayResponse;
 import com.despescar.payment_service.dto.response.RefundResponse;
 import com.despescar.payment_service.entity.Payment;
 import com.despescar.payment_service.entity.Refund;
@@ -30,10 +32,19 @@ public class RefundService {
     private final RefundRepository refundRepository;
     private final PaymentRepository paymentRepository;
     private final RefundMapper refundMapper;
+    private final PaymentGatewayService paymentGatewayService;
+    private final RefundHistoryService refundHistoryService;
 
+    /**
+     * Creates a new refund for an approved payment.
+     *
+     * @param request refund request
+     * @return created refund response
+     */
     @Transactional
     public RefundResponse createRefund(RefundRequest request) {
 
+        // 1. Find the payment
         Payment payment = paymentRepository.findById(request.getPaymentId())
                 .orElseThrow(() ->
                         new PaymentNotFoundException(
@@ -41,6 +52,7 @@ public class RefundService {
                                         + request.getPaymentId()
                         ));
 
+        // 2. Validate payment status
         if (payment.getStatus() != PaymentStatus.APPROVED) {
             throw new InvalidPaymentStateException(
                     "Payment cannot be refunded because its current status is: "
@@ -48,6 +60,7 @@ public class RefundService {
             );
         }
 
+        // 3. Calculate the amount already refunded
         BigDecimal refundedAmount = refundRepository
                 .findByPaymentId(payment.getId())
                 .stream()
@@ -57,26 +70,85 @@ public class RefundService {
                 .map(Refund::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        // 4. Calculate the remaining refundable amount
         BigDecimal availableAmount = payment.getAmount()
                 .subtract(refundedAmount);
 
+        // 5. Validate requested refund amount
         if (request.getAmount().compareTo(availableAmount) > 0) {
             throw new RefundAmountExceededException(
                     "Refund amount exceeds the available refundable amount. "
-                            + "Available: " + availableAmount
+                            + "Available amount: "
+                            + availableAmount
             );
         }
 
+        // 6. Create refund entity
         Refund refund = refundMapper.toEntity(request);
 
         refund.setPayment(payment);
         refund.setStatus(RefundStatus.PENDING);
 
+        // 7. Save refund as PENDING
         Refund savedRefund = refundRepository.save(refund);
 
-        return refundMapper.toResponse(savedRefund);
+        // 8. Register refund history
+        refundHistoryService.saveHistory(
+                savedRefund,
+                RefundStatus.PENDING,
+                "Refund created and is pending."
+        );
+
+        // 9. Process refund through payment gateway
+        RefundGatewayResponse gatewayResponse =
+                paymentGatewayService.refund(
+                        payment.getTransactionId(),
+                        savedRefund.getAmount()
+                );
+
+        // 10. Update refund according to gateway response
+        if (gatewayResponse.isApproved()) {
+
+            savedRefund.setStatus(RefundStatus.APPROVED);
+
+            savedRefund.setRefundTransactionId(
+                    gatewayResponse.getRefundTransactionId()
+            );
+
+            savedRefund.setProcessedAt(
+                    LocalDateTime.now()
+            );
+
+            refundHistoryService.saveHistory(
+                    savedRefund,
+                    RefundStatus.APPROVED,
+                    "Refund approved by payment gateway."
+            );
+
+        } else {
+
+            savedRefund.setStatus(RefundStatus.REJECTED);
+
+            refundHistoryService.saveHistory(
+                    savedRefund,
+                    RefundStatus.REJECTED,
+                    "Refund rejected by payment gateway."
+            );
+        }
+
+        // 11. Save updated refund
+        Refund updatedRefund = refundRepository.save(savedRefund);
+
+        // 12. Return response
+        return refundMapper.toResponse(updatedRefund);
     }
 
+    /**
+     * Gets a refund by its ID.
+     *
+     * @param refundId refund ID
+     * @return refund response
+     */
     @Transactional(readOnly = true)
     public RefundResponse getRefundById(UUID refundId) {
 
@@ -89,6 +161,12 @@ public class RefundService {
         return refundMapper.toResponse(refund);
     }
 
+    /**
+     * Gets all refunds associated with a payment.
+     *
+     * @param paymentId payment ID
+     * @return list of refund responses
+     */
     @Transactional(readOnly = true)
     public List<RefundResponse> getRefundsByPayment(UUID paymentId) {
 
@@ -98,6 +176,12 @@ public class RefundService {
                 .toList();
     }
 
+    /**
+     * Gets all refunds associated with a user.
+     *
+     * @param userId user ID
+     * @return list of refund responses
+     */
     @Transactional(readOnly = true)
     public List<RefundResponse> getRefundsByUser(UUID userId) {
 
@@ -106,5 +190,4 @@ public class RefundService {
                 .map(refundMapper::toResponse)
                 .toList();
     }
-
 }
