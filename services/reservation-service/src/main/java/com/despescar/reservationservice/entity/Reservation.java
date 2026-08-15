@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 
 @Entity
 @Table(name = "reservas_grupo")
@@ -27,6 +28,9 @@ public class Reservation {
 
     @Column(name = "vuelo_codigo", nullable = false, length = 20)
     private String vueloCodigo;
+
+    @Column(name = "hotel_id")
+    private UUID hotelId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "estado_reserva", nullable = false)

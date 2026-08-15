@@ -42,6 +42,7 @@ public class ReservationMapper {
         return ReservationResponse.builder()
                 .idCarrito(reserva.getId())
                 .vueloCodigo(reserva.getVueloCodigo())
+                .hotelId(reserva.getHotelId())
                 .estadoGeneral(reserva.getEstado())
                 .segundosRestantes(Math.max(0, segundosRestantes))
                 .asientos(asientos)

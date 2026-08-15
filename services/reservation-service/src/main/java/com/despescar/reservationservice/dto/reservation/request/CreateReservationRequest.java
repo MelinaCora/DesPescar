@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.util.UUID;
 
 @Data
 @NoArgsConstructor
@@ -14,6 +15,8 @@ public class CreateReservationRequest {
     private Long creadorId;
 
     private String vueloCodigo;
+
+    private UUID hotelId;
 
     private List<AsientoSeleccionadoDTO> asientos;
 

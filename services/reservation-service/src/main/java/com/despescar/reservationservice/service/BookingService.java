@@ -1,7 +1,9 @@
 package com.despescar.reservationservice.service;
 
 import com.despescar.reservationservice.client.FlightClient;
+import com.despescar.reservationservice.client.HotelClient;
 import com.despescar.reservationservice.dto.flight.response.FlightLookupResponse;
+import com.despescar.reservationservice.dto.hotel.response.HotelLookupResponse;
 import com.despescar.reservationservice.dto.reservation.request.CreateReservationRequest;
 import com.despescar.reservationservice.dto.reservation.request.ProcessPaymentRequest;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
@@ -30,6 +32,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 
 
 @Service
@@ -58,6 +61,8 @@ public class BookingService {
     private final ReservationMapper reservationMapper;
 
     private final FlightClient flightClient;
+
+    private final HotelClient hotelClient;
 
 
     @Transactional
@@ -88,6 +93,10 @@ public class BookingService {
                 flightClient.getFlightByNumber(dto.getVueloCodigo());
 
         validarEstadoVueloParaReserva(vuelo.getStatus(), dto.getVueloCodigo());
+
+        if (dto.getHotelId() != null) {
+            validarHotelExistente(dto.getHotelId());
+        }
 
 
         Double precioAsiento = obtenerPrecioAsiento(vuelo, dto.getVueloCodigo());
@@ -171,6 +180,7 @@ public class BookingService {
                 Reservation.builder()
                         .creadorId(dto.getCreadorId())
                         .vueloCodigo(dto.getVueloCodigo())
+                        .hotelId(dto.getHotelId())
                         .estado(ReservationState.PENDIENTE)
                         .limiteTiempo(
                                 LocalDateTime.now()
@@ -280,6 +290,17 @@ public class BookingService {
         }
 
         return vuelo.getPrice().doubleValue();
+    }
+
+    private void validarHotelExistente(UUID hotelId) {
+        HotelLookupResponse hotel = hotelClient.getHotelById(hotelId);
+        if (hotel.getId() == null) {
+            throw new BookingException(
+                    "HOTEL_SERVICE_EMPTY_RESPONSE",
+                    "Hotel-Service devolvio una respuesta incompleta para el hotel " + hotelId + ".",
+                    HttpStatus.BAD_GATEWAY
+            );
+        }
     }
 
     public ReservationResponse obtenerReserva(Long id) {
