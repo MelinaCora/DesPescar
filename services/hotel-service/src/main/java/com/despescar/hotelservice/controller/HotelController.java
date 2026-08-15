@@ -27,7 +27,7 @@ public class HotelController {
 
 	}
     @PostMapping("/hoteles")
-    public ResponseEntity<HotelResponse> createHotel(HotelRequest request) {
+    public ResponseEntity<HotelResponse> createHotel(@Valid @RequestBody HotelRequest request) {
         HotelResponse response = hotelService.createHotel(request);
         return new ResponseEntity<>(response, HttpStatus.CREATED);
     }

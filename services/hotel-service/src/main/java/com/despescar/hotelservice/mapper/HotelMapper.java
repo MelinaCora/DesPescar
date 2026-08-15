@@ -31,6 +31,7 @@ public class HotelMapper {
 
         HotelResponse response = new HotelResponse();
         response.setId(hotel.getId());
+        response.setNombre(hotel.getNombre());
         response.setCiudad(hotel.getCiudad());
         response.setDireccion(hotel.getDireccion());
         response.setEstrellas(hotel.getEstrellas());
