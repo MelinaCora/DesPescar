@@ -1,92 +1,69 @@
 package com.despescar.identityservice.security;
 
-import java.security.Key;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
+import javax.crypto.SecretKey;
+
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
-import io.jsonwebtoken.Claims;
 
 @Service
 public class JwtService {
 
-    private static final String SECRET_KEY =
-            "despescar-super-secret-key-for-jwt-token-2026";
+    private final SecretKey key;
+    private final long expirationMs;
 
-    private final Key key =
-            Keys.hmacShaKeyFor(
-                    SECRET_KEY.getBytes()
-            );
-
-    public String generateToken(
-            String email,
-            String role
+    public JwtService(
+            @Value("${jwt.secret}") String secret,
+            @Value("${jwt.expiration-ms:86400000}") long expirationMs
     ) {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalArgumentException("jwt.secret no puede estar vacio");
+        }
 
+        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        this.expirationMs = expirationMs;
+    }
+
+    public String generateToken(String email, String role) {
         return Jwts.builder()
-
-                .subject(email) //guarda quien inicio sesion
-
-                .claim("role", role) //guarda informacion de rol
-
-                .issuedAt(
-                        new Date()
-                )
-
-                .expiration(
-                        new Date(
-                                System.currentTimeMillis() //define cuando expira el token (24 hs)
-                                        + 1000 * 60 * 60 * 24
-                        )
-                )
-
-                .signWith(key) //firma difitalmente el token
-
+                .subject(email)
+                .claim("role", role)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + expirationMs))
+                .signWith(key)
                 .compact();
     }
+
     public String extractUsername(String token) {
-
-        return extractAllClaims(token)
-                .getSubject();
+        return extractAllClaims(token).getSubject();
     }
 
-    public boolean isTokenValid(
-            String token,
-            String email
-    ) {
-
-        String username =
-                extractUsername(token);
-
-        return username.equals(email)
-                && !isTokenExpired(token);
+    public String extractRole(String token) {
+        return extractAllClaims(token).get("role", String.class);
     }
 
-    private boolean isTokenExpired(
-            String token
-    ) {
-
-        return extractAllClaims(token)
-                .getExpiration()
-                .before(new Date());
+    public boolean isTokenValid(String token, String email) {
+        try {
+            Claims claims = extractAllClaims(token);
+            return email.equals(claims.getSubject()) && !claims.getExpiration().before(new Date());
+        } catch (JwtException e) {
+            return false;
+        }
     }
 
-    private Claims extractAllClaims(
-            String token
-    ) {
-
+    private Claims extractAllClaims(String token) {
         return Jwts.parser()
-
-                .verifyWith(
-                        (javax.crypto.SecretKey) key
-                )
-
+                .verifyWith(key)
                 .build()
-
                 .parseSignedClaims(token)
-
                 .getPayload();
     }
 }
