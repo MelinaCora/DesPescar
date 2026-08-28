@@ -6,6 +6,7 @@ import com.despescar.identityservice.dto.request.RegisterUserRequest;
 import com.despescar.identityservice.dto.response.AccessTokenResponse;
 import com.despescar.identityservice.dto.response.LoginResponse;
 import com.despescar.identityservice.dto.response.UserResponse;
+import com.despescar.identityservice.exception.AccountTemporarilyLockedException;
 import com.despescar.identityservice.exception.ExpiredRefreshTokenException;
 import com.despescar.identityservice.exception.RefreshTokenRevokedException;
 import com.despescar.identityservice.service.AuthService;
@@ -104,6 +105,18 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.refreshToken").value("refresh-token-value"))
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
                 .andExpect(jsonPath("$.expiresIn").value(900));
+    }
+
+    @Test
+    @DisplayName("POST /auth/login should reject temporarily locked accounts")
+    void testLoginLockedAccount() throws Exception {
+        when(authService.login(any(LoginRequest.class))).thenThrow(new AccountTemporarilyLockedException(600));
+
+        mockMvc.perform(post("/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isLocked())
+                .andExpect(jsonPath("$.errors.remainingSeconds").value("600"));
     }
 
     @Test
