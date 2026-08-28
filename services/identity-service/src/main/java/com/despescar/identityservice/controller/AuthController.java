@@ -1,7 +1,9 @@
 package com.despescar.identityservice.controller;
 
 import com.despescar.identityservice.dto.request.LoginRequest;
+import com.despescar.identityservice.dto.request.RefreshTokenRequest;
 import com.despescar.identityservice.dto.request.RegisterUserRequest;
+import com.despescar.identityservice.dto.response.AccessTokenResponse;
 import com.despescar.identityservice.dto.response.CurrentUserResponse;
 import com.despescar.identityservice.dto.response.LoginResponse;
 import com.despescar.identityservice.dto.response.UserResponse;
@@ -10,6 +12,7 @@ import com.despescar.identityservice.service.AuthService;
 import com.despescar.identityservice.service.UserService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -43,6 +46,17 @@ public class AuthController {
     @PostMapping("/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    @PostMapping("/refresh")
+    public AccessTokenResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return authService.refresh(request);
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshTokenRequest request) {
+        authService.logout(request);
+        return ResponseEntity.noContent().build();
     }
 
     @SecurityRequirement(name = "bearerAuth")
