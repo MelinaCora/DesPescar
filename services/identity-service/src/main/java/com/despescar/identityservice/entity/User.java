@@ -9,7 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import java.time.LocalDate;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -51,7 +51,7 @@ public class User {
     private Boolean isActive = true;
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
-    private Set<UserRole> roles = new HashSet<>();
+    private Set<UserRole> roles = new LinkedHashSet<>();
 
     public void addRole(UserRole userRole) {
         roles.add(userRole);
@@ -64,10 +64,18 @@ public class User {
     }
 
     public String getPrimaryRoleName() {
-        return roles.stream()
-                .filter(userRole -> userRole.getRole() != null)
-                .map(userRole -> userRole.getRole().getName())
-                .findFirst()
-                .orElse("USER");
+        if (roles.stream().anyMatch(userRole -> userRole.getRole() != null
+                && "SUPER_ADMIN".equalsIgnoreCase(userRole.getRole().getName()))) {
+            return "SUPER_ADMIN";
+        }
+        if (roles.stream().anyMatch(userRole -> userRole.getRole() != null
+                && "AIRLINE_ADMIN".equalsIgnoreCase(userRole.getRole().getName()))) {
+            return "AIRLINE_ADMIN";
+        }
+        if (roles.stream().anyMatch(userRole -> userRole.getRole() != null
+                && "HOTEL_ADMIN".equalsIgnoreCase(userRole.getRole().getName()))) {
+            return "HOTEL_ADMIN";
+        }
+        return "USER";
     }
 }
