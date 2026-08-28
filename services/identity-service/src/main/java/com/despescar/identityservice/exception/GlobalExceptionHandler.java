@@ -55,6 +55,20 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorResponse);
     }
 
+    @ExceptionHandler(AccountTemporarilyLockedException.class)
+    public ResponseEntity<ErrorResponse> handleAccountTemporarilyLocked(AccountTemporarilyLockedException ex) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put("remainingSeconds", String.valueOf(ex.getRemainingSeconds()));
+
+        ErrorResponse errorResponse = new ErrorResponse(
+                HttpStatus.LOCKED.value(),
+                ex.getMessage(),
+                errors,
+                LocalDateTime.now()
+        );
+        return ResponseEntity.status(HttpStatus.LOCKED).body(errorResponse);
+    }
+
     @ExceptionHandler(RefreshTokenNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleRefreshTokenNotFound(RefreshTokenNotFoundException ex) {
         return buildErrorResponse(HttpStatus.NOT_FOUND, ex.getMessage());
