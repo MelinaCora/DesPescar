@@ -5,6 +5,7 @@ import com.despescar.identityservice.dto.response.RoleResponse;
 import com.despescar.identityservice.dto.response.UserResponse;
 import com.despescar.identityservice.entity.User;
 import com.despescar.identityservice.service.UserService;
+import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
@@ -82,7 +83,7 @@ public class UserController {
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<UserResponse> assignRoleToUser(
             @PathVariable Long id,
-            @RequestBody AssignRoleRequest request
+            @Valid @RequestBody AssignRoleRequest request
     ) {
         return ResponseEntity.ok(userService.assignRoleToUser(id, request));
     }

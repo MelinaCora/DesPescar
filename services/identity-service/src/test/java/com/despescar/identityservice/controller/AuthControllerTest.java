@@ -98,7 +98,7 @@ class AuthControllerTest {
         mockMvc.perform(post("/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(invalidRequest)))
-                .andExpect(status().isOk()); // Service handles validation, returns 200 but might throw exception
+                .andExpect(status().isBadRequest());
     }
 
     /* @Test

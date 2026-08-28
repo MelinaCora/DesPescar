@@ -9,6 +9,7 @@ import com.despescar.identityservice.entity.User;
 import com.despescar.identityservice.service.AuthService;
 import com.despescar.identityservice.service.UserService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import jakarta.validation.Valid;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -35,12 +36,12 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public UserResponse register(@RequestBody RegisterUserRequest request) {
+    public UserResponse register(@Valid @RequestBody RegisterUserRequest request) {
         return userService.registerUser(request);
     }
 
     @PostMapping("/login")
-    public LoginResponse login(@RequestBody LoginRequest request) {
+    public LoginResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
     }
 
