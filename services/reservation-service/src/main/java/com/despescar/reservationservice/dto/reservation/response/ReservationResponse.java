@@ -19,6 +19,8 @@ public class ReservationResponse {
 
     private Long idCarrito;
 
+    private Long packageId;
+
     private String vueloCodigo;
 
     private UUID hotelId;

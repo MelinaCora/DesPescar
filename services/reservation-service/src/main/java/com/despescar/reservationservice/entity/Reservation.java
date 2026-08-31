@@ -26,6 +26,9 @@ public class Reservation {
     @Column(name = "creador_id", nullable = false)
     private Long creadorId;
 
+    @Column(name = "package_id")
+    private Long packageId;
+
     @Column(name = "vuelo_codigo", nullable = false, length = 20)
     private String vueloCodigo;
 

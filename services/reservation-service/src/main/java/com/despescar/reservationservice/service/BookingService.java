@@ -2,8 +2,10 @@ package com.despescar.reservationservice.service;
 
 import com.despescar.reservationservice.client.FlightClient;
 import com.despescar.reservationservice.client.HotelClient;
+import com.despescar.reservationservice.client.PackageClient;
 import com.despescar.reservationservice.dto.flight.response.FlightLookupResponse;
 import com.despescar.reservationservice.dto.hotel.response.HotelLookupResponse;
+import com.despescar.reservationservice.dto.packagecatalog.response.PackageLookupResponse;
 import com.despescar.reservationservice.dto.reservation.request.CreateReservationRequest;
 import com.despescar.reservationservice.dto.reservation.request.ProcessPaymentRequest;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
@@ -64,10 +66,16 @@ public class BookingService {
 
     private final HotelClient hotelClient;
 
+    private final PackageClient packageClient;
+
 
     @Transactional
     public ReservationResponse crearReserva(CreateReservationRequest dto) {
+        return crearReserva(dto, null);
+    }
 
+    @Transactional
+    public ReservationResponse crearReserva(CreateReservationRequest dto, String authorizationHeader) {
 
         if (dto.getAsientos() == null || dto.getAsientos().isEmpty()) {
 
@@ -78,6 +86,40 @@ public class BookingService {
             );
         }
 
+        PackageLookupResponse paqueteSeleccionado = null;
+
+        if (dto.getPackageId() != null) {
+            if (authorizationHeader == null || authorizationHeader.isBlank()) {
+                throw new BookingException(
+                        "AUTORIZACION_REQUERIDA",
+                        "Debe enviar un token valido para seleccionar un paquete.",
+                        HttpStatus.UNAUTHORIZED
+                );
+            }
+
+            paqueteSeleccionado = packageClient.getPackageById(dto.getPackageId(), authorizationHeader);
+            validarPaqueteSeleccionado(paqueteSeleccionado, dto.getPackageId());
+
+            if (dto.getVueloCodigo() == null || dto.getVueloCodigo().isBlank()) {
+                dto.setVueloCodigo(paqueteSeleccionado.getFlightNumber());
+            } else if (!dto.getVueloCodigo().equals(paqueteSeleccionado.getFlightNumber())) {
+                throw new BookingException(
+                        "PAQUETE_INCONSISTENTE",
+                        "El vuelo enviado no coincide con el paquete seleccionado.",
+                        HttpStatus.BAD_REQUEST
+                );
+            }
+
+            if (dto.getHotelId() == null) {
+                dto.setHotelId(paqueteSeleccionado.getHotelId());
+            } else if (!dto.getHotelId().equals(paqueteSeleccionado.getHotelId())) {
+                throw new BookingException(
+                        "PAQUETE_INCONSISTENTE",
+                        "El hotel enviado no coincide con el paquete seleccionado.",
+                        HttpStatus.BAD_REQUEST
+                );
+            }
+        }
 
         if (dto.getVueloCodigo() == null || dto.getVueloCodigo().isBlank()) {
 
@@ -179,6 +221,7 @@ public class BookingService {
         Reservation reserva =
                 Reservation.builder()
                         .creadorId(dto.getCreadorId())
+                        .packageId(dto.getPackageId())
                         .vueloCodigo(dto.getVueloCodigo())
                         .hotelId(dto.getHotelId())
                         .estado(ReservationState.PENDIENTE)
@@ -299,6 +342,40 @@ public class BookingService {
                     "HOTEL_SERVICE_EMPTY_RESPONSE",
                     "Hotel-Service devolvio una respuesta incompleta para el hotel " + hotelId + ".",
                     HttpStatus.BAD_GATEWAY
+            );
+        }
+    }
+
+    private void validarPaqueteSeleccionado(PackageLookupResponse paquete, Long packageId) {
+        if (paquete.getId() == null) {
+            throw new BookingException(
+                    "PACKAGE_SERVICE_EMPTY_RESPONSE",
+                    "Package-Service devolvio una respuesta incompleta para el paquete " + packageId + ".",
+                    HttpStatus.BAD_GATEWAY
+            );
+        }
+
+        if (!paquete.isActive()) {
+            throw new BookingException(
+                    "PAQUETE_INACTIVO",
+                    "El paquete " + packageId + " no se encuentra activo.",
+                    HttpStatus.CONFLICT
+            );
+        }
+
+        if (paquete.getFlightNumber() == null || paquete.getFlightNumber().isBlank()) {
+            throw new BookingException(
+                    "PAQUETE_SIN_VUELO",
+                    "El paquete " + packageId + " no tiene vuelo asociado.",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+
+        if (paquete.getHotelId() == null) {
+            throw new BookingException(
+                    "PAQUETE_SIN_HOTEL",
+                    "El paquete " + packageId + " no tiene hotel asociado.",
+                    HttpStatus.BAD_REQUEST
             );
         }
     }
@@ -603,5 +680,4 @@ public class BookingService {
         );
     }
 }
-
 

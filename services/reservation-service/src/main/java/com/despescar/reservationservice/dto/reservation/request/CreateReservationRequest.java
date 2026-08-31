@@ -14,6 +14,8 @@ public class CreateReservationRequest {
 
     private Long creadorId;
 
+    private Long packageId;
+
     private String vueloCodigo;
 
     private UUID hotelId;
