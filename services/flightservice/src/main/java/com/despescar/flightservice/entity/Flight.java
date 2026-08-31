@@ -53,4 +53,8 @@ public class Flight {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private FlightStatus status;
+
+    @OneToOne
+    @JoinColumn(name = "baggage_policy_id")
+    private BaggagePolicy baggagePolicy;
 }
