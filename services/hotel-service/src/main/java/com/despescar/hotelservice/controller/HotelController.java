@@ -45,7 +45,19 @@ public class HotelController {
     public ResponseEntity<Void> deleteHotel(@PathVariable UUID id) {
         hotelService.deleteHotel(id);
         return ResponseEntity.noContent().build();
+    }
 
+    /**
+     * Ajustar habitaciones disponibles (uso interno del reservation-service).
+     * delta negativo para reservar habitaciones, positivo para liberarlas.
+     */
+    @PatchMapping("/hoteles/{id}/rooms")
+    public ResponseEntity<Void> adjustRooms(
+            @PathVariable UUID id,
+            @RequestParam int delta) {
+
+        hotelService.adjustRooms(id, delta);
+        return ResponseEntity.noContent().build();
     }
     /**
      * Buscar un hotel por ID (UUID)

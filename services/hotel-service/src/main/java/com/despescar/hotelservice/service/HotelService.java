@@ -78,5 +78,27 @@ public class HotelService  {
         hotelRepository.delete(hotel);
     }
 
+    /**
+     * Ajusta las habitaciones disponibles de forma atómica.
+     * delta negativo para reservar, positivo para liberar.
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public void adjustRooms(UUID id, int delta) {
+
+        Hotel hotel = hotelRepository.findById(id)
+                .orElseThrow(() -> new HotelNotFoundException(id));
+
+        int nuevasHabitaciones = hotel.getHabitacionesDisponibles() + delta;
+        if (nuevasHabitaciones < 0) {
+            throw new IllegalStateException(
+                    "No hay habitaciones disponibles en el hotel " + id +
+                    ". Disponibles: " + hotel.getHabitacionesDisponibles() + ", solicitadas: " + (-delta)
+            );
+        }
+
+        hotel.setHabitacionesDisponibles(nuevasHabitaciones);
+        hotelRepository.save(hotel);
+    }
+
 
 }

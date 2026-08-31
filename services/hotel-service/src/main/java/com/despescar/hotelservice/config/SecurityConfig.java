@@ -24,6 +24,8 @@ public class SecurityConfig {
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                // Endpoint interno de ajuste de habitaciones: llamado por reservation-service
+                .requestMatchers(HttpMethod.PATCH, "/hoteles/*/rooms").permitAll()
                 .requestMatchers(HttpMethod.GET, "/hoteles/**").authenticated()
                 .requestMatchers(HttpMethod.POST, "/hoteles/**").hasAnyRole("SUPER_ADMIN", "HOTEL_ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/hoteles/**").hasAnyRole("SUPER_ADMIN", "HOTEL_ADMIN")
