@@ -141,6 +141,28 @@ public class FlightService {
     }
 
     /**
+     * Ajusta los asientos disponibles de un vuelo de forma atómica.
+     * delta negativo para reservar, positivo para liberar.
+     */
+    @org.springframework.transaction.annotation.Transactional
+    public void adjustSeats(String flightNumber, int delta) {
+
+        Flight flight = flightRepository.findByFlightNumber(flightNumber)
+                .orElseThrow(FlightNotFoundException::new);
+
+        int nuevosAsientos = flight.getAvailableSeats() + delta;
+        if (nuevosAsientos < 0) {
+            throw new IllegalStateException(
+                    "No hay suficientes asientos disponibles en el vuelo " + flightNumber +
+                    ". Disponibles: " + flight.getAvailableSeats() + ", solicitados: " + (-delta)
+            );
+        }
+
+        flight.setAvailableSeats(nuevosAsientos);
+        flightRepository.save(flight);
+    }
+
+    /**
      * Obtiene todos los vuelos de una aerolínea.
      */
     public List<FlightResponse> getFlightsByAirline(UUID airlineId) {

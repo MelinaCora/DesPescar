@@ -129,4 +129,17 @@ public class FlightController {
 
         return ResponseEntity.noContent().build();
     }
+
+    /**
+     * Ajustar asientos disponibles (uso interno del reservation-service).
+     * delta negativo para reservar asientos, positivo para liberarlos.
+     */
+    @PatchMapping("/number/{flightNumber}/seats")
+    public ResponseEntity<Void> adjustSeats(
+            @PathVariable String flightNumber,
+            @RequestParam int delta) {
+
+        flightService.adjustSeats(flightNumber, delta);
+        return ResponseEntity.noContent().build();
+    }
 }
