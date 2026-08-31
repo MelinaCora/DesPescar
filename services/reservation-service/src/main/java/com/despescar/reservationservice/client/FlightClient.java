@@ -5,6 +5,9 @@ import com.despescar.reservationservice.exception.BookingException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
@@ -89,6 +92,36 @@ public class FlightClient {
 
     private boolean isTimeout(ResourceAccessException ex) {
         return ex.getMessage() != null && ex.getMessage().toLowerCase().contains("timed out");
+    }
+
+    /**
+     * Ajusta asientos disponibles en flight-service.
+     * delta negativo para reservar, positivo para liberar.
+     */
+    public void adjustSeats(String flightNumber, int delta) {
+        try {
+            restTemplate.exchange(
+                    flightServiceUrl + "/api/flights/number/{flightNumber}/seats?delta={delta}",
+                    HttpMethod.PATCH,
+                    new HttpEntity<>(new HttpHeaders()),
+                    Void.class,
+                    flightNumber, delta
+            );
+        } catch (HttpClientErrorException ex) {
+            log.error("Flight-Service rechazo el ajuste de asientos para vuelo {}: {}", flightNumber, ex.getMessage());
+            throw new BookingException(
+                    "FLIGHT_SEATS_ADJUST_ERROR",
+                    "No se pudo actualizar la disponibilidad del vuelo " + flightNumber + ".",
+                    HttpStatus.BAD_GATEWAY
+            );
+        } catch (Exception ex) {
+            log.error("Error ajustando asientos del vuelo {}", flightNumber, ex);
+            throw new BookingException(
+                    "FLIGHT_SEATS_ADJUST_ERROR",
+                    "No se pudo actualizar la disponibilidad del vuelo " + flightNumber + ".",
+                    HttpStatus.BAD_GATEWAY
+            );
+        }
     }
 
     private String sanitizeBaseUrl(String baseUrl) {

@@ -135,9 +135,11 @@ public class BookingService {
                 flightClient.getFlightByNumber(dto.getVueloCodigo());
 
         validarEstadoVueloParaReserva(vuelo.getStatus(), dto.getVueloCodigo());
+        validarAsientosDisponibles(vuelo, dto.getAsientos().size());
 
+        HotelLookupResponse hotel = null;
         if (dto.getHotelId() != null) {
-            validarHotelExistente(dto.getHotelId());
+            hotel = validarYObtenerHotel(dto.getHotelId());
         }
 
 
@@ -292,6 +294,11 @@ public class BookingService {
 
         reserva.setDetalles(detalles);
 
+        // Descontar inventario en los servicios externos
+        flightClient.adjustSeats(dto.getVueloCodigo(), -dto.getAsientos().size());
+        if (dto.getHotelId() != null) {
+            hotelClient.adjustRooms(dto.getHotelId(), -1);
+        }
 
         return reservationMapper.toResponse(reserva);
     }
@@ -335,7 +342,21 @@ public class BookingService {
         return vuelo.getPrice().doubleValue();
     }
 
-    private void validarHotelExistente(UUID hotelId) {
+    private void validarAsientosDisponibles(FlightLookupResponse vuelo, int cantidadSolicitada) {
+        if (vuelo.getAvailableSeats() == null) {
+            return; // si el servicio no envía el campo, no bloqueamos
+        }
+        if (vuelo.getAvailableSeats() < cantidadSolicitada) {
+            throw new BookingException(
+                    "SIN_DISPONIBILIDAD_VUELO",
+                    "El vuelo " + vuelo.getFlightNumber() + " no tiene suficientes asientos disponibles. " +
+                    "Disponibles: " + vuelo.getAvailableSeats() + ", solicitados: " + cantidadSolicitada + ".",
+                    HttpStatus.CONFLICT
+            );
+        }
+    }
+
+    private HotelLookupResponse validarYObtenerHotel(UUID hotelId) {
         HotelLookupResponse hotel = hotelClient.getHotelById(hotelId);
         if (hotel.getId() == null) {
             throw new BookingException(
@@ -344,6 +365,18 @@ public class BookingService {
                     HttpStatus.BAD_GATEWAY
             );
         }
+        if (hotel.getHabitacionesDisponibles() < 1) {
+            throw new BookingException(
+                    "SIN_DISPONIBILIDAD_HOTEL",
+                    "El hotel " + hotelId + " no tiene habitaciones disponibles.",
+                    HttpStatus.CONFLICT
+            );
+        }
+        return hotel;
+    }
+
+    private void validarHotelExistente(UUID hotelId) {
+        validarYObtenerHotel(hotelId);
     }
 
     private void validarPaqueteSeleccionado(PackageLookupResponse paquete, Long packageId) {
@@ -609,6 +642,15 @@ public class BookingService {
                 id
         );
 
+        // Restaurar inventario
+        try {
+            flightClient.adjustSeats(reserva.getVueloCodigo(), detalles.size());
+            if (reserva.getHotelId() != null) {
+                hotelClient.adjustRooms(reserva.getHotelId(), 1);
+            }
+        } catch (Exception e) {
+            log.error("No se pudo restaurar el inventario al cancelar la reserva {}. Revisar manualmente.", id, e);
+        }
 
         notificarCambioEnTiempoReal(reserva);
     }

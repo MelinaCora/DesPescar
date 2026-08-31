@@ -108,6 +108,7 @@ class BookingServicePackageSelectionTest {
 
         HotelLookupResponse hotelResponse = new HotelLookupResponse();
         hotelResponse.setId(hotelId);
+        hotelResponse.setHabitacionesDisponibles(5);
 
         when(packageClient.getPackageById(eq(packageId), eq("Bearer token"))).thenReturn(packageResponse);
         when(flightClient.getFlightByNumber("AR123")).thenReturn(flightResponse);

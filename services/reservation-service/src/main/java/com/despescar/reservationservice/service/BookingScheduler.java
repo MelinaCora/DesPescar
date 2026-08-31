@@ -1,5 +1,7 @@
 package com.despescar.reservationservice.service;
 
+import com.despescar.reservationservice.client.FlightClient;
+import com.despescar.reservationservice.client.HotelClient;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
 import com.despescar.reservationservice.entity.Reservation;
 import com.despescar.reservationservice.enums.ReservationPaymentState;
@@ -24,6 +26,8 @@ public class BookingScheduler {
 
     private final BookingRepository bookingRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final FlightClient flightClient;
+    private final HotelClient hotelClient;
 
 
     @Scheduled(fixedRate = 60000)
@@ -46,6 +50,7 @@ public class BookingScheduler {
 
                 reserva.setEstado(ReservationState.EXPIRADA);
 
+                int cantidadAsientos = reserva.getDetalles().size();
 
                 reserva.getDetalles().forEach(detalle -> {
 
@@ -67,12 +72,20 @@ public class BookingScheduler {
 
                 bookingRepository.save(reserva);
 
-
                 log.warn(
                         "Cron Job: El carrito ID {} expiró. Liberando inventario.",
                         reserva.getId()
                 );
 
+                // Restaurar inventario en los servicios externos
+                try {
+                    flightClient.adjustSeats(reserva.getVueloCodigo(), cantidadAsientos);
+                    if (reserva.getHotelId() != null) {
+                        hotelClient.adjustRooms(reserva.getHotelId(), 1);
+                    }
+                } catch (Exception e) {
+                    log.error("No se pudo restaurar inventario para reserva expirada {}.", reserva.getId(), e);
+                }
 
                 ReservationResponse responseExpirada =
                         mapearAResponseDTO(reserva);

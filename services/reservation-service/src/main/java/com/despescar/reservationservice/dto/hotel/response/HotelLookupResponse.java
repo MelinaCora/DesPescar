@@ -16,5 +16,7 @@ import java.util.UUID;
 public class HotelLookupResponse {
 
     private UUID id;
+
+    private int habitacionesDisponibles;
 }
 

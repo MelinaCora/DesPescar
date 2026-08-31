@@ -5,6 +5,9 @@ import com.despescar.reservationservice.exception.BookingException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
@@ -91,6 +94,36 @@ public class HotelClient {
 
     private boolean isTimeout(ResourceAccessException ex) {
         return ex.getMessage() != null && ex.getMessage().toLowerCase().contains("timed out");
+    }
+
+    /**
+     * Ajusta habitaciones disponibles en hotel-service.
+     * delta negativo para reservar, positivo para liberar.
+     */
+    public void adjustRooms(UUID hotelId, int delta) {
+        try {
+            restTemplate.exchange(
+                    hotelServiceUrl + "/hoteles/{id}/rooms?delta={delta}",
+                    HttpMethod.PATCH,
+                    new HttpEntity<>(new HttpHeaders()),
+                    Void.class,
+                    hotelId, delta
+            );
+        } catch (HttpClientErrorException ex) {
+            log.error("Hotel-Service rechazo el ajuste de habitaciones para hotel {}: {}", hotelId, ex.getMessage());
+            throw new BookingException(
+                    "HOTEL_ROOMS_ADJUST_ERROR",
+                    "No se pudo actualizar la disponibilidad del hotel " + hotelId + ".",
+                    HttpStatus.BAD_GATEWAY
+            );
+        } catch (Exception ex) {
+            log.error("Error ajustando habitaciones del hotel {}", hotelId, ex);
+            throw new BookingException(
+                    "HOTEL_ROOMS_ADJUST_ERROR",
+                    "No se pudo actualizar la disponibilidad del hotel " + hotelId + ".",
+                    HttpStatus.BAD_GATEWAY
+            );
+        }
     }
 
     private String sanitizeBaseUrl(String baseUrl) {
