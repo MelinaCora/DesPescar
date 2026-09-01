@@ -1,0 +1,119 @@
+spring:
+  application:
+    name: gateway-service
+  cloud:
+    gateway:
+      server:
+        webflux:
+          httpclient:
+            connect-timeout: 3000
+            response-timeout: 5s
+          default-filters:
+            - name: CircuitBreaker
+              args:
+                name: gatewayCircuitBreaker
+                fallbackUri: forward:/fallback/unavailable
+          globalcors:
+            cors-configurations:
+              '[/**]':
+                allowedOriginPatterns: "*"
+                allowedMethods:
+                  - GET
+                  - POST
+                  - PUT
+                  - PATCH
+                  - DELETE
+                  - OPTIONS
+                allowedHeaders: "*"
+                allowCredentials: false
+          routes:
+            - id: identity-auth
+              uri: http://localhost:8080
+              predicates:
+                - Path=/api/auth/**
+              filters:
+                - RewritePath=/api/auth/?(?<segment>.*), /auth/$\{segment}
+
+            - id: identity-users
+              uri: http://localhost:8080
+              predicates:
+                - Path=/api/users/**
+              filters:
+                - RewritePath=/api/users/?(?<segment>.*), /users/$\{segment}
+
+            - id: flights
+              uri: http://localhost:8081
+              predicates:
+                - Path=/api/flights/**,/api/airlines/**,/api/airports/**,/api/baggage-policies/**
+
+            - id: hotels-direct
+              uri: http://localhost:8083
+              predicates:
+                - Path=/hoteles/**
+
+            - id: hotels-api
+              uri: http://localhost:8083
+              predicates:
+                - Path=/api/hotels/**
+              filters:
+                - RewritePath=/api/hotels/?(?<segment>.*), /hoteles/$\{segment}
+
+            - id: packages
+              uri: http://localhost:8086
+              predicates:
+                - Path=/api/packages/**
+
+            - id: reservations
+              uri: http://localhost:8085
+              predicates:
+                - Path=/api/bookings/**
+
+            - id: extra-baggage
+              uri: http://localhost:8085
+              predicates:
+                - Path=/api/extra-baggage/**
+              filters:
+                - RewritePath=/api/extra-baggage/?(?<segment>.*), /extra-baggage/$\{segment}
+
+            - id: payments
+              uri: http://localhost:8084
+              predicates:
+                - Path=/api/payments/**
+              filters:
+                - RewritePath=/api/payments/?(?<segment>.*), /$\{segment}
+
+server:
+  port: 8087
+
+management:
+  endpoint:
+    health:
+      show-details: always
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway,metrics,httpexchanges
+
+jwt:
+  secret: ${JWT_SECRET:despescar-dev-secret-key-2026-must-be-long-enough}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      gatewayCircuitBreaker:
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 20s
+        permittedNumberOfCallsInHalfOpenState: 5
+  timelimiter:
+    instances:
+      gatewayCircuitBreaker:
+        timeoutDuration: 5s
+        cancelRunningFuture: true
+
+gateway:
+  rate-limit:
+    requests-per-minute: 120
