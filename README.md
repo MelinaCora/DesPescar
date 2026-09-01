@@ -14,6 +14,7 @@ Plataforma de reservas de viajes construida con arquitectura de microservicios e
 | `payment-service` | 8084 | — | Procesamiento de pagos *(en desarrollo)* |
 | `reservation-service` | 8085 | `despescar_reservation` | Reservas de vuelos, hoteles y paquetes |
 | `package-service` | 8086 | `despescar_package` | Paquetes turísticos (vuelo + hotel) |
+| `gateway-service` | 8087 | — | API Gateway para exponer una única entrada al frontend |
 
 ---
 
@@ -52,9 +53,9 @@ Requiere autenticación. El campo `availableSeats` indica asientos libres en tie
 ### 3. Consulta de hoteles
 
 ```
-GET /hoteles                    → listar todos
-GET /hoteles/{id}               → buscar por ID
-GET /hoteles/ciudad/{ciudad}    → buscar por ciudad
+GET /api/hotels                 → listar todos
+GET /api/hotels/{id}            → buscar por ID
+GET /api/hotels/ciudad/{ciudad} → buscar por ciudad
 ```
 
 Requiere autenticación. El campo `habitacionesDisponibles` refleja disponibilidad real.
@@ -152,6 +153,17 @@ Cada pasajero paga su asiento de forma independiente. Cuando todos los pasajeros
 - Firma HMAC-SHA256 con clave configurable via variable de entorno `JWT_SECRET`
 - Refresh tokens con expiración independiente
 - Bloqueo de cuenta tras múltiples intentos fallidos de login
+- El `gateway-service` valida JWT y rol antes de enrutar, manteniendo además la validación en cada microservicio
+
+---
+
+## Gateway (8087)
+
+- Entrada única para frontend: `http://localhost:8087`
+- Timeouts homogéneos para llamadas salientes (connect/read)
+- Respuestas de error unificadas con `requestId`
+- Request tracing con header `X-Request-Id` + métrica `despescar.gateway.requests`
+- Rate limiting por IP y circuit breaker con fallback `/fallback/unavailable`
 
 ---
 
@@ -185,19 +197,14 @@ http://localhost:<puerto>/swagger-ui/index.html
 ## Diagrama de interacción
 
 ```
-Cliente
+Cliente / Frontend
   │
-  ├─► identity-service (8080)   ← login / refresh token
-  │
-  ├─► flightservice (8081)      ← consultar vuelos
-  │
-  ├─► hotel-service (8083)      ← consultar hoteles
-  │
-  ├─► package-service (8086)    ← consultar paquetes
-  │
-  └─► reservation-service (8085) ← crear/pagar/cancelar reservas
-           │
-           ├─► flightservice    (validar vuelo + ajustar asientos)
-           ├─► hotel-service    (validar hotel + ajustar habitaciones)
-           └─► package-service  (validar paquete)
+  └─► gateway-service (8087)
+          │
+          ├─► identity-service   (8080)
+          ├─► flightservice      (8081)
+          ├─► hotel-service      (8083)
+          ├─► payment-service    (8084)
+          ├─► reservation-service (8085)
+          └─► package-service    (8086)
 ```
