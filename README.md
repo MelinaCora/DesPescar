@@ -256,6 +256,32 @@ Cada pasajero paga su asiento de forma independiente. Cuando todos los pasajeros
 | GET | `/api/koi/sessions/{sessionId}` | Ver el estado actual de la conversación |
 | POST | `/api/koi/sessions/{sessionId}/messages` | Enviar un mensaje y recibir preguntas/recomendaciones |
 
+#### IA en KOI: motor de reglas + LLM opcional (Ollama)
+
+Por defecto, KOI funciona con un **motor de reglas** (regex + memoria de sesión): detecta
+intención, extrae presupuesto/destino/origen/estilo/noches/mes, pregunta solo lo que falta
+y arma respuestas con plantillas. **No requiere ninguna IA externa para funcionar.**
+
+Opcionalmente, se puede conectar un **LLM local vía [Ollama](https://ollama.com)** para que
+complemente (no reemplace) esa lógica:
+- Mejora la extracción de datos quando el usuario escribe en lenguaje libre.
+- Redacta saludos, preguntas y recomendaciones de forma más natural y variada.
+- El LLM **nunca decide precios ni paquetes**: esos datos siempre vienen de los
+  microservicios de catálogo, evitando alucinaciones. Si Ollama no está corriendo o falla,
+  KOI cae automáticamente en el motor de reglas sin romperse.
+
+Para habilitarlo:
+```bash
+# 1. Instalar Ollama: https://ollama.com/download
+# 2. Descargar un modelo liviano
+ollama pull llama3.2
+
+# 3. En application.properties de koi-ia-service:
+koi.ai.enabled=true
+koi.ai.ollama.base-url=http://localhost:11434
+koi.ai.ollama.model=llama3.2
+```
+
 ### `payment-service` (8084)
 | Método | Endpoint | Para qué sirve |
 |---|---|---|

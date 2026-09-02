@@ -18,6 +18,7 @@ import com.despescar.koiiaservice.enums.MissingInfoField;
 import com.despescar.koiiaservice.enums.UserIntent;
 import com.despescar.koiiaservice.repository.KoiConversationMessageRepository;
 import com.despescar.koiiaservice.repository.KoiConversationSessionRepository;
+import com.despescar.koiiaservice.service.ai.KoiAiAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -60,6 +61,9 @@ class KoiConversationServiceTest {
 
     @Mock
     private HotelCatalogClient hotelCatalogClient;
+
+    @Mock
+    private KoiAiAssistant koiAiAssistant;
 
     @InjectMocks
     private KoiConversationService koiConversationService;

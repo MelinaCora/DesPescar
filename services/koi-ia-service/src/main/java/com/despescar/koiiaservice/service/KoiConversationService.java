@@ -20,6 +20,8 @@ import com.despescar.koiiaservice.exception.KoiCatalogUnavailableException;
 import com.despescar.koiiaservice.exception.KoiSessionNotFoundException;
 import com.despescar.koiiaservice.repository.KoiConversationMessageRepository;
 import com.despescar.koiiaservice.repository.KoiConversationSessionRepository;
+import com.despescar.koiiaservice.service.ai.ExtractedTravelInfo;
+import com.despescar.koiiaservice.service.ai.KoiAiAssistant;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +37,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -45,6 +48,7 @@ public class KoiConversationService {
     private final PackageCatalogClient packageCatalogClient;
     private final FlightCatalogClient flightCatalogClient;
     private final HotelCatalogClient hotelCatalogClient;
+    private final KoiAiAssistant koiAiAssistant;
 
     @Transactional
     public KoiConversationResponse startSession(String userIdentifier) {
@@ -220,12 +224,51 @@ public class KoiConversationService {
             session.setTravelMonth(month);
         }
 
+        if (koiAiAssistant.isEnabled()) {
+            koiAiAssistant.extractTravelInfo(message).ifPresent(info -> applyAiExtraction(session, info));
+        }
+
         syncPreferenceSnapshot(session);
 
         if (session.getUserGoal() == null || session.getUserGoal().isBlank()) {
             session.setUserGoal(message);
         } else {
             session.setUserGoal(session.getUserGoal() + " | " + message);
+        }
+    }
+
+    /**
+     * Completa con los datos que devolvió el LLM SOLO aquellos campos que el
+     * extractor por regex no pudo detectar. El LLM complementa, no reemplaza.
+     */
+    private void applyAiExtraction(KoiConversationSession session, ExtractedTravelInfo info) {
+        if (session.getBudget() == null && info.budget() != null) {
+            session.setBudget(info.budget());
+            session.setPreferredBudget(info.budget());
+        }
+        if (session.getTravelers() == null && info.travelers() != null) {
+            session.setTravelers(info.travelers());
+            session.setPreferredTravelers(info.travelers());
+            session.setPreferredSoloTravel(info.travelers() == 1);
+        }
+        if (isBlank(session.getDestination()) && !isBlank(info.destination())) {
+            session.setDestination(info.destination());
+            session.setPreferredDestination(info.destination());
+        }
+        if (isBlank(session.getOrigin()) && !isBlank(info.origin())) {
+            session.setOrigin(info.origin());
+            session.setPreferredOrigin(info.origin());
+        }
+        if (isBlank(session.getTravelStyle()) && !isBlank(info.travelStyle())) {
+            session.setTravelStyle(info.travelStyle());
+            session.setPreferredTravelStyle(info.travelStyle());
+        }
+        if (session.getNights() == null && info.nights() != null) {
+            session.setNights(info.nights());
+            session.setPreferredNights(info.nights());
+        }
+        if (isBlank(session.getTravelMonth()) && !isBlank(info.month())) {
+            session.setTravelMonth(info.month());
         }
     }
 
@@ -275,7 +318,7 @@ public class KoiConversationService {
     }
 
     private String friendlyQuestion(MissingInfoField field, KoiConversationSession session) {
-        return switch (field) {
+        String base = switch (field) {
             case BUDGET -> "¡Buenísimo! ¿Con qué presupuesto te gustaría jugar para buscar opciones?";
             case TRAVELERS -> "¿Cuántas personas viajan?";
             case DESTINATION -> "¿Tenés algún destino en mente?";
@@ -284,6 +327,7 @@ public class KoiConversationService {
             case NIGHTS -> "¿Cuántas noches querés viajar?";
             case MONTH -> "¿En qué mes te gustaría viajar?";
         };
+        return koiAiAssistant.humanizeQuestion(base).orElse(base);
     }
 
     private List<KoiRecommendationResponse> buildRecommendations(KoiConversationSession session) {
@@ -421,7 +465,8 @@ public class KoiConversationService {
 
     private String composeRecommendationReply(KoiConversationSession session, List<KoiRecommendationResponse> recommendations) {
         if (recommendations.isEmpty()) {
-            return "No encontré algo exacto, pero te puedo mostrar opciones parecidas si flexibilizamos un poquito el presupuesto o las fechas.";
+            String fallback = "No encontré algo exacto, pero te puedo mostrar opciones parecidas si flexibilizamos un poquito el presupuesto o las fechas.";
+            return koiAiAssistant.humanizeFallback(fallback).orElse(fallback);
         }
 
         StringBuilder reply = new StringBuilder();
@@ -432,7 +477,12 @@ public class KoiConversationService {
         }
         reply.append(".\n");
         reply.append("Si querés, después te ayudo a afinar cuál conviene más por comodidad, precio o ubicación.");
-        return reply.toString();
+        String baseReply = reply.toString();
+
+        String recommendationsContext = recommendations.stream()
+                .map(r -> "- " + r.getTitle() + " (" + formatMoney(r.getPrice()) + ") en " + r.getDestination())
+                .collect(Collectors.joining("\n"));
+        return koiAiAssistant.humanizeRecommendationReply(baseReply, recommendationsContext).orElse(baseReply);
     }
 
     private String formatMoney(BigDecimal amount) {
@@ -561,12 +611,14 @@ public class KoiConversationService {
                 reply.append(Boolean.TRUE.equals(session.getPreferredSoloTravel()) ? "Sueles viajar solo/a. " : "Sueles viajar en grupo. ");
             }
             reply.append("\n¿Querés seguir con esa idea o probamos algo distinto?");
-            return reply.toString().trim();
+            String baseReply = reply.toString().trim();
+            return koiAiAssistant.humanizeGreeting(baseReply).orElse(baseReply);
         }
 
         reply.append("¿En qué puedo ayudarte hoy?\n");
         reply.append("Contame qué tipo de viaje querés armar y te voy guiando paso a paso.");
-        return reply.toString();
+        String baseReply = reply.toString();
+        return koiAiAssistant.humanizeGreeting(baseReply).orElse(baseReply);
     }
 
     private String normalizeUserIdentifier(String userIdentifier) {
