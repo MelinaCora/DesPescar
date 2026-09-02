@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestHeader;
 
 import java.util.UUID;
 
@@ -25,8 +26,10 @@ public class KoiConversationController {
     private final KoiConversationService koiConversationService;
 
     @PostMapping("/sessions")
-    public ResponseEntity<KoiConversationResponse> createSession() {
-        return ResponseEntity.status(HttpStatus.CREATED).body(koiConversationService.startSession());
+    public ResponseEntity<KoiConversationResponse> createSession(
+            @RequestHeader(value = "X-Authenticated-User", required = false) String userIdentifier
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(koiConversationService.startSession(userIdentifier));
     }
 
     @GetMapping("/sessions/{sessionId}")
@@ -37,8 +40,9 @@ public class KoiConversationController {
     @PostMapping("/sessions/{sessionId}/messages")
     public ResponseEntity<KoiConversationResponse> sendMessage(
             @PathVariable UUID sessionId,
+            @RequestHeader(value = "X-Authenticated-User", required = false) String userIdentifier,
             @Valid @RequestBody KoiConversationMessageRequest request
     ) {
-        return ResponseEntity.ok(koiConversationService.handleMessage(sessionId, request));
+        return ResponseEntity.ok(koiConversationService.handleMessage(sessionId, request, userIdentifier));
     }
 }

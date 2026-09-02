@@ -18,6 +18,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,10 +50,44 @@ public class KoiConversationSession {
 
     private String destination;
 
+    private String origin;
+
+    private String travelStyle;
+
+    private Integer nights;
+
     private String travelMonth;
+
+    private LocalDate departureDate;
+
+    private LocalDate returnDate;
 
     @Column(length = 500)
     private String userGoal;
+
+    @Column(length = 120)
+    private String userIdentifier;
+
+    private BigDecimal preferredBudget;
+
+    private Integer preferredTravelers;
+
+    @Column(length = 120)
+    private String preferredDestination;
+
+    @Column(length = 120)
+    private String preferredOrigin;
+
+    @Column(length = 120)
+    private String preferredTravelStyle;
+
+    private Integer preferredNights;
+
+    private Boolean preferredSoloTravel;
+
+    private LocalDate preferredDepartureDate;
+
+    private LocalDate preferredReturnDate;
 
     @Column(length = 2000)
     private String lastAssistantMessage;
