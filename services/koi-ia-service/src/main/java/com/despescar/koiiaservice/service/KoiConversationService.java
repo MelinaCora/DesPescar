@@ -53,10 +53,10 @@ public class KoiConversationService {
         session = sessionRepository.save(session);
 
         String reply = "¡Hola! Soy KOI ✨\n"
-                + "Te ayudo a encontrar vacaciones, vuelos u hoteles que encajen con tu presupuesto.\n"
-                + "Para arrancar, ¿con qué presupuesto querés que trabaje?";
+                + "¿En qué puedo ayudarte hoy?\n"
+                + "Contame qué tipo de viaje querés armar y te voy guiando paso a paso.";
         saveAssistantMessage(session, reply);
-        return toConversationResponse(session, reply, true, MissingInfoField.BUDGET, List.of());
+        return toConversationResponse(session, reply, false, null, List.of());
     }
 
     @Transactional(readOnly = true)
@@ -178,7 +178,7 @@ public class KoiConversationService {
 
     private String friendlyQuestion(MissingInfoField field, KoiConversationSession session) {
         return switch (field) {
-            case BUDGET -> "¡Genial! Para arrancar bien, ¿con qué presupuesto querés que trabaje?";
+            case BUDGET -> "¡Buenísimo! ¿Con qué presupuesto te gustaría jugar para buscar opciones?";
             case TRAVELERS -> "¿Cuántas personas viajan?";
             case DESTINATION -> "¿Tenés algún destino en mente?";
             case MONTH -> "¿En qué mes te gustaría viajar?";

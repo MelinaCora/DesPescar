@@ -168,6 +168,101 @@ Cada pasajero paga su asiento de forma independiente. Cuando todos los pasajeros
 
 ---
 
+## Endpoints por servicio
+
+### `identity-service` (8080)
+| Método | Endpoint | Para qué sirve |
+|---|---|---|
+| POST | `/auth/register` | Registrar un usuario nuevo |
+| POST | `/auth/login` | Iniciar sesión y devolver tokens JWT |
+| POST | `/auth/refresh` | Renovar el access token |
+| POST | `/auth/logout` | Cerrar sesión invalidando el refresh token |
+| GET | `/auth/me` | Ver el usuario autenticado |
+| GET | `/users/me` | Ver perfil del usuario autenticado |
+| GET | `/users/me/roles` | Ver roles del usuario autenticado |
+| GET | `/users` | Listar usuarios (solo admin) |
+| GET | `/users/{id}` | Obtener usuario por ID (solo admin) |
+| GET | `/users/roles` | Listar roles disponibles (solo admin) |
+| POST | `/users/{id}/roles` | Asignar un rol a un usuario |
+| DELETE | `/users/{id}/roles/{roleId}` | Quitar un rol a un usuario |
+
+### `flightservice` (8081)
+| Método | Endpoint | Para qué sirve |
+|---|---|---|
+| POST | `/api/flights` | Crear un vuelo |
+| GET | `/api/flights` | Listar vuelos |
+| GET | `/api/flights/{id}` | Buscar vuelo por ID |
+| GET | `/api/flights/number/{flightNumber}` | Buscar vuelo por número |
+| GET | `/api/flights/airline/{airlineId}` | Buscar vuelos por aerolínea |
+| GET | `/api/flights/origin/{airportId}` | Buscar vuelos por aeropuerto de origen |
+| GET | `/api/flights/destination/{airportId}` | Buscar vuelos por aeropuerto de destino |
+| PUT | `/api/flights/{id}` | Actualizar vuelo |
+| DELETE | `/api/flights/{id}` | Eliminar vuelo |
+| PATCH | `/api/flights/number/{flightNumber}/seats?delta=` | Ajustar asientos disponibles |
+| POST | `/api/airlines` | Crear aerolínea |
+| GET | `/api/airlines` | Listar aerolíneas |
+| GET | `/api/airlines/{id}` | Buscar aerolínea por ID |
+| GET | `/api/airlines/code/{code}` | Buscar aerolínea por código |
+| PUT | `/api/airlines/{id}` | Actualizar aerolínea |
+| DELETE | `/api/airlines/{id}` | Eliminar aerolínea |
+| POST | `/api/airports` | Crear aeropuerto |
+| GET | `/api/airports` | Listar aeropuertos |
+| GET | `/api/airports/{id}` | Buscar aeropuerto por ID |
+| GET | `/api/airports/code/{code}` | Buscar aeropuerto por código IATA |
+| GET | `/api/airports/country/{country}` | Filtrar aeropuertos por país |
+| GET | `/api/airports/city/{city}` | Filtrar aeropuertos por ciudad |
+| PUT | `/api/airports/{id}` | Actualizar aeropuerto |
+| DELETE | `/api/airports/{id}` | Eliminar aeropuerto |
+| POST | `/api/baggage-policies` | Crear política de equipaje |
+| GET | `/api/baggage-policies` | Listar políticas de equipaje |
+| GET | `/api/baggage-policies/{id}` | Buscar política por ID |
+
+### `hotel-service` (8083)
+| Método | Endpoint | Para qué sirve |
+|---|---|---|
+| GET | `/test` | Health simple del servicio |
+| POST | `/hoteles` | Crear hotel |
+| GET | `/hoteles` | Listar hoteles |
+| GET | `/hoteles/{id}` | Buscar hotel por ID |
+| GET | `/hoteles/ciudad/{city}` | Buscar hoteles por ciudad |
+| PUT | `/hoteles/{id}` | Actualizar hotel |
+| DELETE | `/hoteles/{id}` | Eliminar hotel |
+| PATCH | `/hoteles/{id}/rooms?delta=` | Ajustar habitaciones disponibles |
+
+### `package-service` (8086)
+| Método | Endpoint | Para qué sirve |
+|---|---|---|
+| POST | `/api/packages` | Crear paquete turístico |
+| GET | `/api/packages` | Listar paquetes con filtros opcionales |
+| GET | `/api/packages/{id}` | Buscar paquete por ID |
+| PUT | `/api/packages/{id}` | Actualizar paquete |
+| DELETE | `/api/packages/{id}` | Desactivar paquete |
+| POST | `/api/packages/{id}/activate` | Reactivar paquete |
+
+### `reservation-service` (8085)
+| Método | Endpoint | Para qué sirve |
+|---|---|---|
+| POST | `/api/bookings` | Crear una reserva |
+| GET | `/api/bookings/{id}` | Obtener reserva por ID |
+| DELETE | `/api/bookings/{id}?usuarioId=` | Cancelar reserva manualmente |
+| PATCH | `/api/bookings/{id}/passenger` | Actualizar datos de un pasajero |
+| POST | `/api/bookings/{id}/pagar` | Procesar el pago de una reserva |
+| POST | `/extra-baggage/{detalleReservaId}` | Agregar equipaje extra |
+
+### `koi-ia-service` (8088)
+| Método | Endpoint | Para qué sirve |
+|---|---|---|
+| POST | `/api/koi/sessions` | Crear una nueva conversación KOI |
+| GET | `/api/koi/sessions/{sessionId}` | Ver el estado actual de la conversación |
+| POST | `/api/koi/sessions/{sessionId}/messages` | Enviar un mensaje y recibir preguntas/recomendaciones |
+
+### `payment-service` (8084)
+| Método | Endpoint | Para qué sirve |
+|---|---|---|
+| GET | `/test` | Health simple del servicio |
+
+---
+
 ## Requisitos para correr localmente
 
 - Java 17+
