@@ -82,6 +82,11 @@ spring:
               filters:
                 - RewritePath=/api/payments/?(?<segment>.*), /$\{segment}
 
+            - id: koi-ia
+              uri: http://localhost:8088
+              predicates:
+                - Path=/api/koi/**
+
 server:
   port: 8087
 

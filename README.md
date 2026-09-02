@@ -15,6 +15,7 @@ Plataforma de reservas de viajes construida con arquitectura de microservicios e
 | `reservation-service` | 8085 | `despescar_reservation` | Reservas de vuelos, hoteles y paquetes |
 | `package-service` | 8086 | `despescar_package` | Paquetes turísticos (vuelo + hotel) |
 | `gateway-service` | 8087 | — | API Gateway para exponer una única entrada al frontend |
+| `koi-ia-service` | 8088 | `despescar_koiia` | Chatbot KOI para orientar y recomendar viajes |
 
 ---
 
@@ -179,6 +180,7 @@ Cada pasajero paga su asiento de forma independiente. Cuando todos los pasajeros
   CREATE DATABASE despescar_hotel;
   CREATE DATABASE despescar_reservation;
   CREATE DATABASE despescar_package;
+  CREATE DATABASE despescar_koiia;
   ```
 
 Cada servicio levanta con:
