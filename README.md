@@ -264,23 +264,102 @@ y arma respuestas con plantillas. **No requiere ninguna IA externa para funciona
 
 Opcionalmente, se puede conectar un **LLM local vía [Ollama](https://ollama.com)** para que
 complemente (no reemplace) esa lógica:
-- Mejora la extracción de datos quando el usuario escribe en lenguaje libre.
-- Redacta saludos, preguntas y recomendaciones de forma más natural y variada.
+- Mejora la extracción de datos cuando el usuario escribe en lenguaje libre (frases que el
+  regex no llega a interpretar).
+- Redacta saludos, preguntas y recomendaciones de forma más natural, cálida y variada.
 - El LLM **nunca decide precios ni paquetes**: esos datos siempre vienen de los
-  microservicios de catálogo, evitando alucinaciones. Si Ollama no está corriendo o falla,
-  KOI cae automáticamente en el motor de reglas sin romperse.
+  microservicios de catálogo (`package-service`, `flight-service`, `hotel-service`),
+  evitando alucinaciones. Si Ollama no está corriendo, no tiene el modelo descargado, o
+  tarda demasiado, KOI cae automáticamente en el motor de reglas sin romperse ni devolver
+  errores al usuario.
 
-Para habilitarlo:
+Es decir: **activar o no la IA es 100% opcional y no afecta el funcionamiento base de KOI.**
+Podés desarrollar y testear todo el flujo sin instalar nada de esto.
+
+##### Cómo funciona por dentro
+
+```
+Usuario escribe un mensaje
+        │
+        ▼
+1) Extracción por regex (siempre corre, es la base confiable)
+        │
+        ▼
+2) Si koi.ai.enabled=true → se le pide al LLM que complete SOLO
+   los campos que el regex no pudo detectar (extractTravelInfo)
+        │
+        ▼
+3) KOI decide qué falta y arma la pregunta / busca recomendaciones
+   en package-service, flight-service y hotel-service
+        │
+        ▼
+4) Si koi.ai.enabled=true → se le pide al LLM que redacte el texto
+   final de forma más natural (humanizeGreeting/Question/Reply),
+   usando SOLO los datos reales ya resueltos en el paso 3
+        │
+        ▼
+5) Si el LLM falla o tarda (timeout), se devuelve el texto de
+   plantilla original. El usuario nunca ve un error.
+```
+
+##### Paso a paso: instalar Ollama y activar la IA
+
+**1) Instalar Ollama**
+
+| SO | Instrucciones |
+|---|---|
+| Windows | Descargar e instalar desde [ollama.com/download/windows](https://ollama.com/download/windows) (instalador `.exe`). Al terminar, Ollama queda corriendo como servicio en segundo plano. |
+| macOS | Descargar desde [ollama.com/download/mac](https://ollama.com/download/mac), o `brew install ollama`. |
+| Linux | `curl -fsSL https://ollama.com/install.sh | sh` |
+
+Verificar que quedó instalado y corriendo:
 ```bash
-# 1. Instalar Ollama: https://ollama.com/download
-# 2. Descargar un modelo liviano
-ollama pull llama3.2
+ollama --version
+ollama list
+```
 
-# 3. En application.properties de koi-ia-service:
+**2) Descargar el modelo**
+
+Usamos `llama3.2` (~2 GB, liviano y anda bien en notebooks sin GPU dedicada):
+```bash
+ollama pull llama3.2
+```
+Al terminar, `ollama list` debería mostrar `llama3.2` en la lista.
+
+**3) Activar la IA en koi-ia-service**
+
+En `services/koi-ia-service/src/main/resources/application.properties` (o mejor, en tu copia
+local / variables de entorno, para no pisar el default del equipo):
+```properties
 koi.ai.enabled=true
 koi.ai.ollama.base-url=http://localhost:11434
 koi.ai.ollama.model=llama3.2
+koi.ai.ollama.timeout-ms=8000
 ```
+
+**4) Levantar el microservicio como siempre**
+```bash
+cd services/koi-ia-service
+mvn spring-boot:run
+```
+
+**5) Probar que la IA está respondiendo**
+
+Con Ollama y `koi-ia-service` corriendo:
+```bash
+curl -X POST http://localhost:8088/api/koi/sessions -H "Content-Type: application/json" -d "{}"
+```
+Si la IA está activa, el saludo (`reply`) va a variar levemente en su redacción cada vez que
+lo pidas (porque lo redacta el LLM), en vez de ser siempre el mismo texto fijo.
+
+##### Troubleshooting
+
+| Síntoma | Causa probable | Solución |
+|---|---|---|
+| Las respuestas son siempre el mismo texto de plantilla | `koi.ai.enabled=false` o Ollama no está corriendo | Verificar la propiedad y correr `ollama list` para confirmar que el servicio está activo |
+| Log: `No se pudo contactar a Ollama (...)` | Ollama no está escuchando en `localhost:11434`, o el modelo no fue descargado | Correr `ollama serve` manualmente y `ollama pull llama3.2` |
+| Respuestas muy lentas | El modelo corre 100% en CPU (sin GPU) | Usar un modelo más chico (`llama3.2:1b`) o aumentar `koi.ai.ollama.timeout-ms` |
+| Querés apagar la IA temporalmente | — | Poner `koi.ai.enabled=false`, no hace falta desinstalar nada |
 
 ### `payment-service` (8084)
 | Método | Endpoint | Para qué sirve |
