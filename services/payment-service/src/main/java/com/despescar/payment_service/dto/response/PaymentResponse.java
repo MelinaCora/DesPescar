@@ -34,6 +34,8 @@ public class PaymentResponse {
 
     private String transactionId;
 
+    private String preferenceId;
+
     private LocalDateTime paymentDate;
 
     private String currency;

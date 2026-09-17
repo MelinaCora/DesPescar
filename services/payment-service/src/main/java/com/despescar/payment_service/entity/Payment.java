@@ -47,6 +47,8 @@ public class Payment {
     @Column(unique = true)
     private String transactionId;
 
+    private String preferenceId;
+
     private LocalDateTime paymentDate;
 
     @Column(length = 3)
