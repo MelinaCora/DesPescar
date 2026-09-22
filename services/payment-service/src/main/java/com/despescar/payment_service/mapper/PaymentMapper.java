@@ -30,8 +30,12 @@ public class PaymentMapper {
                 .status(payment.getStatus())
                 .paymentMethod(payment.getPaymentMethod())
                 .transactionId(payment.getTransactionId())
+                .preferenceId(payment.getPreferenceId())
+                .checkoutUrl(payment.getCheckoutUrl())
                 .paymentDate(payment.getPaymentDate())
                 .currency(payment.getCurrency())
+                .createdAt(payment.getCreatedAt())
                 .build();
     }
 }
+

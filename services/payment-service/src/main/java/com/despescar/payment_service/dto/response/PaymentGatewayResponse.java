@@ -17,6 +17,10 @@ public class PaymentGatewayResponse {
 
     private String transactionId;
 
-    private String message;
+    private String externalReference;
 
+    private String status;
+
+    private String message;
 }
+

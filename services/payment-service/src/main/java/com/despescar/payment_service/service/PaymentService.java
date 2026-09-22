@@ -1,6 +1,5 @@
 package com.despescar.payment_service.service;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -8,7 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.despescar.payment_service.dto.request.PaymentRequest;
-import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
+import com.despescar.payment_service.dto.response.PaymentCheckoutResponse;
 import com.despescar.payment_service.dto.response.PaymentResponse;
 import com.despescar.payment_service.entity.Payment;
 import com.despescar.payment_service.enums.PaymentStatus;
@@ -31,52 +30,48 @@ public class PaymentService {
     @Transactional
     public PaymentResponse createPayment(PaymentRequest request) {
 
+        // 1. Crear el pago en DesPescar
         Payment payment = paymentMapper.toEntity(request);
 
+        // 2. El pago comienza como PENDING
         payment.setStatus(PaymentStatus.PENDING);
 
         Payment savedPayment = paymentRepository.save(payment);
 
+        // 3. Registrar historial
         paymentHistoryService.saveHistory(
                 savedPayment,
                 PaymentStatus.PENDING,
                 "Payment created and is pending."
         );
 
-        PaymentGatewayResponse gatewayResponse =
-                paymentGatewayService.processPayment(
+        // 4. Crear checkout en Mercado Pago
+        PaymentCheckoutResponse checkout =
+                paymentGatewayService.createCheckout(
+                        savedPayment.getId().toString(),
                         savedPayment.getAmount(),
+                        savedPayment.getCurrency(),
                         savedPayment.getPaymentMethod()
                 );
 
-        if (gatewayResponse.isApproved()) {
+        // 5. Guardar Preference ID de Mercado Pago
+        savedPayment.setPreferenceId(
+                checkout.getPreferenceId()
+        );
 
-            savedPayment.setStatus(PaymentStatus.APPROVED);
-            savedPayment.setTransactionId(
-                    gatewayResponse.getTransactionId()
-            );
-            savedPayment.setPaymentDate(LocalDateTime.now());
+        Payment updatedPayment =
+                paymentRepository.save(savedPayment);
 
-            paymentHistoryService.saveHistory(
-                    savedPayment,
-                    PaymentStatus.APPROVED,
-                    gatewayResponse.getMessage()
-            );
+        // 6. Construir respuesta
+        PaymentResponse response =
+                paymentMapper.toResponse(updatedPayment);
 
-        } else {
+        // 7. Agregar URL del checkout
+        response.setCheckoutUrl(
+                checkout.getCheckoutUrl()
+        );
 
-            savedPayment.setStatus(PaymentStatus.REJECTED);
-
-            paymentHistoryService.saveHistory(
-                    savedPayment,
-                    PaymentStatus.REJECTED,
-                    gatewayResponse.getMessage()
-            );
-        }
-
-        Payment updatedPayment = paymentRepository.save(savedPayment);
-
-        return paymentMapper.toResponse(updatedPayment);
+        return response;
     }
 
     @Transactional(readOnly = true)
@@ -129,7 +124,8 @@ public class PaymentService {
 
         payment.setStatus(PaymentStatus.CANCELLED);
 
-        Payment updatedPayment = paymentRepository.save(payment);
+        Payment updatedPayment =
+                paymentRepository.save(payment);
 
         paymentHistoryService.saveHistory(
                 updatedPayment,

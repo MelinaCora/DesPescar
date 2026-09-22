@@ -6,6 +6,8 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import com.mercadopago.client.payment.PaymentClient;
+import com.mercadopago.resources.payment.Payment;
 import com.despescar.payment_service.dto.response.PaymentCheckoutResponse;
 import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
 import com.despescar.payment_service.dto.response.RefundGatewayResponse;
@@ -68,14 +70,42 @@ public class MercadoPagoGatewayService implements PaymentGatewayService {
         }
     }
 
+
+
     @Override
     public PaymentGatewayResponse getPaymentStatus(
             String transactionId) {
 
-        throw new UnsupportedOperationException(
-                "Payment status query not implemented yet."
-        );
+        try {
+
+            PaymentClient client = new PaymentClient();
+
+            Payment payment =
+                    client.get(Long.valueOf(transactionId));
+
+            boolean approved =
+                    "approved".equalsIgnoreCase(
+                            payment.getStatus()
+                    );
+
+            return PaymentGatewayResponse.builder()
+                    .approved(approved)
+                    .transactionId(
+                            payment.getId().toString()
+                    )
+                    .status(payment.getStatus())
+                    .message(payment.getStatusDetail())
+                    .build();
+
+        } catch (Exception ex) {
+
+            throw new RuntimeException(
+                    "Error retrieving Mercado Pago payment status.",
+                    ex
+            );
+        }
     }
+
 
     @Override
     public RefundGatewayResponse refund(
