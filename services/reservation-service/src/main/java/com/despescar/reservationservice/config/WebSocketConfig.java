@@ -10,7 +10,6 @@ import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
@@ -22,19 +21,18 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-
         config.enableSimpleBroker("/topic");
         config.setApplicationDestinationPrefixes("/app");
-
     }
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
+        registry.addEndpoint("/ws-despescar")
+                .setAllowedOriginPatterns("*");
 
         registry.addEndpoint("/ws-despescar")
                 .setAllowedOriginPatterns("*")
                 .withSockJS();
-
     }
 
     @Override
@@ -44,16 +42,20 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
             public Message<?> preSend(Message<?> message, MessageChannel channel) {
                 StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
 
-                if(accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
+                if (accessor != null && StompCommand.CONNECT.equals(accessor.getCommand())) {
                     String authHeader = accessor.getFirstNativeHeader("Authorization");
 
-                    if(authHeader != null && authHeader.startsWith("Bearer ")) {
+                    if (authHeader != null && authHeader.startsWith("Bearer ")) {
                         String jwt = authHeader.substring(7);
+
+                        // TODO: Aquí debes inyectar tu JwtService para validar el 'jwt' real,
+                        // extraer el usuario y sus roles/permisos correspondientes.
 
                         UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                                 "usuario_autenticado", null, Collections.emptyList()
                         );
 
+                        // Esto es obligatorio para que Spring Security asocie el usuario a la sesión WebSocket
                         accessor.setUser(authentication);
                     }
                 }
@@ -61,5 +63,5 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
             }
         });
     }
-
 }
+

@@ -3,7 +3,6 @@ package com.despescar.flightservice.mapper;
 import com.despescar.flightservice.dto.flights.request.FlightRequest;
 import com.despescar.flightservice.dto.flights.response.FlightResponse;
 import com.despescar.flightservice.entity.Flight;
-import com.despescar.flightservice.dto.baggage.response.BaggagePolicyResponse;
 
 
 public class FlightMapper {
@@ -48,8 +47,8 @@ public class FlightMapper {
                 .price(flight.getPrice())
                 .availableSeats(flight.getAvailableSeats())
                 .status(flight.getStatus())
-                .baggagePolicy(
-                        BaggagePolicyMapper.toResponse(flight.getBaggagePolicy())
+                .fares(
+                        FareMapper.toResponse(flight.getFares())
                 )
                 .build();
     }

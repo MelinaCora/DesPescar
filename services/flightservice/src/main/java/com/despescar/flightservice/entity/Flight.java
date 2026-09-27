@@ -2,6 +2,8 @@ package com.despescar.flightservice.entity;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import com.despescar.flightservice.enums.FlightStatus;
@@ -54,7 +56,15 @@ public class Flight {
     @Column(nullable = false)
     private FlightStatus status;
 
-    @OneToOne
+    @ManyToOne
     @JoinColumn(name = "baggage_policy_id")
-    private BaggagePolicy baggagePolicy;
+    private Fare includedServices;
+
+    @ManyToMany
+    @JoinTable(
+            name = "flight_fares",
+            joinColumns = @JoinColumn(name = "flight_id"),
+            inverseJoinColumns = @JoinColumn(name = "fare_id")
+    )
+    private List<Fare> fares = new ArrayList<>();
 }

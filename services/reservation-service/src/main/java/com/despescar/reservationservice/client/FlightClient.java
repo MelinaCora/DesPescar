@@ -2,19 +2,21 @@ package com.despescar.reservationservice.client;
 
 import com.despescar.reservationservice.dto.flight.response.FlightLookupResponse;
 import com.despescar.reservationservice.exception.BookingException;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
+import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+
+import java.util.UUID;
 
 @Component
 @Slf4j
@@ -31,39 +33,57 @@ public class FlightClient {
         this.flightServiceUrl = sanitizeBaseUrl(flightServiceUrl);
     }
 
-    public FlightLookupResponse getFlightByNumber(String flightNumber) {
+    public FlightLookupResponse getFlightByNumber(UUID flightId) {
+        String targetUrl = flightServiceUrl + "/api/flights/" + flightId;
+        log.info("🔍 Intentando conectar con Flight-Service en la URL: {}", targetUrl); // <-- AÑADE ESTO
+
         try {
-            FlightLookupResponse response = restTemplate.getForObject(
-                    flightServiceUrl + "/api/flights/number/{flightNumber}",
-                    FlightLookupResponse.class,
-                    flightNumber
+            HttpHeaders headers = new HttpHeaders();
+            ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+
+            if (attributes != null) {
+                HttpServletRequest request = attributes.getRequest();
+                String token = request.getHeader("Authorization");
+                if (token != null) {
+                    headers.set("Authorization", token);
+                }
+            }
+
+            HttpEntity<Void> requestEntity = new HttpEntity<>(headers);
+
+            ResponseEntity<FlightLookupResponse> response = restTemplate.exchange(
+                    targetUrl, // Usamos la variable directa para probar
+                    HttpMethod.GET,
+                    requestEntity,
+                    FlightLookupResponse.class
             );
 
-            if (response == null) {
+            if (response.getBody() == null) {
                 throw new BookingException(
                         "FLIGHT_SERVICE_EMPTY_RESPONSE",
-                        "Flight-Service devolvio una respuesta vacia al consultar el vuelo " + flightNumber + ".",
+                        "Flight-Service devolvio una respuesta vacia al consultar el vuelo " + flightId + ".",
                         HttpStatus.BAD_GATEWAY
                 );
             }
 
-            return response;
+            return response.getBody();
+
         } catch (HttpClientErrorException.NotFound ex) {
             throw new BookingException(
                     "VUELO_NO_ENCONTRADO",
-                    "El vuelo " + flightNumber + " no existe.",
+                    "El vuelo " + flightId + " no existe.",
                     HttpStatus.NOT_FOUND
             );
         } catch (HttpClientErrorException.BadRequest ex) {
             throw new BookingException(
                     "SOLICITUD_VUELO_INVALIDA",
-                    "La consulta del vuelo " + flightNumber + " es invalida.",
+                    "La consulta del vuelo " + flightId + " es invalida.",
                     HttpStatus.BAD_REQUEST
             );
         } catch (HttpClientErrorException ex) {
             throw new BookingException(
                     "FLIGHT_SERVICE_CLIENT_ERROR",
-                    "Flight-Service rechazo la consulta del vuelo " + flightNumber + ".",
+                    "Flight-Service rechazo la consulta del vuelo " + flightId + ".",
                     HttpStatus.BAD_GATEWAY
             );
         } catch (HttpServerErrorException ex) {

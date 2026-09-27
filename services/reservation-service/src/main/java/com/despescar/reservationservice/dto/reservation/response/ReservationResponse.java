@@ -1,8 +1,6 @@
 package com.despescar.reservationservice.dto.reservation.response;
 
-import com.despescar.reservationservice.dto.extraBaggage.response.ExtraBaggageResponse;
-import com.despescar.reservationservice.enums.ReservationPaymentState;
-import com.despescar.reservationservice.enums.ReservationState;
+import com.despescar.reservationservice.enums.ReservationStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -25,7 +23,7 @@ public class ReservationResponse {
 
     private UUID hotelId;
 
-    private ReservationState estadoGeneral;
+    private ReservationStatus estadoGeneral;
 
     private Long segundosRestantes;
 
@@ -33,25 +31,18 @@ public class ReservationResponse {
 
     @Data
     @Builder
-    @NoArgsConstructor
-    @AllArgsConstructor
     public static class AsientoDetalleDTO {
-
-        private String numeroAsiento;
-
-        private Long usuarioId;
+        private String asientoIda;
+        private String asientoVuelta;
 
         private Long pagadorId;
-
-        private Double precio;
-
-        private ReservationPaymentState estadoPago;
+        private java.math.BigDecimal precioCobrado;
+        private String estadoPago;
 
         private String nombrePasajero;
-
         private String dniPasaporte;
 
-        private List<ExtraBaggageResponse> equipajes;
+        private String tarifaNombre;
     }
 
 }

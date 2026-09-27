@@ -1,13 +1,7 @@
 package com.despescar.identityservice.entity;
 
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.OneToMany;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
@@ -57,7 +51,7 @@ public class User {
     @Column(name = "locked_until")
     private LocalDateTime lockedUntil;
 
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true, fetch= FetchType.EAGER)
     private Set<UserRole> roles = new LinkedHashSet<>();
 
     public void addRole(UserRole userRole) {

@@ -1,8 +1,10 @@
 package com.despescar.reservationservice.controller;
 
-import com.despescar.reservationservice.dto.passengers.request.PassengerRequest;
-import com.despescar.reservationservice.dto.reservation.request.CreateReservationRequest;
+import com.despescar.reservationservice.dto.passengers.request.PassengerAssignationRequest;
+import com.despescar.reservationservice.dto.reservation.request.BookingInitRequest;
 import com.despescar.reservationservice.dto.reservation.request.ProcessPaymentRequest;
+import com.despescar.reservationservice.dto.reservation.request.SplitPaymentSetupRequest;
+import com.despescar.reservationservice.dto.reservation.response.BookingInitResponse;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
 import com.despescar.reservationservice.service.BookingService;
 import com.despescar.reservationservice.service.PassengerService;
@@ -19,13 +21,40 @@ public class BookingController {
     private final BookingService bookingService;
     private final PassengerService passengerService;
 
-    @PostMapping
-    public ResponseEntity<ReservationResponse> crearReserva(
-            @RequestBody CreateReservationRequest dto,
-            @RequestHeader(value = "Authorization", required = false) String authorizationHeader
+    @PostMapping("/init")
+    public ResponseEntity<BookingInitResponse> initBooking(
+            @RequestBody BookingInitRequest dto,
+            @RequestHeader(value = "Authorization", required = false) String token
     ) {
-        ReservationResponse respuesta = bookingService.crearReserva(dto, authorizationHeader);
+        BookingInitResponse respuesta = bookingService.initializeBooking(dto, token);
         return new ResponseEntity<>(respuesta, HttpStatus.CREATED);
+    }
+
+    @PutMapping("/{id}/passengers")
+    public ResponseEntity<Void> assignPassengers(
+            @PathVariable Long id,
+            @RequestBody PassengerAssignationRequest dto
+    ) {
+        passengerService.assignPassengersToSeats(id, dto);
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/{id}/split-setup")
+    public ResponseEntity<Void> setupSplitPayment(
+            @PathVariable Long id,
+            @RequestBody SplitPaymentSetupRequest dto
+    ) {
+        bookingService.setupSplitPayment(id, dto);
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/{id}/pay")
+    public ResponseEntity<String> procesarPago(
+            @PathVariable Long id,
+            @RequestBody ProcessPaymentRequest dto
+    ) {
+        String mensaje = bookingService.procesarPago(id, dto);
+        return ResponseEntity.ok(mensaje);
     }
 
     @GetMapping("/{id}")
@@ -42,25 +71,4 @@ public class BookingController {
         bookingService.cancelarReservaManualmente(id, usuarioId);
         return ResponseEntity.ok().build();
     }
-
-    @PatchMapping("/{id}/passenger")
-    public ResponseEntity<Void> updatePassenger(
-            @PathVariable Long id,
-            @RequestBody PassengerRequest dto) {
-
-
-        passengerService.updatePassengerData(id, dto);
-
-
-        return ResponseEntity.ok().build();
-    }
-
-    @PostMapping("/{id}/pagar")
-    public ResponseEntity<String> procesarPago(
-            @PathVariable Long id,
-            @RequestBody ProcessPaymentRequest dto) {
-        String mensaje = bookingService.procesarPago(id, dto);
-        return ResponseEntity.ok(mensaje);
-    }
-
 }

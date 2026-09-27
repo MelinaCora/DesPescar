@@ -13,23 +13,27 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class BaggagePolicy {
+public class Fare {
 
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(nullable = false)
+    private String name;
 
     @Column(nullable = false)
-    private Integer carryOnWeight;
+    private String type;
 
+    private boolean personalItem;
+    private boolean carryOn;
+    private boolean checkedBaggage;
+    private boolean wifi;
+    private String seatSelection;
 
-    @Column(nullable = false)
-    private Integer checkedBaggageWeight;
-
-
-    @Column(nullable = false)
-    private BigDecimal extraBaggagePrice;
-
+    private String currency;
+    private BigDecimal baseFare;
+    private BigDecimal taxesAndFees;
+    private BigDecimal transparentFinalPrice;
 }

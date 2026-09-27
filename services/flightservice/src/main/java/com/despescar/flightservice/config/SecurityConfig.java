@@ -39,6 +39,12 @@ public class SecurityConfig {
                 ).permitAll()
                 // Endpoint interno de ajuste de asientos: cualquier servicio autenticado puede llamarlo
                 .requestMatchers(HttpMethod.PATCH, "/api/flights/*/seats").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/flights/search").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/flights").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/flights/*").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/airports").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/fares").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/airports/code/*").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/**").hasAnyRole("SUPER_ADMIN", "AIRLINE_ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/api/**").hasAnyRole("SUPER_ADMIN", "AIRLINE_ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/**").hasAnyRole("SUPER_ADMIN", "AIRLINE_ADMIN")

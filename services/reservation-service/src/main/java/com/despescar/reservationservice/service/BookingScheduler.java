@@ -1,11 +1,10 @@
 package com.despescar.reservationservice.service;
 
-import com.despescar.reservationservice.client.FlightClient;
-import com.despescar.reservationservice.client.HotelClient;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
 import com.despescar.reservationservice.entity.Reservation;
-import com.despescar.reservationservice.enums.ReservationPaymentState;
-import com.despescar.reservationservice.enums.ReservationState;
+import com.despescar.reservationservice.enums.PaymentStatus;
+import com.despescar.reservationservice.enums.ReservationStatus;
+import com.despescar.reservationservice.mapper.ReservationMapper;
 import com.despescar.reservationservice.repository.BookingRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,111 +22,46 @@ import java.util.stream.Collectors;
 @Slf4j
 public class BookingScheduler {
 
-
     private final BookingRepository bookingRepository;
     private final SimpMessagingTemplate messagingTemplate;
-    private final FlightClient flightClient;
-    private final HotelClient hotelClient;
 
+    private final ReservationMapper reservationMapper;
 
     @Scheduled(fixedRate = 60000)
     @Transactional
     public void verificarCarritosExpirados() {
 
-
-        List<Reservation> reservasPendientes =
-                bookingRepository.findByEstado(ReservationState.PENDIENTE);
-
-
         LocalDateTime ahora = LocalDateTime.now();
 
+        List<Reservation> reservasExpiradas = bookingRepository.findAll().stream()
+                .filter(r -> r.getEstado() == ReservationStatus.INICIADA ||
+                        r.getEstado() == ReservationStatus.ESPERANDO_PAGADORES ||
+                        r.getEstado() == ReservationStatus.PENDIENTE_PAGO)
+                .filter(r -> ahora.isAfter(r.getLimiteTiempo()))
+                .collect(Collectors.toList());
 
-        for (Reservation reserva : reservasPendientes) {
-
-
-            if (ahora.isAfter(reserva.getLimiteTiempo())) {
-
-
-                reserva.setEstado(ReservationState.EXPIRADA);
-
-                int cantidadAsientos = reserva.getDetalles().size();
-
-                reserva.getDetalles().forEach(detalle -> {
-
-                    if (ReservationPaymentState.PAGADO
-                            .equals(detalle.getEstadoPago())) {
-
-                        detalle.setEstadoPago(
-                                ReservationPaymentState.REEMBOLSADO
-                        );
-
-                    } else {
-
-                        detalle.setEstadoPago(
-                                ReservationPaymentState.CANCELADO
-                        );
-                    }
-                });
-
-
-                bookingRepository.save(reserva);
-
-                log.warn(
-                        "Cron Job: El carrito ID {} expiró. Liberando inventario.",
-                        reserva.getId()
-                );
-
-                // Restaurar inventario en los servicios externos
-                try {
-                    flightClient.adjustSeats(reserva.getVueloCodigo(), cantidadAsientos);
-                    if (reserva.getHotelId() != null) {
-                        hotelClient.adjustRooms(reserva.getHotelId(), 1);
-                    }
-                } catch (Exception e) {
-                    log.error("No se pudo restaurar inventario para reserva expirada {}.", reserva.getId(), e);
-                }
-
-                ReservationResponse responseExpirada =
-                        mapearAResponseDTO(reserva);
-
-
-                messagingTemplate.convertAndSend(
-                        "/topic/reserva/" + reserva.getId(),
-                        responseExpirada
-                );
-            }
+        if (reservasExpiradas.isEmpty()) {
+            return;
         }
-    }
 
+        for (Reservation reservation : reservasExpiradas) {
 
-    private ReservationResponse mapearAResponseDTO(
-            Reservation reserva
-    ) {
+            reservation.setEstado(ReservationStatus.EXPIRADA);
 
+            reservation.getDetalles().forEach(detalle -> {
+                if (PaymentStatus.PAGADO.equals(detalle.getPaymentStatus())) {
+                    detalle.setPaymentStatus(PaymentStatus.REEMBOLSADO);
+                } else {
+                    detalle.setPaymentStatus(PaymentStatus.CANCELADO);
+                }
+            });
 
-        List<ReservationResponse.AsientoDetalleDTO> asientosDto =
-                reserva.getDetalles()
-                        .stream()
-                        .map(d ->
-                                ReservationResponse.AsientoDetalleDTO.builder()
-                                        .numeroAsiento(d.getNumeroAsiento())
-                                        .usuarioId(d.getUsuarioId())
-                                        .pagadorId(d.getPagadorId())
-                                        .precio(d.getPrecio())
-                                        .estadoPago(d.getEstadoPago())
-                                        .nombrePasajero(d.getNombrePasajero())
-                                        .dniPasaporte(d.getDniPasaporte())
-                                        .build()
-                        )
-                        .collect(Collectors.toList());
+            bookingRepository.save(reservation);
 
+            log.warn("Cron Job: La reserva ID {} expiró por inactividad. Estado actualizado a EXPIRADA.", reservation.getId());
 
-        return ReservationResponse.builder()
-                .idCarrito(reserva.getId())
-                .vueloCodigo(reserva.getVueloCodigo())
-                .estadoGeneral(reserva.getEstado())
-                .segundosRestantes(0L)
-                .asientos(asientosDto)
-                .build();
+            ReservationResponse responseExpirada = reservationMapper.toResponse(reservation);
+            messagingTemplate.convertAndSend("/topic/reserva/" + reservation.getId(), responseExpirada);
+        }
     }
 }

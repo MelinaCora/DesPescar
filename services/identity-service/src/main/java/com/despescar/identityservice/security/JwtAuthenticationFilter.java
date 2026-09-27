@@ -63,8 +63,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                 if (!jwtService.isTokenValid(jwt, email)) {
-                    SecurityContextHolder.clearContext();
-                    filterChain.doFilter(request, response);
+                    sendUnauthorizeResponse(response, "El token ha expirado o es invalido");
                     return;
                 }
 
@@ -87,9 +86,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
         } catch (Exception e) {
             log.warn("JWT invalido o expirado para la request {}", request.getRequestURI(), e);
-            SecurityContextHolder.clearContext();
+            sendUnauthorizeResponse(response, "El token ha expirado o es invalido");
+            return;
         }
 
         filterChain.doFilter(request, response);
     }
+
+    private void sendUnauthorizeResponse(HttpServletResponse response, String message) throws IOException{
+        SecurityContextHolder.clearContext();
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        response.getWriter().write(String.format("{ \"error\": \"Unauthorized\", \"message\": \"%s\" }", message));
+    }
+
 }

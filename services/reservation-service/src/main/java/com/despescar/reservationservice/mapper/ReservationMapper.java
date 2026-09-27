@@ -2,7 +2,6 @@ package com.despescar.reservationservice.mapper;
 
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
 import com.despescar.reservationservice.entity.Reservation;
-import com.despescar.reservationservice.entity.ReservationDetail;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -11,67 +10,38 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
-
 @Component
 @RequiredArgsConstructor
 public class ReservationMapper {
 
-
-    private final ExtraBaggageMapper extraBaggageMapper;
-
+    // 1. Inyectamos el mapper específico de los detalles que ya arreglamos
+    private final ReservationDetailMapper detailMapper;
 
     public ReservationResponse toResponse(Reservation reserva) {
 
+        long segundosRestantes = 0;
+        if (reserva.getLimiteTiempo() != null) {
+            segundosRestantes = Duration.between(
+                    LocalDateTime.now(),
+                    reserva.getLimiteTiempo()
+            ).toSeconds();
+        }
 
-        long segundosRestantes =
-                Duration.between(
-                        LocalDateTime.now(),
-                        reserva.getLimiteTiempo()
-                ).toSeconds();
-
-
-
-        List<ReservationResponse.AsientoDetalleDTO> asientos =
-                reserva.getDetalles()
-                        .stream()
-                        .map(this::mapDetalle)
-                        .collect(Collectors.toList());
-
-
+        // 2. Delegamos el mapeo de la lista a detailMapper
+        List<ReservationResponse.AsientoDetalleDTO> asientos = reserva.getDetalles()
+                .stream()
+                .map(detailMapper::toResponse)
+                .collect(Collectors.toList());
 
         return ReservationResponse.builder()
                 .idCarrito(reserva.getId())
                 .packageId(reserva.getPackageId())
-                .vueloCodigo(reserva.getVueloCodigo())
-                .hotelId(reserva.getHotelId())
+                // 3. Tomamos el primer vuelo de la lista para no romper la compatibilidad con tu frontend
+                .vueloCodigo(reserva.getFlightIds() != null && !reserva.getFlightIds().isEmpty() ?
+                        reserva.getFlightIds().get(0).toString() : null)
                 .estadoGeneral(reserva.getEstado())
                 .segundosRestantes(Math.max(0, segundosRestantes))
                 .asientos(asientos)
                 .build();
     }
-
-
-
-    private ReservationResponse.AsientoDetalleDTO mapDetalle(
-            ReservationDetail detalle
-    ) {
-
-
-        return ReservationResponse.AsientoDetalleDTO.builder()
-                .numeroAsiento(detalle.getNumeroAsiento())
-                .usuarioId(detalle.getUsuarioId())
-                .pagadorId(detalle.getPagadorId())
-                .precio(detalle.getPrecio())
-                .estadoPago(detalle.getEstadoPago())
-                .nombrePasajero(detalle.getNombrePasajero())
-                .dniPasaporte(detalle.getDniPasaporte())
-                .equipajes(
-                        detalle.getEquipajes()
-                                .stream()
-                                .map(extraBaggageMapper::toResponse)
-                                .collect(Collectors.toList())
-                )
-                .build();
-    }
-
 }

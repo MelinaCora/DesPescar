@@ -1,20 +1,28 @@
 package com.despescar.reservationservice.repository;
 
 import com.despescar.reservationservice.entity.ReservationDetail;
-import com.despescar.reservationservice.enums.ReservationPaymentState;
+import com.despescar.reservationservice.enums.PaymentStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 import java.util.List;
 
 @Repository
-public interface BookingDetailRepository extends JpaRepository<ReservationDetail, Long>{
+public interface BookingDetailRepository extends JpaRepository<ReservationDetail, Long> {
 
-    List<ReservationDetail> findByReservaIdAndPagadorIdAndEstadoPago(Long reservaId, Long pagadorId, ReservationPaymentState estadoPago);
+    // 1. reservation, payerUserId, paymentStatus
+    List<ReservationDetail> findByReservation_IdAndPayerUserIdAndPaymentStatus(
+            Long reservationId,
+            Long payerUserId,
+            PaymentStatus paymentStatus
+    );
 
-    List<ReservationDetail> findByReservaId(Long reservaId);
+    // 2. reservation
+    List<ReservationDetail> findByReservation_Id(Long reservationId);
 
-    long countByReservaIdAndEstadoPago(Long reservaId, ReservationPaymentState estadoPago);
+    // 3. reservation, paymentStatus
+    long countByReservation_IdAndPaymentStatus(Long reservationId, PaymentStatus paymentStatus);
 
-    ReservationDetail findByReservaIdAndUsuarioId(Long reservaId, long usuarioId);
+    // 4. reservation, payerUserId
+    ReservationDetail findByReservation_IdAndPayerUserId(Long reservationId, Long payerUserId);
 
 }

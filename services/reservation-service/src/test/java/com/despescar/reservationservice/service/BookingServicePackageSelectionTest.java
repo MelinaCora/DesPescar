@@ -11,8 +11,7 @@ import com.despescar.reservationservice.dto.reservation.request.CreateReservatio
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
 import com.despescar.reservationservice.entity.Reservation;
 import com.despescar.reservationservice.entity.ReservationDetail;
-import com.despescar.reservationservice.enums.ReservationState;
-import com.despescar.reservationservice.mapper.ExtraBaggageMapper;
+import com.despescar.reservationservice.enums.ReservationStatus;
 import com.despescar.reservationservice.mapper.ReservationMapper;
 import com.despescar.reservationservice.repository.BookingDetailRepository;
 import com.despescar.reservationservice.repository.BookingRepository;
@@ -113,7 +112,7 @@ class BookingServicePackageSelectionTest {
         when(packageClient.getPackageById(eq(packageId), eq("Bearer token"))).thenReturn(packageResponse);
         when(flightClient.getFlightByNumber("AR123")).thenReturn(flightResponse);
         when(hotelClient.getHotelById(hotelId)).thenReturn(hotelResponse);
-        when(bookingRepository.findByEstado(ReservationState.PENDIENTE)).thenReturn(Collections.emptyList());
+        when(bookingRepository.findByEstado(ReservationStatus.PENDIENTE)).thenReturn(Collections.emptyList());
         when(bookingRepository.save(any(Reservation.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(detailRepository.save(any(ReservationDetail.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(reservationMapper.toResponse(any(Reservation.class))).thenReturn(

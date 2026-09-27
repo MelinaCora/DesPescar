@@ -2,11 +2,12 @@ package com.despescar.flightservice.dto.flights.response;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 import com.despescar.flightservice.dto.airlines.response.AirlineResponse;
 import com.despescar.flightservice.dto.airports.response.AirportResponse;
-import com.despescar.flightservice.dto.baggage.response.BaggagePolicyResponse;
+import com.despescar.flightservice.dto.baggage.response.FareResponse;
 import com.despescar.flightservice.enums.FlightStatus;
 
 import lombok.Builder;
@@ -36,6 +37,6 @@ public class FlightResponse {
 
     private FlightStatus status;
 
-    private BaggagePolicyResponse baggagePolicy;
+    private List<FareResponse> fares;
 
 }

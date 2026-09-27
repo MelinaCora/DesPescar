@@ -1,10 +1,11 @@
 package com.despescar.flightservice.service;
 
+import com.despescar.flightservice.dto.baggage.response.FareResponse;
 import com.despescar.flightservice.dto.flights.request.FlightRequest;
-import com.despescar.flightservice.dto.flights.response.FlightResponse;
+import com.despescar.flightservice.dto.flights.response.*;
 import com.despescar.flightservice.entity.Airline;
 import com.despescar.flightservice.entity.Airport;
-import com.despescar.flightservice.entity.BaggagePolicy;
+import com.despescar.flightservice.entity.Fare;
 import com.despescar.flightservice.entity.Flight;
 import com.despescar.flightservice.exception.AirlineNotFoundException;
 import com.despescar.flightservice.exception.AirportNotFoundException;
@@ -13,13 +14,16 @@ import com.despescar.flightservice.exception.FlightNumberAlreadyExistsException;
 import com.despescar.flightservice.mapper.FlightMapper;
 import com.despescar.flightservice.repository.AirlineRepository;
 import com.despescar.flightservice.repository.AirportRepository;
-import com.despescar.flightservice.repository.BaggagePolicyRepository;
+import com.despescar.flightservice.repository.FareRepository;
 import com.despescar.flightservice.repository.FlightRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.UUID;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -29,11 +33,12 @@ public class FlightService {
     private final FlightRepository flightRepository;
     private final AirlineRepository airlineRepository;
     private final AirportRepository airportRepository;
-    private final BaggagePolicyRepository baggagePolicyRepository;
+    private final FareRepository fareRepository;
 
     /**
      * Crea un nuevo vuelo.
      */
+    @Transactional
     public FlightResponse createFlight(FlightRequest request) {
 
         if (flightRepository.findByFlightNumber(request.getFlightNumber()).isPresent()) {
@@ -49,15 +54,19 @@ public class FlightService {
         Airport destinationAirport = airportRepository.findById(request.getDestinationAirportId())
                 .orElseThrow(AirportNotFoundException::new);
 
-        BaggagePolicy baggagePolicy = baggagePolicyRepository.findById(request.getBaggagePolicyId())
-                .orElseThrow(() -> new RuntimeException("Baggage policy not found"));
+        List<Fare> fares = new ArrayList<>();
+        if (request.getFaresId() != null && !request.getFaresId().isEmpty()) {
+            fares = fareRepository.findAllById(request.getFaresId());
+            if (fares.size() != request.getFaresId().size()) {
+                throw new RuntimeException("Una o más tarifas proporcionadas no existen.");
+            }
+        }
 
         Flight flight = FlightMapper.toEntity(request);
-
         flight.setAirline(airline);
         flight.setOriginAirport(originAirport);
         flight.setDestinationAirport(destinationAirport);
-        flight.setBaggagePolicy(baggagePolicy);
+        flight.setFares(fares);
 
         flightRepository.save(flight);
 
@@ -68,18 +77,120 @@ public class FlightService {
      * Obtiene todos los vuelos.
      */
     public List<FlightResponse> getAllFlights() {
-
         return flightRepository.findAll()
                 .stream()
                 .map(FlightMapper::toResponse)
                 .collect(Collectors.toList());
     }
 
+    public FlightSearchResponse searchFlights(String origin, String destination, LocalDate departureDate, LocalDate returnDate, int passengers) {
+
+        // 1. Buscar vuelos de IDA (Outbound)
+        LocalDateTime startOfDayDeparture = departureDate.atStartOfDay();
+        LocalDateTime endOfDayDeparture = departureDate.atTime(23, 59, 59);
+
+        List<Flight> flightsDeparture = flightRepository.findFlightsForSearch(origin, destination, startOfDayDeparture, endOfDayDeparture);
+
+        List<DetailedFlightResponseDto> departureFlights = flightsDeparture.stream()
+                .map(flight -> mapToDetailedFlightDto(flight, origin, destination))
+                .collect(Collectors.toList());
+
+        // 2. Buscar vuelos de VUELTA (Return) - Condicional
+        List<DetailedFlightResponseDto> returnFlights = new ArrayList<>();
+
+        if (returnDate != null) {
+            LocalDateTime startOfDayReturn = returnDate.atStartOfDay();
+            LocalDateTime endOfDayReturn = returnDate.atTime(23, 59, 59);
+
+            List<Flight> flightsReturn = flightRepository.findFlightsForSearch(destination, origin, startOfDayReturn, endOfDayReturn);
+
+            returnFlights = flightsReturn.stream()
+                    .map(flight -> mapToDetailedFlightDto(flight, origin, destination))
+                    .collect(Collectors.toList());
+        }
+
+        // 3. Construir Metadatos
+        MetadataDto metadata = MetadataDto.builder()
+                .totalResults(departureFlights.size() + returnFlights.size())
+                .origin(origin)
+                .destination(destination)
+                .departureDate(departureDate)
+                .returnDate(returnDate)
+                .passengers(passengers)
+                .build();
+
+        // 4. Retornar JSON consolidado
+        return FlightSearchResponse.builder()
+                .metadata(metadata)
+                .departureFlights(departureFlights)
+                .returnFlights(returnFlights)
+                .build();
+    }
+
+    private DetailedFlightResponseDto mapToDetailedFlightDto(Flight flight, String origin, String destination) {
+        BigDecimal basePrice = flight.getPrice() != null ? flight.getPrice() : BigDecimal.ZERO;
+        BigDecimal taxes = new BigDecimal("15000.0");
+        BigDecimal finalPrice = basePrice.add(taxes);
+
+        List<FareResponse> fareDtos = flight.getFares().stream().map(fare -> FareResponse.builder()
+                .id(fare.getId())
+                .name(fare.getName())
+                .type(fare.getType())
+                .includedServices(IncludedServicesDto.builder()
+                        .personalItem(fare.isPersonalItem())
+                        .carryOn(fare.isCarryOn())
+                        .checkedBaggage(fare.isCheckedBaggage())
+                        .wifi(fare.isWifi())
+                        .seatSelection(fare.getSeatSelection())
+                        .build())
+                .price(PriceDto.builder()
+                        .currency(fare.getCurrency())
+                        .baseFare(fare.getBaseFare())
+                        .taxesAndFees(fare.getTaxesAndFees())
+                        .transparentFinalPrice(fare.getTransparentFinalPrice())
+                        .build())
+                .build()).toList();
+
+        FareResponse baseFare = fareDtos.stream()
+                .min(Comparator.comparing(f -> f.getPrice().getTransparentFinalPrice()))
+                .orElse(null);
+
+        return DetailedFlightResponseDto.builder()
+                .id(flight.getId())
+                .flightNumber(flight.getFlightNumber())
+                .airline(AirlineSearchDto.builder()
+                        .name(flight.getAirline() != null ? flight.getAirline().getName() : "Unknown")
+                        .logoUrl(flight.getAirline() != null ? flight.getAirline().getLogoUrl() : "")
+                        .build())
+                .aircraft("Boeing 737-800")
+                .itinerary(ItineraryDto.builder()
+                        .departure(FlightLegDto.builder()
+                                .iata(flight.getOriginAirport() != null ? flight.getOriginAirport().getCode() : origin)
+                                .dateTime(flight.getDepartureTime().toString())
+                                .build())
+                        .arrival(FlightLegDto.builder()
+                                .iata(flight.getDestinationAirport() != null ? flight.getDestinationAirport().getCode() : destination)
+                                .dateTime(flight.getArrivalTime().toString())
+                                .build())
+                        .durationMinutes(120)
+                        .flightType("DIRECTO")
+                        .build())
+                .scales(List.of())
+                .includedServices(baseFare != null ? baseFare.getIncludedServices() : null)
+                .price(PriceDto.builder()
+                        .currency("ARS")
+                        .baseFare(basePrice)
+                        .taxesAndFees(taxes)
+                        .transparentFinalPrice(finalPrice)
+                        .build())
+                .fares(fareDtos)
+                .build();
+    }
+
     /**
      * Busca un vuelo por ID.
      */
     public FlightResponse getFlightById(UUID id) {
-
         Flight flight = flightRepository.findById(id)
                 .orElseThrow(FlightNotFoundException::new);
 
@@ -90,7 +201,6 @@ public class FlightService {
      * Busca un vuelo por número.
      */
     public FlightResponse getFlightByNumber(String flightNumber) {
-
         Flight flight = flightRepository.findByFlightNumber(flightNumber)
                 .orElseThrow(FlightNotFoundException::new);
 
@@ -100,6 +210,7 @@ public class FlightService {
     /**
      * Actualiza un vuelo existente.
      */
+    @Transactional
     public FlightResponse updateFlight(UUID id, FlightRequest request) {
 
         Flight flight = flightRepository.findById(id)
@@ -114,15 +225,21 @@ public class FlightService {
         Airport destinationAirport = airportRepository.findById(request.getDestinationAirportId())
                 .orElseThrow(AirportNotFoundException::new);
 
-        BaggagePolicy baggagePolicy = baggagePolicyRepository.findById(request.getBaggagePolicyId())
-                .orElseThrow(() -> new RuntimeException("Baggage policy not found"));
-
         FlightMapper.updateEntity(flight, request);
 
         flight.setAirline(airline);
         flight.setOriginAirport(originAirport);
         flight.setDestinationAirport(destinationAirport);
-        flight.setBaggagePolicy(baggagePolicy);
+
+        if (request.getFaresId() != null && !request.getFaresId().isEmpty()) {
+            List<Fare> newFares = fareRepository.findAllById(request.getFaresId());
+            if (newFares.size() != request.getFaresId().size()) {
+                throw new RuntimeException("Una o más tarifas proporcionadas no existen.");
+            }
+            flight.setFares(newFares); // 👈 Asignamos la lista directamente
+        } else {
+            flight.setFares(new ArrayList<>());
+        }
 
         flightRepository.save(flight);
 
@@ -133,7 +250,6 @@ public class FlightService {
      * Elimina un vuelo.
      */
     public void deleteFlight(UUID id) {
-
         Flight flight = flightRepository.findById(id)
                 .orElseThrow(FlightNotFoundException::new);
 
@@ -144,17 +260,16 @@ public class FlightService {
      * Ajusta los asientos disponibles de un vuelo de forma atómica.
      * delta negativo para reservar, positivo para liberar.
      */
-    @org.springframework.transaction.annotation.Transactional
+    @Transactional
     public void adjustSeats(String flightNumber, int delta) {
-
         Flight flight = flightRepository.findByFlightNumber(flightNumber)
                 .orElseThrow(FlightNotFoundException::new);
 
         int nuevosAsientos = flight.getAvailableSeats() + delta;
         if (nuevosAsientos < 0) {
             throw new IllegalStateException(
-                    "No hay suficientes asientos disponibles en el vuelo " + flightNumber +
-                    ". Disponibles: " + flight.getAvailableSeats() + ", solicitados: " + (-delta)
+                    "No hay suficientes asientos disponibles en het vuelo " + flightNumber +
+                            ". Disponibles: " + flight.getAvailableSeats() + ", solicitados: " + (-delta)
             );
         }
 
@@ -166,7 +281,6 @@ public class FlightService {
      * Obtiene todos los vuelos de una aerolínea.
      */
     public List<FlightResponse> getFlightsByAirline(UUID airlineId) {
-
         return flightRepository.findByAirlineId(airlineId)
                 .stream()
                 .map(FlightMapper::toResponse)
@@ -177,7 +291,6 @@ public class FlightService {
      * Obtiene todos los vuelos cuyo origen es un aeropuerto.
      */
     public List<FlightResponse> getFlightsByOrigin(UUID airportId) {
-
         return flightRepository.findByOriginAirportId(airportId)
                 .stream()
                 .map(FlightMapper::toResponse)
@@ -188,7 +301,6 @@ public class FlightService {
      * Obtiene todos los vuelos cuyo destino es un aeropuerto.
      */
     public List<FlightResponse> getFlightsByDestination(UUID airportId) {
-
         return flightRepository.findByDestinationAirportId(airportId)
                 .stream()
                 .map(FlightMapper::toResponse)
