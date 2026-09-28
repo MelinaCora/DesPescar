@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.despescar.payment_service.entity.PaymentHistory;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.despescar.payment_service.entity.Payment;
@@ -12,7 +11,7 @@ import com.despescar.payment_service.enums.PaymentStatus;
 
 public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
-    Optional<Payment> findByReservationId(UUID reservationId);
+    List<Payment> findByReservationId(UUID reservationId);
 
     List<Payment> findByUserId(UUID userId);
 
@@ -20,6 +19,4 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
     Optional<Payment> findByTransactionId(String transactionId);
 
-
 }
-

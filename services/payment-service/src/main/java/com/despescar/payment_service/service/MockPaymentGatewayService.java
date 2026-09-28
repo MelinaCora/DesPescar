@@ -3,34 +3,49 @@ package com.despescar.payment_service.service;
 import java.math.BigDecimal;
 import java.util.UUID;
 
+import com.despescar.payment_service.dto.response.PaymentCheckoutResponse;
 import com.despescar.payment_service.dto.response.RefundGatewayResponse;
-import org.springframework.stereotype.Service;
 
 import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
 import com.despescar.payment_service.enums.PaymentMethod;
 
-@Service
 public class MockPaymentGatewayService implements PaymentGatewayService {
 
     @Override
-    public PaymentGatewayResponse processPayment(
+    public PaymentCheckoutResponse createCheckout(
+            String paymentId,
             BigDecimal amount,
+            String currency,
             PaymentMethod paymentMethod) {
 
-        String transactionId = "MOCK-" + UUID.randomUUID();
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Amount must be greater than zero.");
+        }
 
-        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+        return PaymentCheckoutResponse.builder()
+                .preferenceId("MOCK-PREF-" + UUID.randomUUID())
+                .checkoutUrl("https://mock-gateway.test/checkout/" + paymentId)
+                .message("Checkout created successfully.")
+                .build();
+    }
 
+    @Override
+    public PaymentGatewayResponse getPaymentStatus(String transactionId) {
+
+        if (transactionId == null || transactionId.isBlank()) {
             return PaymentGatewayResponse.builder()
                     .approved(false)
                     .transactionId(null)
-                    .message("Payment rejected: invalid amount.")
+                    .status("rejected")
+                    .message("Payment rejected: invalid transaction ID.")
                     .build();
         }
 
         return PaymentGatewayResponse.builder()
                 .approved(true)
                 .transactionId(transactionId)
+                .externalReference(transactionId)
+                .status("approved")
                 .message("Payment approved successfully.")
                 .build();
     }

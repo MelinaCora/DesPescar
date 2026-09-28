@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 import com.despescar.payment_service.dto.request.PaymentRequest;
 import com.despescar.payment_service.dto.response.PaymentResponse;
 import com.despescar.payment_service.entity.Payment;
+import com.despescar.payment_service.enums.PaymentProvider;
 
 @Component
 public class PaymentMapper {
@@ -17,6 +18,7 @@ public class PaymentMapper {
                 .amount(request.getAmount())
                 .paymentMethod(request.getPaymentMethod())
                 .currency(request.getCurrency())
+                .provider(PaymentProvider.MERCADO_PAGO)
                 .build();
     }
 
@@ -38,4 +40,3 @@ public class PaymentMapper {
                 .build();
     }
 }
-

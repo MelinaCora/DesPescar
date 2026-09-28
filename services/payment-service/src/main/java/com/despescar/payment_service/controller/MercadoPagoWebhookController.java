@@ -7,30 +7,26 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.despescar.payment_service.dto.request.MercadoPagoWebhookRequest;
+import com.despescar.payment_service.service.MercadoPagoWebhookService;
+
+import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/payments/mercadopago")
+@RequiredArgsConstructor
 public class MercadoPagoWebhookController {
+
+    private final MercadoPagoWebhookService mercadoPagoWebhookService;
 
     @PostMapping("/webhook")
     public ResponseEntity<Void> receiveWebhook(
             @RequestBody MercadoPagoWebhookRequest request) {
-
-        System.out.println(
-                "Mercado Pago webhook received"
-        );
-
-        System.out.println(
-                "Type: " + request.getType()
-        );
-
-        System.out.println(
-                "Payment ID: " + request.getData().getId()
+        mercadoPagoWebhookService.processPaymentNotification(
+                request.getData().getId()
         );
 
         return ResponseEntity.ok().build();
     }
 }
-
 
 

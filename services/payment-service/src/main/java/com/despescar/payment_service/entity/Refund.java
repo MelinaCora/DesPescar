@@ -44,4 +44,11 @@ public class Refund {
 
     private LocalDateTime processedAt;
 
+    @PrePersist
+    void prePersist() {
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+    }
+
 }

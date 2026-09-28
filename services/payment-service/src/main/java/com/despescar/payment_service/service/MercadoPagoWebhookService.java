@@ -32,7 +32,7 @@ public class MercadoPagoWebhookService {
 
         UUID paymentId =
                 UUID.fromString(
-                        gatewayResponse.getTransactionId()
+                        gatewayResponse.getExternalReference()
                 );
 
         Payment payment =
@@ -96,4 +96,3 @@ public class MercadoPagoWebhookService {
         };
     }
 }
-

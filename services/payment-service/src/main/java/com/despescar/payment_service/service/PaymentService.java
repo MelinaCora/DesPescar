@@ -58,6 +58,9 @@ public class PaymentService {
         savedPayment.setPreferenceId(
                 checkout.getPreferenceId()
         );
+        savedPayment.setCheckoutUrl(
+                checkout.getCheckoutUrl()
+        );
 
         Payment updatedPayment =
                 paymentRepository.save(savedPayment);
@@ -65,11 +68,6 @@ public class PaymentService {
         // 6. Construir respuesta
         PaymentResponse response =
                 paymentMapper.toResponse(updatedPayment);
-
-        // 7. Agregar URL del checkout
-        response.setCheckoutUrl(
-                checkout.getCheckoutUrl()
-        );
 
         return response;
     }

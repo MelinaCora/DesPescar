@@ -49,7 +49,12 @@ public class Payment {
 
     private String preferenceId;
 
+    private String checkoutUrl;
+
     private LocalDateTime paymentDate;
+
+    @Column(nullable = false)
+    private LocalDateTime createdAt;
 
     @Column(length = 3)
     private String currency;
@@ -64,5 +69,15 @@ public class Payment {
             orphanRemoval = true
     )
     private List<PaymentHistory> history = new ArrayList<>();
+
+    @PrePersist
+    void prePersist() {
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+        if (provider == null) {
+            provider = PaymentProvider.MERCADO_PAGO;
+        }
+    }
 
 }

@@ -93,6 +93,7 @@ public class MercadoPagoGatewayService implements PaymentGatewayService {
                     .transactionId(
                             payment.getId().toString()
                     )
+                    .externalReference(payment.getExternalReference())
                     .status(payment.getStatus())
                     .message(payment.getStatusDetail())
                     .build();
@@ -117,4 +118,3 @@ public class MercadoPagoGatewayService implements PaymentGatewayService {
         );
     }
 }
-

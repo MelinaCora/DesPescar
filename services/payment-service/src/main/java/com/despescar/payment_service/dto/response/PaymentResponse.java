@@ -36,6 +36,8 @@ public class PaymentResponse {
 
     private String preferenceId;
 
+    private String checkoutUrl;
+
     private LocalDateTime paymentDate;
 
     private String currency;
