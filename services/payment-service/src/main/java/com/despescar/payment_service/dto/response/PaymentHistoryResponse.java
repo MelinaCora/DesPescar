@@ -1,10 +1,8 @@
 package com.despescar.payment_service.dto.response;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-import com.despescar.payment_service.enums.PaymentMethod;
 import com.despescar.payment_service.enums.PaymentStatus;
 
 import lombok.AllArgsConstructor;
@@ -18,28 +16,16 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class PaymentResponse {
+public class PaymentHistoryResponse {
 
     private UUID id;
 
-    private UUID reservationId;
-
-    private UUID userId;
-
-    private BigDecimal amount;
+    private UUID paymentId;
 
     private PaymentStatus status;
 
-    private PaymentMethod paymentMethod;
+    private LocalDateTime changedAt;
 
-    private String transactionId;
-
-    private String preferenceId;
-
-    private LocalDateTime paymentDate;
-
-    private String currency;
-
-    private LocalDateTime createdAt;
+    private String description;
 
 }
