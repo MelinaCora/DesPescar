@@ -26,7 +26,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -198,5 +200,38 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(registerRequest)))
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("POST /auth/login should not add its own CORS header (gateway is the single source)")
+    void testLoginDoesNotAddCorsHeader() throws Exception {
+        when(authService.login(any(LoginRequest.class))).thenReturn(loginResponse);
+
+        mockMvc.perform(post("/auth/login")
+                        .header("Origin", "http://localhost:5173")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+    }
+
+    @Test
+    @DisplayName("POST /auth/register should not add its own CORS header (gateway is the single source)")
+    void testRegisterDoesNotAddCorsHeader() throws Exception {
+        when(userService.registerUser(any(RegisterUserRequest.class))).thenReturn(userResponse);
+
+        mockMvc.perform(post("/auth/register")
+                        .header("Origin", "http://localhost:5173")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(registerRequest)))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+    }
+
+    @Test
+    @DisplayName("GET /auth/me should require authentication")
+    void testMeRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/auth/me"))
+                .andExpect(status().isForbidden());
     }
 }
