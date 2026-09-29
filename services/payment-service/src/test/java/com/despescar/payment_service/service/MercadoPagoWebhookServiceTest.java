@@ -17,6 +17,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.despescar.payment_service.client.ReservationClient;
 import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
 import com.despescar.payment_service.entity.Payment;
 import com.despescar.payment_service.enums.PaymentMethod;
@@ -36,13 +37,16 @@ class MercadoPagoWebhookServiceTest {
     @Mock
     private PaymentHistoryService paymentHistoryService;
 
+    @Mock
+    private ReservationClient reservationClient;
+
     @InjectMocks
     private MercadoPagoWebhookService mercadoPagoWebhookService;
 
     @Test
-    void processPaymentNotificationShouldApprovePaymentFromExternalReference() {
+    void processPaymentNotificationShouldApprovePaymentAndSyncReservation() {
         Payment payment = payment();
-        String mercadoPagoPaymentId = "mp-789";
+        String mercadoPagoPaymentId = "445";
 
         when(paymentGatewayService.getPaymentStatus(mercadoPagoPaymentId))
                 .thenReturn(PaymentGatewayResponse.builder()
@@ -50,16 +54,19 @@ class MercadoPagoWebhookServiceTest {
                         .transactionId(mercadoPagoPaymentId)
                         .externalReference(payment.getId().toString())
                         .status("approved")
+                        .paymentTypeId("credit_card")
                         .message("approved")
                         .build());
         when(paymentRepository.findById(payment.getId())).thenReturn(Optional.of(payment));
         when(paymentRepository.save(payment)).thenReturn(payment);
 
-        mercadoPagoWebhookService.processPaymentNotification(mercadoPagoPaymentId);
+        mercadoPagoWebhookService.processPaymentNotification(mercadoPagoPaymentId, "payment");
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVED);
         assertThat(payment.getTransactionId()).isEqualTo(mercadoPagoPaymentId);
+        assertThat(payment.getPaymentMethod()).isEqualTo(PaymentMethod.CREDIT_CARD);
         assertThat(payment.getPaymentDate()).isNotNull();
+        verify(reservationClient).markReservationPaymentPaid(payment.getReservationId(), payment.getUserId(), mercadoPagoPaymentId);
         verify(paymentHistoryService).saveHistory(payment, PaymentStatus.APPROVED, "Payment status updated from Mercado Pago.");
     }
 
@@ -67,32 +74,41 @@ class MercadoPagoWebhookServiceTest {
     void processPaymentNotificationShouldSkipPersistenceWhenStatusDidNotChange() {
         Payment payment = payment();
         payment.setStatus(PaymentStatus.APPROVED);
-        String mercadoPagoPaymentId = "mp-789";
+        payment.setTransactionId("445");
+        payment.setPaymentMethod(PaymentMethod.CREDIT_CARD);
 
-        when(paymentGatewayService.getPaymentStatus(mercadoPagoPaymentId))
+        when(paymentGatewayService.getPaymentStatus("445"))
                 .thenReturn(PaymentGatewayResponse.builder()
                         .approved(true)
-                        .transactionId(mercadoPagoPaymentId)
+                        .transactionId("445")
                         .externalReference(payment.getId().toString())
                         .status("approved")
+                        .paymentTypeId("credit_card")
                         .message("approved")
                         .build());
         when(paymentRepository.findById(payment.getId())).thenReturn(Optional.of(payment));
 
-        mercadoPagoWebhookService.processPaymentNotification(mercadoPagoPaymentId);
+        mercadoPagoWebhookService.processPaymentNotification("445", "payment");
 
         verify(paymentRepository, never()).save(any());
         verify(paymentHistoryService, never()).saveHistory(any(), any(), any());
+        verify(reservationClient, never()).markReservationPaymentPaid(any(), any(), any());
+    }
+
+    @Test
+    void processPaymentNotificationShouldIgnoreNonPaymentNotifications() {
+        mercadoPagoWebhookService.processPaymentNotification("445", "merchant_order");
+
+        verify(paymentGatewayService, never()).getPaymentStatus(any());
     }
 
     private Payment payment() {
         return Payment.builder()
                 .id(UUID.randomUUID())
-                .reservationId(UUID.randomUUID())
-                .userId(UUID.randomUUID())
+                .reservationId(77L)
+                .userId(55L)
                 .amount(new BigDecimal("1250.00"))
                 .status(PaymentStatus.PENDING)
-                .paymentMethod(PaymentMethod.CREDIT_CARD)
                 .currency("ARS")
                 .provider(PaymentProvider.MERCADO_PAGO)
                 .createdAt(LocalDateTime.now())

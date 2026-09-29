@@ -6,8 +6,10 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.despescar.payment_service.client.ReservationClient;
 import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
 import com.despescar.payment_service.entity.Payment;
+import com.despescar.payment_service.enums.PaymentMethod;
 import com.despescar.payment_service.enums.PaymentStatus;
 import com.despescar.payment_service.exception.PaymentNotFoundException;
 import com.despescar.payment_service.repository.PaymentRepository;
@@ -21,9 +23,16 @@ public class MercadoPagoWebhookService {
     private final PaymentRepository paymentRepository;
     private final PaymentGatewayService paymentGatewayService;
     private final PaymentHistoryService paymentHistoryService;
+    private final ReservationClient reservationClient;
 
     @Transactional
-    public void processPaymentNotification(String mercadoPagoPaymentId) {
+    public void processPaymentNotification(
+            String mercadoPagoPaymentId,
+            String notificationType) {
+
+        if (notificationType != null && !"payment".equalsIgnoreCase(notificationType)) {
+            return;
+        }
 
         PaymentGatewayResponse gatewayResponse =
                 paymentGatewayService.getPaymentStatus(
@@ -49,17 +58,20 @@ public class MercadoPagoWebhookService {
                         gatewayResponse.getStatus()
                 );
 
-        if (payment.getStatus() == newStatus) {
+        PaymentMethod confirmedMethod = resolvePaymentMethod(gatewayResponse);
+        boolean alreadyProcessed = payment.getStatus() == newStatus
+                && equalsOrNull(payment.getTransactionId(), gatewayResponse.getTransactionId())
+                && payment.getPaymentMethod() == confirmedMethod;
+
+        if (alreadyProcessed) {
             return;
         }
 
         payment.setStatus(newStatus);
+        payment.setTransactionId(gatewayResponse.getTransactionId());
+        payment.setPaymentMethod(confirmedMethod);
 
         if (newStatus == PaymentStatus.APPROVED) {
-            payment.setTransactionId(
-                    mercadoPagoPaymentId
-            );
-
             payment.setPaymentDate(
                     LocalDateTime.now()
             );
@@ -67,6 +79,14 @@ public class MercadoPagoWebhookService {
 
         Payment updatedPayment =
                 paymentRepository.save(payment);
+
+        if (newStatus == PaymentStatus.APPROVED) {
+            reservationClient.markReservationPaymentPaid(
+                    updatedPayment.getReservationId(),
+                    updatedPayment.getUserId(),
+                    gatewayResponse.getTransactionId()
+            );
+        }
 
         paymentHistoryService.saveHistory(
                 updatedPayment,
@@ -77,14 +97,23 @@ public class MercadoPagoWebhookService {
 
     private PaymentStatus mapPaymentStatus(String mercadoPagoStatus) {
 
+        if (mercadoPagoStatus == null || mercadoPagoStatus.isBlank()) {
+            return PaymentStatus.PENDING;
+        }
+
         return switch (mercadoPagoStatus.toLowerCase()) {
 
             case "approved" ->
                     PaymentStatus.APPROVED;
 
-            case "rejected",
-                 "cancelled" ->
+            case "rejected" ->
                     PaymentStatus.REJECTED;
+
+            case "cancelled" ->
+                    PaymentStatus.CANCELLED;
+
+            case "authorized" ->
+                    PaymentStatus.AUTHORIZED;
 
             case "pending",
                  "in_process",
@@ -94,5 +123,26 @@ public class MercadoPagoWebhookService {
             default ->
                     PaymentStatus.PENDING;
         };
+    }
+
+    private PaymentMethod resolvePaymentMethod(PaymentGatewayResponse gatewayResponse) {
+        if (gatewayResponse.getPaymentTypeId() == null) {
+            return null;
+        }
+
+        return switch (gatewayResponse.getPaymentTypeId().toLowerCase()) {
+            case "credit_card" -> PaymentMethod.CREDIT_CARD;
+            case "debit_card" -> PaymentMethod.DEBIT_CARD;
+            case "bank_transfer" -> PaymentMethod.BANK_TRANSFER;
+            case "account_money" -> PaymentMethod.DIGITAL_WALLET;
+            default -> null;
+        };
+    }
+
+    private boolean equalsOrNull(String left, String right) {
+        if (left == null) {
+            return right == null;
+        }
+        return left.equals(right);
     }
 }

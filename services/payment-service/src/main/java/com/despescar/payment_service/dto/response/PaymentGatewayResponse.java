@@ -21,6 +21,11 @@ public class PaymentGatewayResponse {
 
     private String status;
 
+    private String currency;
+
+    private String paymentTypeId;
+
+    private String paymentMethodId;
+
     private String message;
 }
-

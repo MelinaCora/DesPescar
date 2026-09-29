@@ -88,6 +88,42 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(ReservationAmountResolutionException.class)
+    public ResponseEntity<ErrorResponse> handleReservationAmountResolution(
+            ReservationAmountResolutionException ex,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(
+                HttpStatus.UNPROCESSABLE_ENTITY,
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+    }
+
+    @ExceptionHandler(ReservationClientException.class)
+    public ResponseEntity<ErrorResponse> handleReservationClient(
+            ReservationClientException ex,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(
+                HttpStatus.BAD_GATEWAY,
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+    }
+
+    @ExceptionHandler(InvalidWebhookSignatureException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidWebhookSignature(
+            InvalidWebhookSignatureException ex,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidationExceptions(
             MethodArgumentNotValidException ex,
@@ -153,4 +189,3 @@ public class GlobalExceptionHandler {
                 .body(errorResponse);
     }
 }
-

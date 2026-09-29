@@ -7,11 +7,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.mercadopago.client.payment.PaymentClient;
+import com.mercadopago.client.preference.PreferenceBackUrlsRequest;
 import com.mercadopago.resources.payment.Payment;
 import com.despescar.payment_service.dto.response.PaymentCheckoutResponse;
 import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
 import com.despescar.payment_service.dto.response.RefundGatewayResponse;
-import com.despescar.payment_service.enums.PaymentMethod;
 import com.mercadopago.MercadoPagoConfig;
 import com.mercadopago.client.preference.PreferenceClient;
 import com.mercadopago.client.preference.PreferenceItemRequest;
@@ -21,18 +21,30 @@ import com.mercadopago.resources.preference.Preference;
 @Service
 public class MercadoPagoGatewayService implements PaymentGatewayService {
 
+    private final String notificationUrl;
+    private final String successUrl;
+    private final String pendingUrl;
+    private final String failureUrl;
+
     public MercadoPagoGatewayService(
-            @Value("${mercadopago.access-token}") String accessToken) {
+            @Value("${mercadopago.access-token}") String accessToken,
+            @Value("${mercadopago.notification-url:}") String notificationUrl,
+            @Value("${mercadopago.checkout.success-url:}") String successUrl,
+            @Value("${mercadopago.checkout.pending-url:}") String pendingUrl,
+            @Value("${mercadopago.checkout.failure-url:}") String failureUrl) {
 
         MercadoPagoConfig.setAccessToken(accessToken);
+        this.notificationUrl = notificationUrl;
+        this.successUrl = successUrl;
+        this.pendingUrl = pendingUrl;
+        this.failureUrl = failureUrl;
     }
 
     @Override
     public PaymentCheckoutResponse createCheckout(
             String paymentId,
             BigDecimal amount,
-            String currency,
-            PaymentMethod paymentMethod) {
+            String currency) {
 
         try {
 
@@ -44,11 +56,20 @@ public class MercadoPagoGatewayService implements PaymentGatewayService {
                             .unitPrice(amount)
                             .build();
 
-            PreferenceRequest preferenceRequest =
+            PreferenceRequest.PreferenceRequestBuilder preferenceRequestBuilder =
                     PreferenceRequest.builder()
                             .items(List.of(item))
-                            .externalReference(paymentId)
-                            .build();
+                            .externalReference(paymentId);
+
+            PreferenceBackUrlsRequest backUrls = buildBackUrls();
+            if (backUrls != null) {
+                preferenceRequestBuilder.backUrls(backUrls);
+            }
+            if (hasText(notificationUrl)) {
+                preferenceRequestBuilder.notificationUrl(notificationUrl);
+            }
+
+            PreferenceRequest preferenceRequest = preferenceRequestBuilder.build();
 
             PreferenceClient client = new PreferenceClient();
 
@@ -95,6 +116,9 @@ public class MercadoPagoGatewayService implements PaymentGatewayService {
                     )
                     .externalReference(payment.getExternalReference())
                     .status(payment.getStatus())
+                    .currency(payment.getCurrencyId())
+                    .paymentTypeId(payment.getPaymentTypeId())
+                    .paymentMethodId(payment.getPaymentMethodId())
                     .message(payment.getStatusDetail())
                     .build();
 
@@ -116,5 +140,21 @@ public class MercadoPagoGatewayService implements PaymentGatewayService {
         throw new UnsupportedOperationException(
                 "Refund not implemented yet."
         );
+    }
+
+    private PreferenceBackUrlsRequest buildBackUrls() {
+        if (!hasText(successUrl) && !hasText(pendingUrl) && !hasText(failureUrl)) {
+            return null;
+        }
+
+        return PreferenceBackUrlsRequest.builder()
+                .success(hasText(successUrl) ? successUrl : null)
+                .pending(hasText(pendingUrl) ? pendingUrl : null)
+                .failure(hasText(failureUrl) ? failureUrl : null)
+                .build();
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }
