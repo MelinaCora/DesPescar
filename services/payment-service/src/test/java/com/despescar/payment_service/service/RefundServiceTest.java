@@ -157,8 +157,8 @@ class RefundServiceTest {
     private Payment approvedPayment() {
         return Payment.builder()
                 .id(UUID.randomUUID())
-                .reservationId(UUID.randomUUID())
-                .userId(UUID.randomUUID())
+                .reservationId(77L)
+                .userId(55L)
                 .amount(new BigDecimal("100.00"))
                 .status(PaymentStatus.APPROVED)
                 .paymentMethod(PaymentMethod.CREDIT_CARD)

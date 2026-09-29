@@ -1,5 +1,7 @@
 package com.despescar.reservationservice.service;
 
+import com.despescar.reservationservice.client.FlightClient;
+import com.despescar.reservationservice.dto.flight.response.FareLookupResponse;
 import com.despescar.reservationservice.dto.passengers.request.PassengerAssignationRequest;
 import com.despescar.reservationservice.entity.Reservation;
 import com.despescar.reservationservice.entity.ReservationDetail;
@@ -26,6 +28,7 @@ public class PassengerService {
     private final BookingRepository bookingRepository;
     private final BookingDetailRepository detailRepository;
     private final SeatRepository seatRepository;
+    private final FlightClient flightClient;
 
     @Transactional
     public void assignPassengersToSeats(Long reservationId, PassengerAssignationRequest request) {
@@ -50,6 +53,9 @@ public class PassengerService {
         List<ReservationDetail> detallesNuevos = new ArrayList<>();
 
         for (var pasajeroDto : request.getPasajeros()) {
+            FareLookupResponse fare = pasajeroDto.getTarifaId() != null
+                    ? flightClient.getFareById(pasajeroDto.getTarifaId())
+                    : null;
 
             // A) Buscar físicamente por UUID (Ya no necesitamos el flightId para la búsqueda)
             Seat asientoFisico = seatRepository.findByIdForUpdate(pasajeroDto.getAsientoIda())
@@ -70,6 +76,7 @@ public class PassengerService {
                     .fareId(pasajeroDto.getTarifaId())
                     .fareName(pasajeroDto.getTarifaNombre())
                     .priceCharged(pasajeroDto.getPrecioTarifa())
+                    .fareCurrency(fare != null && fare.getPrice() != null ? fare.getPrice().getCurrency() : null)
                     // TRUCO CLAVE: Guardamos el string legible ("12A") extraído de la base de datos
                     .outboundSeatNumber(asientoFisico.getNumberSeat())
                     // Si tuvieras UUID para la vuelta, harías lo mismo buscando asientoVuelta

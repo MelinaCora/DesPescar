@@ -14,13 +14,13 @@ public interface RefundRepository extends JpaRepository<Refund, UUID> {
 
     List<Refund> findByStatus(RefundStatus status);
 
-    List<Refund> findByPaymentUserId(UUID userId);
+    List<Refund> findByPaymentUserId(Long userId);
 
-    List<Refund> findByPaymentReservationId(UUID reservationId);
+    List<Refund> findByPaymentReservationId(Long reservationId);
 
     List<Refund> findByRefundTransactionId(String refundTransactionId);
 
-    List<Refund> findByPayment_UserId(UUID userId);
+    List<Refund> findByPayment_UserId(Long userId);
 
 
 }

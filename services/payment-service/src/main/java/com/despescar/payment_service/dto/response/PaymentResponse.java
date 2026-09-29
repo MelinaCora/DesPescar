@@ -22,9 +22,9 @@ public class PaymentResponse {
 
     private UUID id;
 
-    private UUID reservationId;
+    private Long reservationId;
 
-    private UUID userId;
+    private Long userId;
 
     private BigDecimal amount;
 

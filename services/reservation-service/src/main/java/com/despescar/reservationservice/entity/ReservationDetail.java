@@ -39,6 +39,9 @@ public class ReservationDetail {
     @Column(name = "price_charged", precision = 10, scale = 2)
     private BigDecimal priceCharged;
 
+    @Column(name = "fare_currency", length = 3)
+    private String fareCurrency;
+
     @Column(name = "payer_id")
     private Long payerUserId;
 

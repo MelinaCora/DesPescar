@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,6 +27,10 @@ public class ReservationResponse {
     private ReservationStatus estadoGeneral;
 
     private Long segundosRestantes;
+
+    private BigDecimal montoTotal;
+
+    private String moneda;
 
     private List<AsientoDetalleDTO> asientos;
 

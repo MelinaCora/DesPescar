@@ -1,5 +1,120 @@
 package com.despescar.payment_service.client;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
+
+import com.despescar.payment_service.client.dto.ProcessPaymentRequest;
+import com.despescar.payment_service.client.dto.ReservationResponse;
+import com.despescar.payment_service.exception.ReservationClientException;
+
+@Component
 public class ReservationClient {
-	//comunicacion con ReservationService
+
+    private static final String INTERNAL_SERVICE_TOKEN_HEADER = "X-Internal-Service-Token";
+
+    private final RestTemplate restTemplate;
+    private final String reservationServiceUrl;
+    private final String syncToken;
+
+    public ReservationClient(
+            RestTemplate reservationServiceRestTemplate,
+            @Value("${reservation-service.url}") String reservationServiceUrl,
+            @Value("${reservation-service.sync-token:}") String syncToken) {
+
+        this.restTemplate = reservationServiceRestTemplate;
+        this.reservationServiceUrl = sanitizeBaseUrl(reservationServiceUrl);
+        this.syncToken = syncToken;
+    }
+
+    public ReservationResponse getReservation(Long reservationId) {
+        try {
+            ResponseEntity<ReservationResponse> response = restTemplate.exchange(
+                    reservationServiceUrl + "/api/bookings/{reservationId}",
+                    HttpMethod.GET,
+                    HttpEntity.EMPTY,
+                    ReservationResponse.class,
+                    reservationId
+            );
+
+            if (response.getBody() == null) {
+                throw new ReservationClientException("Reservation-Service devolvio una reserva vacia.");
+            }
+
+            return response.getBody();
+        } catch (HttpClientErrorException.NotFound ex) {
+            throw new ReservationClientException("La reserva " + reservationId + " no existe.");
+        } catch (HttpClientErrorException ex) {
+            throw new ReservationClientException("Reservation-Service rechazo la consulta de la reserva.", ex);
+        } catch (HttpServerErrorException ex) {
+            throw new ReservationClientException("Reservation-Service no pudo procesar la consulta de la reserva.", ex);
+        } catch (ResourceAccessException ex) {
+            HttpStatus status = isTimeout(ex) ? HttpStatus.GATEWAY_TIMEOUT : HttpStatus.SERVICE_UNAVAILABLE;
+            throw new ReservationClientException("No fue posible comunicarse con Reservation-Service. Estado sugerido: " + status.value(), ex);
+        } catch (RestClientException ex) {
+            throw new ReservationClientException("Se produjo un error al consultar la reserva.", ex);
+        }
+    }
+
+    public void markReservationPaymentPaid(
+            Long reservationId,
+            Long payerUserId,
+            String paymentToken) {
+
+        ProcessPaymentRequest request = ProcessPaymentRequest.builder()
+                .pagadorId(payerUserId)
+                .tokenPago(paymentToken)
+                .build();
+
+        try {
+            restTemplate.exchange(
+                    reservationServiceUrl + "/api/bookings/{reservationId}/pay",
+                    HttpMethod.POST,
+                    new HttpEntity<>(request, buildHeaders()),
+                    String.class,
+                    reservationId
+            );
+        } catch (HttpClientErrorException ex) {
+            throw new ReservationClientException("Reservation-Service rechazo la sincronizacion del pago.", ex);
+        } catch (HttpServerErrorException ex) {
+            throw new ReservationClientException("Reservation-Service no pudo sincronizar el pago.", ex);
+        } catch (ResourceAccessException ex) {
+            throw new ReservationClientException("No fue posible sincronizar la reserva con Reservation-Service.", ex);
+        } catch (RestClientException ex) {
+            throw new ReservationClientException("Se produjo un error al sincronizar la reserva.", ex);
+        }
+    }
+
+    private HttpHeaders buildHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        if (syncToken != null && !syncToken.isBlank()) {
+            headers.set(INTERNAL_SERVICE_TOKEN_HEADER, syncToken);
+        }
+        return headers;
+    }
+
+    private boolean isTimeout(ResourceAccessException ex) {
+        return ex.getMessage() != null && ex.getMessage().toLowerCase().contains("timed out");
+    }
+
+    private String sanitizeBaseUrl(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            throw new IllegalArgumentException("La propiedad reservation-service.url es obligatoria.");
+        }
+        if (baseUrl.endsWith("/")) {
+            return baseUrl.substring(0, baseUrl.length() - 1);
+        }
+        return baseUrl;
+    }
 }

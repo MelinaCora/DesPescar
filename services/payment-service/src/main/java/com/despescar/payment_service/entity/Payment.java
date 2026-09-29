@@ -26,10 +26,10 @@ public class Payment {
     private UUID id;
 
     @Column(nullable = false)
-    private UUID reservationId;
+    private Long reservationId;
 
     @Column(nullable = false)
-    private UUID userId;
+    private Long userId;
 
     private UUID passengerId;
 
@@ -41,7 +41,7 @@ public class Payment {
     private PaymentStatus status;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column
     private PaymentMethod paymentMethod;
 
     @Column(unique = true)

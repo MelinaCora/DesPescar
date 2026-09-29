@@ -5,15 +5,13 @@ import java.math.BigDecimal;
 import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
 import com.despescar.payment_service.dto.response.PaymentCheckoutResponse;
 import com.despescar.payment_service.dto.response.RefundGatewayResponse;
-import com.despescar.payment_service.enums.PaymentMethod;
 
 public interface PaymentGatewayService {
 
     PaymentCheckoutResponse createCheckout(
             String paymentId,
             BigDecimal amount,
-            String currency,
-            PaymentMethod paymentMethod);
+            String currency);
 
     PaymentGatewayResponse getPaymentStatus(
             String transactionId);
@@ -22,4 +20,3 @@ public interface PaymentGatewayService {
             String transactionId,
             BigDecimal amount);
 }
-

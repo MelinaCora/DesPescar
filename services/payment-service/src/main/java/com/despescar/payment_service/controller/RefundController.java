@@ -65,7 +65,7 @@ public class RefundController {
      */
     @GetMapping("/user/{userId}")
     public ResponseEntity<List<RefundResponse>> getRefundsByUser(
-            @PathVariable UUID userId) {
+            @PathVariable Long userId) {
 
         List<RefundResponse> response =
                 refundService.getRefundsByUser(userId);
@@ -73,4 +73,3 @@ public class RefundController {
         return ResponseEntity.ok(response);
     }
 }
-

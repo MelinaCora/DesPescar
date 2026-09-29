@@ -7,7 +7,6 @@ import com.despescar.payment_service.dto.response.PaymentCheckoutResponse;
 import com.despescar.payment_service.dto.response.RefundGatewayResponse;
 
 import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
-import com.despescar.payment_service.enums.PaymentMethod;
 
 public class MockPaymentGatewayService implements PaymentGatewayService {
 
@@ -15,8 +14,7 @@ public class MockPaymentGatewayService implements PaymentGatewayService {
     public PaymentCheckoutResponse createCheckout(
             String paymentId,
             BigDecimal amount,
-            String currency,
-            PaymentMethod paymentMethod) {
+            String currency) {
 
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException("Amount must be greater than zero.");

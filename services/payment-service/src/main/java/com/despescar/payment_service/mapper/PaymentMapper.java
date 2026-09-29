@@ -1,5 +1,7 @@
 package com.despescar.payment_service.mapper;
 
+import java.math.BigDecimal;
+
 import org.springframework.stereotype.Component;
 
 import com.despescar.payment_service.dto.request.PaymentRequest;
@@ -10,14 +12,16 @@ import com.despescar.payment_service.enums.PaymentProvider;
 @Component
 public class PaymentMapper {
 
-    public Payment toEntity(PaymentRequest request) {
+    public Payment toEntity(
+            PaymentRequest request,
+            BigDecimal amount,
+            String currency) {
 
         return Payment.builder()
                 .reservationId(request.getReservationId())
                 .userId(request.getUserId())
-                .amount(request.getAmount())
-                .paymentMethod(request.getPaymentMethod())
-                .currency(request.getCurrency())
+                .amount(amount)
+                .currency(currency)
                 .provider(PaymentProvider.MERCADO_PAGO)
                 .build();
     }

@@ -2,17 +2,22 @@ package com.despescar.payment_service.service;
 
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.despescar.payment_service.client.ReservationClient;
+import com.despescar.payment_service.client.dto.ReservationResponse;
 import com.despescar.payment_service.dto.request.PaymentRequest;
 import com.despescar.payment_service.dto.response.PaymentCheckoutResponse;
 import com.despescar.payment_service.dto.response.PaymentResponse;
 import com.despescar.payment_service.entity.Payment;
+import com.despescar.payment_service.enums.PaymentMethod;
 import com.despescar.payment_service.enums.PaymentStatus;
 import com.despescar.payment_service.exception.InvalidPaymentStateException;
 import com.despescar.payment_service.exception.PaymentNotFoundException;
+import com.despescar.payment_service.exception.ReservationAmountResolutionException;
 import com.despescar.payment_service.mapper.PaymentMapper;
 import com.despescar.payment_service.repository.PaymentRepository;
 
@@ -26,35 +31,36 @@ public class PaymentService {
     private final PaymentMapper paymentMapper;
     private final PaymentHistoryService paymentHistoryService;
     private final PaymentGatewayService paymentGatewayService;
+    private final ReservationClient reservationClient;
 
     @Transactional
     public PaymentResponse createPayment(PaymentRequest request) {
+        ReservationResponse reservation = reservationClient.getReservation(request.getReservationId());
+        PaymentAmountResolution amountResolution = resolveAmountForPayer(reservation, request.getReservationId(), request.getUserId());
 
-        // 1. Crear el pago en DesPescar
-        Payment payment = paymentMapper.toEntity(request);
+        Payment payment = paymentMapper.toEntity(
+                request,
+                amountResolution.amount(),
+                amountResolution.currency()
+        );
 
-        // 2. El pago comienza como PENDING
         payment.setStatus(PaymentStatus.PENDING);
 
         Payment savedPayment = paymentRepository.save(payment);
 
-        // 3. Registrar historial
         paymentHistoryService.saveHistory(
                 savedPayment,
                 PaymentStatus.PENDING,
                 "Payment created and is pending."
         );
 
-        // 4. Crear checkout en Mercado Pago
         PaymentCheckoutResponse checkout =
                 paymentGatewayService.createCheckout(
                         savedPayment.getId().toString(),
                         savedPayment.getAmount(),
-                        savedPayment.getCurrency(),
-                        savedPayment.getPaymentMethod()
+                        savedPayment.getCurrency()
                 );
 
-        // 5. Guardar Preference ID de Mercado Pago
         savedPayment.setPreferenceId(
                 checkout.getPreferenceId()
         );
@@ -65,11 +71,7 @@ public class PaymentService {
         Payment updatedPayment =
                 paymentRepository.save(savedPayment);
 
-        // 6. Construir respuesta
-        PaymentResponse response =
-                paymentMapper.toResponse(updatedPayment);
-
-        return response;
+        return paymentMapper.toResponse(updatedPayment);
     }
 
     @Transactional(readOnly = true)
@@ -85,7 +87,7 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
-    public List<PaymentResponse> getPaymentsByUser(UUID userId) {
+    public List<PaymentResponse> getPaymentsByUser(Long userId) {
 
         return paymentRepository.findByUserId(userId)
                 .stream()
@@ -95,7 +97,7 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public List<PaymentResponse> getPaymentsByReservation(
-            UUID reservationId) {
+            Long reservationId) {
 
         return paymentRepository.findByReservationId(reservationId)
                 .stream()
@@ -132,5 +134,40 @@ public class PaymentService {
         );
 
         return paymentMapper.toResponse(updatedPayment);
+    }
+
+    private PaymentAmountResolution resolveAmountForPayer(
+            ReservationResponse reservation,
+            Long reservationId,
+            Long payerUserId) {
+
+        if (reservation == null || reservation.getIdCarrito() == null || !reservationId.equals(reservation.getIdCarrito())) {
+            throw new ReservationAmountResolutionException("Reservation-Service devolvio una reserva distinta a la solicitada.");
+        }
+
+        if (reservation.getMoneda() == null || reservation.getMoneda().isBlank()) {
+            throw new ReservationAmountResolutionException("La reserva no define una moneda unica para calcular el pago.");
+        }
+
+        if (reservation.getAsientos() == null || reservation.getAsientos().isEmpty()) {
+            throw new ReservationAmountResolutionException("La reserva no tiene importes pendientes para pagar.");
+        }
+
+        BigDecimal amount = reservation.getAsientos().stream()
+                .filter(detail -> payerUserId.equals(detail.getPagadorId()))
+                .filter(detail -> "PENDIENTE".equalsIgnoreCase(detail.getEstadoPago()))
+                .map(ReservationResponse.SeatDetail::getPrecioCobrado)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ReservationAmountResolutionException("La reserva no tiene un importe pendiente para el usuario indicado.");
+        }
+
+        return new PaymentAmountResolution(amount, reservation.getMoneda().trim().toUpperCase());
+    }
+
+    private record PaymentAmountResolution(
+            BigDecimal amount,
+            String currency) {
     }
 }

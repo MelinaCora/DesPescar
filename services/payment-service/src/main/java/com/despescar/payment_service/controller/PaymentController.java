@@ -60,7 +60,7 @@ public class PaymentController {
 	 */
 	@GetMapping("/user/{userId}")
 	public ResponseEntity<List<PaymentResponse>> getPaymentsByUser(
-			@PathVariable UUID userId) {
+			@PathVariable Long userId) {
 
 		List<PaymentResponse> response =
 				paymentService.getPaymentsByUser(userId);
@@ -73,7 +73,7 @@ public class PaymentController {
 	 */
 	@GetMapping("/reservation/{reservationId}")
 	public ResponseEntity<List<PaymentResponse>> getPaymentsByReservation(
-			@PathVariable UUID reservationId) {
+			@PathVariable Long reservationId) {
 
 		List<PaymentResponse> response =
 				paymentService.getPaymentsByReservation(
@@ -96,4 +96,3 @@ public class PaymentController {
 		return ResponseEntity.ok(response);
 	}
 }
-

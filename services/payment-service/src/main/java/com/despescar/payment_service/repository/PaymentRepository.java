@@ -11,9 +11,9 @@ import com.despescar.payment_service.enums.PaymentStatus;
 
 public interface PaymentRepository extends JpaRepository<Payment, UUID> {
 
-    List<Payment> findByReservationId(UUID reservationId);
+    List<Payment> findByReservationId(Long reservationId);
 
-    List<Payment> findByUserId(UUID userId);
+    List<Payment> findByUserId(Long userId);
 
     List<Payment> findByStatus(PaymentStatus status);
 

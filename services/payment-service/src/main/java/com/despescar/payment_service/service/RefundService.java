@@ -183,7 +183,7 @@ public class RefundService {
      * @return list of refund responses
      */
     @Transactional(readOnly = true)
-    public List<RefundResponse> getRefundsByUser(UUID userId) {
+    public List<RefundResponse> getRefundsByUser(Long userId) {
 
         return refundRepository.findByPayment_UserId(userId)
                 .stream()
