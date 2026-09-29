@@ -100,6 +100,7 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
     private boolean isPublicPath(String path) {
         return path.startsWith("/api/auth/")
                 || path.equals("/api/auth")
+                || path.equals("/api/payments/mercadopago/webhook")
                 || path.startsWith("/actuator/")
                 || path.equals("/actuator")
                 || path.startsWith("/fallback/");
