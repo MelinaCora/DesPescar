@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -84,7 +86,10 @@ class PaymentControllerIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build();
+        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
+            .apply(springSecurity())
+            .defaultRequest(get("/").with(user("88").roles("CLIENTE")))
+            .build();
         Mockito.reset(paymentGatewayService, reservationClient);
         paymentHistoryRepository.deleteAll();
         paymentRepository.deleteAll();
@@ -103,8 +108,7 @@ class PaymentControllerIntegrationTest {
 
         String body = """
                 {
-                  "reservationId": 91,
-                  "userId": 88
+                                    "reservationId": 91
                 }
                 """;
 
@@ -141,7 +145,7 @@ class PaymentControllerIntegrationTest {
     void createPaymentShouldRejectInvalidPayload() throws Exception {
         String body = """
                 {
-                  "reservationId": 91
+                  "reservationId": null
                 }
                 """;
 
@@ -149,7 +153,7 @@ class PaymentControllerIntegrationTest {
                         .contentType(APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message", containsString("User ID is required")));
+                .andExpect(jsonPath("$.message", containsString("Reservation ID is required")));
     }
 
     @Test
@@ -160,6 +164,15 @@ class PaymentControllerIntegrationTest {
         mockMvc.perform(delete("/api/payments/{paymentId}", payment.getId()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message", containsString("cannot be cancelled")));
+    }
+
+    @Test
+    void getPaymentByIdShouldRejectAnotherUsersPayment() throws Exception {
+        Payment payment = payment(77L, 99L, PaymentStatus.PENDING);
+        payment = paymentRepository.save(payment);
+
+        mockMvc.perform(get("/api/payments/{paymentId}", payment.getId()))
+                .andExpect(status().isForbidden());
     }
 
     @Test

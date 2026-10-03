@@ -7,7 +7,6 @@ import java.util.UUID;
 @Data
 public class SplitPaymentSetupRequest {
 
-    private Long solicitanteId; // ID del creador de la reserva
     private List<PayerAssignationDTO> asignaciones;
 
     @Data

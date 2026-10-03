@@ -31,9 +31,10 @@ public class JwtService {
         this.accessTokenExpirationMs = accessTokenExpirationMs;
     }
 
-    public String generateToken(String email, String role) {
+    public String generateToken(Long userId, String email, String role) {
         return Jwts.builder()
                 .subject(email)
+                .claim("userId", userId)
                 .claim("role", role)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + accessTokenExpirationMs))
@@ -47,6 +48,10 @@ public class JwtService {
 
     public String extractRole(String token) {
         return extractAllClaims(token).get("role", String.class);
+    }
+
+    public Long extractUserId(String token) {
+        return extractAllClaims(token).get("userId", Long.class);
     }
 
     public boolean isTokenValid(String token, String email) {

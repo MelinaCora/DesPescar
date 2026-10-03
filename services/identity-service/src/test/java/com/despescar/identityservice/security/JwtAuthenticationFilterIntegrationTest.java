@@ -62,7 +62,7 @@ class JwtAuthenticationFilterIntegrationTest {
     @Test
     @DisplayName("Access token should allow access to protected endpoints")
     void testAccessTokenAllowsProtectedEndpoint() throws Exception {
-        String accessToken = jwtService.generateToken("admin@example.com", "SUPER_ADMIN");
+        String accessToken = jwtService.generateToken(1L, "admin@example.com", "SUPER_ADMIN");
 
         when(userRepository.findByEmail("admin@example.com")).thenReturn(Optional.of(superAdminUser));
         when(userService.findAllUsers()).thenReturn(List.of(
@@ -78,12 +78,12 @@ class JwtAuthenticationFilterIntegrationTest {
     @DisplayName("Expired access token should be rejected")
     void testExpiredAccessTokenRejected() throws Exception {
         JwtService shortLivedJwtService = new JwtService(TEST_SECRET, 1L);
-        String expiredAccessToken = shortLivedJwtService.generateToken("admin@example.com", "SUPER_ADMIN");
+        String expiredAccessToken = shortLivedJwtService.generateToken(1L, "admin@example.com", "SUPER_ADMIN");
         Thread.sleep(10);
 
         mockMvc.perform(get("/users")
                         .header("Authorization", "Bearer " + expiredAccessToken))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -91,6 +91,6 @@ class JwtAuthenticationFilterIntegrationTest {
     void testRefreshTokenCannotBeUsedAsAccessToken() throws Exception {
         mockMvc.perform(get("/users")
                         .header("Authorization", "Bearer not-a-jwt-refresh-token"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 }

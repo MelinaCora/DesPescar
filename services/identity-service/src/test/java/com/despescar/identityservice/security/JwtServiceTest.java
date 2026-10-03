@@ -26,11 +26,12 @@ class JwtServiceTest {
         String email = "test@example.com";
         String role = "USER";
 
-        String token = jwtService.generateToken(email, role);
+        String token = jwtService.generateToken(1L, email, role);
 
         assertNotNull(token);
         assertFalse(token.isEmpty());
         assertTrue(token.split("\\.").length == 3); // JWT has 3 parts
+        assertEquals(1L, jwtService.extractUserId(token));
     }
 
     @Test
@@ -39,7 +40,7 @@ class JwtServiceTest {
         String email = "test@example.com";
         String role = "USER";
 
-        String token = jwtService.generateToken(email, role);
+        String token = jwtService.generateToken(1L, email, role);
         String extractedEmail = jwtService.extractUsername(token);
 
         assertEquals(email, extractedEmail);
@@ -51,7 +52,7 @@ class JwtServiceTest {
         String email = "test@example.com";
         String role = "SUPER_ADMIN";
 
-        String token = jwtService.generateToken(email, role);
+        String token = jwtService.generateToken(1L, email, role);
         String extractedRole = jwtService.extractRole(token);
 
         assertEquals(role, extractedRole);
@@ -63,7 +64,7 @@ class JwtServiceTest {
         String email = "test@example.com";
         String role = "USER";
 
-        String token = jwtService.generateToken(email, role);
+        String token = jwtService.generateToken(1L, email, role);
         boolean isValid = jwtService.isTokenValid(token, email);
 
         assertTrue(isValid);
@@ -75,7 +76,7 @@ class JwtServiceTest {
         String email = "test@example.com";
         String role = "USER";
 
-        String token = jwtService.generateToken(email, role);
+        String token = jwtService.generateToken(1L, email, role);
         boolean isValid = jwtService.isTokenValid(token, "wrong@example.com");
 
         assertFalse(isValid);
@@ -95,7 +96,7 @@ class JwtServiceTest {
         JwtService shortLivedService = new JwtService(TEST_SECRET, 1); // 1ms expiration
         String email = "test@example.com";
 
-        String token = shortLivedService.generateToken(email, "USER");
+        String token = shortLivedService.generateToken(1L, email, "USER");
         Thread.sleep(10); // Wait for token to expire
 
         boolean isValid = shortLivedService.isTokenValid(token, email);
@@ -133,7 +134,7 @@ class JwtServiceTest {
         String email = "test+special@example.com";
         String role = "USER";
 
-        String token = jwtService.generateToken(email, role);
+        String token = jwtService.generateToken(1L, email, role);
         String extractedEmail = jwtService.extractUsername(token);
 
         assertEquals(email, extractedEmail);
@@ -146,7 +147,7 @@ class JwtServiceTest {
         String[] roles = {"USER", "SUPER_ADMIN", "AIRLINE_ADMIN", "HOTEL_ADMIN"};
 
         for (String role : roles) {
-            String token = jwtService.generateToken(email, role);
+            String token = jwtService.generateToken(1L, email, role);
             String extractedRole = jwtService.extractRole(token);
             assertEquals(role, extractedRole);
         }

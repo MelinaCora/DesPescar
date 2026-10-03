@@ -17,6 +17,4 @@ public class PaymentRequest {
     @NotNull(message = "Reservation ID is required")
     private Long reservationId;
 
-    @NotNull(message = "User ID is required")
-    private Long userId;
 }

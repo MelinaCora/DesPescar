@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/flights")
+@RequestMapping("/api/bookings/flights")
 @RequiredArgsConstructor
 public class SeatController {
 

@@ -70,6 +70,7 @@ public class AuthService {
         resetLoginState(user);
 
         String accessToken = jwtService.generateToken(
+            user.getId(),
                 user.getEmail(),
                 user.getPrimaryRoleName()
         );
@@ -85,7 +86,7 @@ public class AuthService {
 
     public AccessTokenResponse refresh(RefreshTokenRequest request) {
         User user = refreshTokenService.validateAndGetUser(request.getRefreshToken());
-        String accessToken = jwtService.generateToken(user.getEmail(), user.getPrimaryRoleName());
+        String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), user.getPrimaryRoleName());
 
         return new AccessTokenResponse(
                 accessToken,

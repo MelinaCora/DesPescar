@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -16,6 +17,7 @@ import java.util.List;
 
 @Configuration
 @RequiredArgsConstructor
+@EnableMethodSecurity
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
@@ -25,7 +27,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http, CorsConfigurationSource corsConfigurationSource) throws Exception {
 
         http
-                .cors(cors -> cors.configurationSource(corsConfigurationSource))
+                .cors(cors -> cors.disable())
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(
@@ -33,9 +35,10 @@ public class SecurityConfig {
                     "/v3/api-docs/**"
                 ).permitAll()
                     .requestMatchers("/ws-despescar/**").permitAll()
-                    .requestMatchers(HttpMethod.GET, "/api/flights/*/seats").permitAll()
-                    .requestMatchers(HttpMethod.GET, "/api/flights/*/seat-map").permitAll()
-                    .requestMatchers(HttpMethod.GET, "/api/bookings/*").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/bookings/flights/*/seats").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/bookings/flights/*/seat-map").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/bookings/internal/*").hasRole("SERVICE_PAYMENT")
+                    .requestMatchers(HttpMethod.POST, "/api/bookings/internal/*/payment-confirmed").hasRole("SERVICE_PAYMENT")
                     .anyRequest().authenticated()
             )
                 .sessionManagement(session -> session
@@ -45,18 +48,5 @@ public class SecurityConfig {
                         .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
-    }
-
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(List.of("*"));
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Cache-Control", "Content-Type"));
-        configuration.setAllowCredentials(true);
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
-        return source;
     }
 }

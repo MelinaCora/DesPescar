@@ -7,6 +7,7 @@ import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.access.AccessDeniedException;
 
 import com.despescar.payment_service.dto.request.RefundRequest;
 import com.despescar.payment_service.dto.response.RefundGatewayResponse;
@@ -42,7 +43,7 @@ public class RefundService {
      * @return created refund response
      */
     @Transactional
-    public RefundResponse createRefund(RefundRequest request) {
+        public RefundResponse createRefund(RefundRequest request, Long authenticatedUserId) {
 
         // 1. Find the payment
         Payment payment = paymentRepository.findById(request.getPaymentId())
@@ -51,6 +52,8 @@ public class RefundService {
                                 "Payment not found with id: "
                                         + request.getPaymentId()
                         ));
+
+                requireOwner(payment, authenticatedUserId);
 
         // 2. Validate payment status
         if (payment.getStatus() != PaymentStatus.APPROVED) {
@@ -150,7 +153,7 @@ public class RefundService {
      * @return refund response
      */
     @Transactional(readOnly = true)
-    public RefundResponse getRefundById(UUID refundId) {
+        public RefundResponse getRefundById(UUID refundId, Long authenticatedUserId) {
 
         Refund refund = refundRepository.findById(refundId)
                 .orElseThrow(() ->
@@ -158,6 +161,7 @@ public class RefundService {
                                 "Refund not found with id: " + refundId
                         ));
 
+                requireOwner(refund.getPayment(), authenticatedUserId);
         return refundMapper.toResponse(refund);
     }
 
@@ -168,7 +172,11 @@ public class RefundService {
      * @return list of refund responses
      */
     @Transactional(readOnly = true)
-    public List<RefundResponse> getRefundsByPayment(UUID paymentId) {
+        public List<RefundResponse> getRefundsByPayment(UUID paymentId, Long authenticatedUserId) {
+
+                Payment payment = paymentRepository.findById(paymentId)
+                                .orElseThrow(() -> new PaymentNotFoundException("Payment not found with id: " + paymentId));
+                requireOwner(payment, authenticatedUserId);
 
         return refundRepository.findByPaymentId(paymentId)
                 .stream()
@@ -183,11 +191,20 @@ public class RefundService {
      * @return list of refund responses
      */
     @Transactional(readOnly = true)
-    public List<RefundResponse> getRefundsByUser(Long userId) {
+        public List<RefundResponse> getRefundsByUser(Long userId, Long authenticatedUserId) {
+                if (!authenticatedUserId.equals(userId)) {
+                        throw new AccessDeniedException("No puedes consultar reembolsos de otro usuario.");
+                }
 
         return refundRepository.findByPayment_UserId(userId)
                 .stream()
                 .map(refundMapper::toResponse)
                 .toList();
     }
+
+        private void requireOwner(Payment payment, Long authenticatedUserId) {
+                if (!authenticatedUserId.equals(payment.getUserId())) {
+                        throw new AccessDeniedException("No tienes acceso a este reembolso.");
+                }
+        }
 }

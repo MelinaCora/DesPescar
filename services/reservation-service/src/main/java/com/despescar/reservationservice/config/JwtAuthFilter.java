@@ -39,37 +39,47 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         final String jwt = authHeader.substring(7).trim();
 
         if (jwt.isEmpty()) {
-            filterChain.doFilter(request, response);
+            sendUnauthorizedResponse(response);
             return;
         }
 
         try {
             String email = jwtService.extractUsername(jwt);
+            Long userId = jwtService.extractUserId(jwt);
+            String role = jwtService.extractRole(jwt);
 
-            if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                if (!jwtService.isTokenValid(jwt, email)) {
-                    SecurityContextHolder.clearContext();
-                    filterChain.doFilter(request, response);
-                    return;
-                }
-
-                String role = jwtService.extractRole(jwt);
-                List<SimpleGrantedAuthority> authorities = role == null
-                        ? List.of()
-                        : List.of(new SimpleGrantedAuthority("ROLE_" + role));
-
-                UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                        email, null, authorities
-                );
-                authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(authToken);
+            if (email == null || userId == null || userId <= 0 || role == null || role.isBlank()
+                    || !jwtService.isTokenValid(jwt, email)) {
+                sendUnauthorizedResponse(response);
+                return;
             }
+
+            if ("USER".equalsIgnoreCase(role)) {
+                role = "CLIENTE";
+            }
+            List<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
+
+            UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                    userId.toString(), null, authorities
+            );
+            authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+            SecurityContextHolder.getContext().setAuthentication(authToken);
         } catch (Exception e) {
             log.warn("JWT invalido o expirado para la request {}", request.getRequestURI(), e);
             SecurityContextHolder.clearContext();
+            sendUnauthorizedResponse(response);
+            return;
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private void sendUnauthorizedResponse(HttpServletResponse response) throws IOException {
+        SecurityContextHolder.clearContext();
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json");
+        response.setCharacterEncoding("UTF-8");
+        response.getWriter().write("{\"error\":\"Unauthorized\",\"message\":\"El token es invalido, expirado o no contiene userId.\"}");
     }
 }
 

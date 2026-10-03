@@ -7,7 +7,6 @@ import java.util.UUID;
 
 @Data
 public class PassengerAssignationRequest {
-    private Long solicitanteId;
     private List<PassengerItemDTO> pasajeros;
 
     // IMPORTANTE: Debe ser "public static class" y tener @Data

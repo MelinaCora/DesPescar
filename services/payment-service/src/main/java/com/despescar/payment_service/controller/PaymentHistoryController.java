@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 
 import com.despescar.payment_service.dto.response.PaymentHistoryResponse;
 import com.despescar.payment_service.service.PaymentHistoryService;
@@ -25,11 +27,13 @@ public class PaymentHistoryController {
      * Gets the complete history of a payment.
      */
     @GetMapping("/payment/{paymentId}")
+    @PreAuthorize("hasRole('ROLE_CLIENTE')")
     public ResponseEntity<List<PaymentHistoryResponse>> getHistoryByPayment(
-            @PathVariable UUID paymentId) {
+            @PathVariable UUID paymentId,
+            Authentication authentication) {
 
         List<PaymentHistoryResponse> response =
-                paymentHistoryService.getHistoryByPayment(paymentId);
+                paymentHistoryService.getHistoryByPayment(paymentId, Long.valueOf(authentication.getName()));
 
         return ResponseEntity.ok(response);
     }

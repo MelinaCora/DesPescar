@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -76,7 +77,7 @@ class AuthServiceTest {
     void testLoginValidCredentials() {
         when(userRepository.findByEmailForUpdate(loginRequest.getEmail())).thenReturn(Optional.of(testUser));
         when(passwordEncoder.matches(loginRequest.getPassword(), testUser.getPassword())).thenReturn(true);
-        when(jwtService.generateToken(anyString(), anyString())).thenReturn("access-token");
+        when(jwtService.generateToken(anyLong(), anyString(), anyString())).thenReturn("access-token");
         when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(900L);
         when(refreshTokenService.createRefreshToken(testUser)).thenReturn("refresh-token");
 
@@ -99,7 +100,7 @@ class AuthServiceTest {
         assertThrows(InvalidCredentialsException.class, () -> authService.login(loginRequest));
 
         verify(passwordEncoder, never()).matches(anyString(), anyString());
-        verify(jwtService, never()).generateToken(anyString(), anyString());
+        verify(jwtService, never()).generateToken(anyLong(), anyString(), anyString());
     }
 
     @Test
@@ -113,7 +114,7 @@ class AuthServiceTest {
         assertEquals(1, testUser.getFailedLoginAttempts());
         assertNull(testUser.getLockedUntil());
         verify(userRepository).save(testUser);
-        verify(jwtService, never()).generateToken(anyString(), anyString());
+        verify(jwtService, never()).generateToken(anyLong(), anyString(), anyString());
     }
 
     @Test
@@ -171,7 +172,7 @@ class AuthServiceTest {
 
         when(userRepository.findByEmailForUpdate(loginRequest.getEmail())).thenReturn(Optional.of(testUser));
         when(passwordEncoder.matches(loginRequest.getPassword(), testUser.getPassword())).thenReturn(true);
-        when(jwtService.generateToken(anyString(), anyString())).thenReturn("access-token");
+        when(jwtService.generateToken(anyLong(), anyString(), anyString())).thenReturn("access-token");
         when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(900L);
         when(refreshTokenService.createRefreshToken(testUser)).thenReturn("refresh-token");
 
@@ -190,7 +191,7 @@ class AuthServiceTest {
 
         when(userRepository.findByEmailForUpdate(loginRequest.getEmail())).thenReturn(Optional.of(testUser));
         when(passwordEncoder.matches(loginRequest.getPassword(), testUser.getPassword())).thenReturn(true);
-        when(jwtService.generateToken(anyString(), anyString())).thenReturn("access-token");
+        when(jwtService.generateToken(anyLong(), anyString(), anyString())).thenReturn("access-token");
         when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(900L);
         when(refreshTokenService.createRefreshToken(testUser)).thenReturn("refresh-token");
 
@@ -211,7 +212,7 @@ class AuthServiceTest {
 
         when(userRepository.findByEmailForUpdate("other@example.com")).thenReturn(Optional.of(secondUser));
         when(passwordEncoder.matches(secondLoginRequest.getPassword(), secondUser.getPassword())).thenReturn(true);
-        when(jwtService.generateToken(anyString(), anyString())).thenReturn("access-token");
+        when(jwtService.generateToken(anyLong(), anyString(), anyString())).thenReturn("access-token");
         when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(900L);
         when(refreshTokenService.createRefreshToken(secondUser)).thenReturn("refresh-token");
 
@@ -235,13 +236,13 @@ class AuthServiceTest {
 
         when(userRepository.findByEmailForUpdate(loginRequest.getEmail())).thenReturn(Optional.of(testUser));
         when(passwordEncoder.matches(loginRequest.getPassword(), testUser.getPassword())).thenReturn(true);
-        when(jwtService.generateToken(anyString(), anyString())).thenReturn("access-token");
+        when(jwtService.generateToken(anyLong(), anyString(), anyString())).thenReturn("access-token");
         when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(900L);
         when(refreshTokenService.createRefreshToken(testUser)).thenReturn("refresh-token");
 
         authService.login(loginRequest);
 
-        verify(jwtService).generateToken(testUser.getEmail(), "SUPER_ADMIN");
+        verify(jwtService).generateToken(testUser.getId(), testUser.getEmail(), "SUPER_ADMIN");
     }
 
     @Test
@@ -275,7 +276,7 @@ class AuthServiceTest {
         RefreshTokenRequest request = new RefreshTokenRequest("refresh-token");
 
         when(refreshTokenService.validateAndGetUser("refresh-token")).thenReturn(testUser);
-        when(jwtService.generateToken(testUser.getEmail(), testUser.getPrimaryRoleName())).thenReturn("new-access-token");
+        when(jwtService.generateToken(testUser.getId(), testUser.getEmail(), testUser.getPrimaryRoleName())).thenReturn("new-access-token");
         when(jwtService.getAccessTokenExpirationSeconds()).thenReturn(900L);
 
         AccessTokenResponse response = authService.refresh(request);

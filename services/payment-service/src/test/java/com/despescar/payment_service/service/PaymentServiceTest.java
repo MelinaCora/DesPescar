@@ -58,12 +58,12 @@ class PaymentServiceTest {
     @Test
     void createPaymentShouldPersistPendingPaymentAndReturnCheckoutUrl() {
         PaymentRequest request = paymentRequest();
-        ReservationResponse reservation = reservationResponse(request.getUserId(), "ARS");
-        Payment mappedPayment = payment(request.getReservationId(), request.getUserId());
+        ReservationResponse reservation = reservationResponse(55L, "ARS");
+        Payment mappedPayment = payment(request.getReservationId(), 55L);
         PaymentResponse mappedResponse = PaymentResponse.builder()
                 .id(UUID.randomUUID())
                 .reservationId(request.getReservationId())
-                .userId(request.getUserId())
+                .userId(55L)
                 .amount(new BigDecimal("15000.00"))
                 .status(PaymentStatus.PENDING)
                 .preferenceId("pref-123")
@@ -73,7 +73,7 @@ class PaymentServiceTest {
                 .build();
 
         when(reservationClient.getReservation(request.getReservationId())).thenReturn(reservation);
-        when(paymentMapper.toEntity(request, new BigDecimal("15000.00"), "ARS")).thenReturn(mappedPayment);
+        when(paymentMapper.toEntity(request, new BigDecimal("15000.00"), "ARS", 55L)).thenReturn(mappedPayment);
         when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
             Payment payment = invocation.getArgument(0);
             if (payment.getId() == null) {
@@ -89,7 +89,7 @@ class PaymentServiceTest {
                         .build());
         when(paymentMapper.toResponse(any(Payment.class))).thenReturn(mappedResponse);
 
-        PaymentResponse response = paymentService.createPayment(request);
+        PaymentResponse response = paymentService.createPayment(request, 55L);
 
         assertThat(response.getCheckoutUrl()).isEqualTo("https://checkout.test/payments/123");
         assertThat(mappedPayment.getStatus()).isEqualTo(PaymentStatus.PENDING);
@@ -102,11 +102,11 @@ class PaymentServiceTest {
     @Test
     void createPaymentShouldRejectReservationWithoutCurrency() {
         PaymentRequest request = paymentRequest();
-        ReservationResponse reservation = reservationResponse(request.getUserId(), null);
+        ReservationResponse reservation = reservationResponse(55L, null);
 
         when(reservationClient.getReservation(request.getReservationId())).thenReturn(reservation);
 
-        assertThatThrownBy(() -> paymentService.createPayment(request))
+        assertThatThrownBy(() -> paymentService.createPayment(request, 55L))
                 .isInstanceOf(ReservationAmountResolutionException.class)
                 .hasMessage("La reserva no define una moneda unica para calcular el pago.");
     }
@@ -116,7 +116,7 @@ class PaymentServiceTest {
         UUID paymentId = UUID.randomUUID();
         when(paymentRepository.findById(paymentId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> paymentService.getPaymentById(paymentId))
+        assertThatThrownBy(() -> paymentService.getPaymentById(paymentId, 11L))
                 .isInstanceOf(PaymentNotFoundException.class)
                 .hasMessage("Payment not found with id: " + paymentId);
     }
@@ -133,7 +133,7 @@ class PaymentServiceTest {
         when(paymentMapper.toResponse(firstPayment)).thenReturn(PaymentResponse.builder().id(firstPayment.getId()).build());
         when(paymentMapper.toResponse(secondPayment)).thenReturn(PaymentResponse.builder().id(secondPayment.getId()).build());
 
-        List<PaymentResponse> responses = paymentService.getPaymentsByReservation(reservationId);
+        List<PaymentResponse> responses = paymentService.getPaymentsByReservation(reservationId, 11L);
 
         assertThat(responses).hasSize(2);
         assertThat(responses).extracting(PaymentResponse::getId)
@@ -149,7 +149,7 @@ class PaymentServiceTest {
 
         when(paymentRepository.findById(paymentId)).thenReturn(Optional.of(payment));
 
-        assertThatThrownBy(() -> paymentService.cancelPayment(paymentId))
+        assertThatThrownBy(() -> paymentService.cancelPayment(paymentId, 11L))
                 .isInstanceOf(InvalidPaymentStateException.class)
                 .hasMessage("Payment cannot be cancelled because its current status is: APPROVED");
     }
@@ -168,7 +168,7 @@ class PaymentServiceTest {
                 .status(PaymentStatus.CANCELLED)
                 .build());
 
-        PaymentResponse response = paymentService.cancelPayment(paymentId);
+        PaymentResponse response = paymentService.cancelPayment(paymentId, 11L);
 
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
         assertThat(response.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
@@ -178,7 +178,6 @@ class PaymentServiceTest {
     private PaymentRequest paymentRequest() {
         return PaymentRequest.builder()
                 .reservationId(77L)
-                .userId(55L)
                 .build();
     }
 

@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.access.AccessDeniedException;
 
 import com.despescar.payment_service.client.ReservationClient;
 import com.despescar.payment_service.client.dto.ReservationResponse;
@@ -34,14 +35,19 @@ public class PaymentService {
     private final ReservationClient reservationClient;
 
     @Transactional
-    public PaymentResponse createPayment(PaymentRequest request) {
+        public PaymentResponse createPayment(PaymentRequest request, Long authenticatedUserId) {
         ReservationResponse reservation = reservationClient.getReservation(request.getReservationId());
-        PaymentAmountResolution amountResolution = resolveAmountForPayer(reservation, request.getReservationId(), request.getUserId());
+                PaymentAmountResolution amountResolution = resolveAmountForPayer(
+                                reservation,
+                                request.getReservationId(),
+                                authenticatedUserId
+                );
 
         Payment payment = paymentMapper.toEntity(
                 request,
                 amountResolution.amount(),
-                amountResolution.currency()
+                amountResolution.currency(),
+                authenticatedUserId
         );
 
         payment.setStatus(PaymentStatus.PENDING);
@@ -75,7 +81,7 @@ public class PaymentService {
     }
 
     @Transactional(readOnly = true)
-    public PaymentResponse getPaymentById(UUID paymentId) {
+        public PaymentResponse getPaymentById(UUID paymentId, Long authenticatedUserId) {
 
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() ->
@@ -83,11 +89,15 @@ public class PaymentService {
                                 "Payment not found with id: " + paymentId
                         ));
 
+        requireOwner(payment, authenticatedUserId);
         return paymentMapper.toResponse(payment);
     }
 
     @Transactional(readOnly = true)
-    public List<PaymentResponse> getPaymentsByUser(Long userId) {
+        public List<PaymentResponse> getPaymentsByUser(Long userId, Long authenticatedUserId) {
+                if (!authenticatedUserId.equals(userId)) {
+                        throw new AccessDeniedException("No puedes consultar pagos de otro usuario.");
+                }
 
         return paymentRepository.findByUserId(userId)
                 .stream()
@@ -97,16 +107,18 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public List<PaymentResponse> getPaymentsByReservation(
-            Long reservationId) {
+            Long reservationId,
+            Long authenticatedUserId) {
 
         return paymentRepository.findByReservationId(reservationId)
                 .stream()
+                .filter(payment -> authenticatedUserId.equals(payment.getUserId()))
                 .map(paymentMapper::toResponse)
                 .toList();
     }
 
     @Transactional
-    public PaymentResponse cancelPayment(UUID paymentId) {
+        public PaymentResponse cancelPayment(UUID paymentId, Long authenticatedUserId) {
 
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() ->
@@ -114,6 +126,7 @@ public class PaymentService {
                                 "Payment not found with id: " + paymentId
                         ));
 
+        requireOwner(payment, authenticatedUserId);
         if (payment.getStatus() != PaymentStatus.PENDING) {
 
             throw new InvalidPaymentStateException(
@@ -134,6 +147,12 @@ public class PaymentService {
         );
 
         return paymentMapper.toResponse(updatedPayment);
+    }
+
+    private void requireOwner(Payment payment, Long authenticatedUserId) {
+        if (!authenticatedUserId.equals(payment.getUserId())) {
+            throw new AccessDeniedException("No tienes acceso a este pago.");
+        }
     }
 
     private PaymentAmountResolution resolveAmountForPayer(

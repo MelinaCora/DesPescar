@@ -8,12 +8,15 @@ import jakarta.validation.ConstraintViolationException;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import lombok.extern.slf4j.Slf4j;
 
 @RestControllerAdvice
+@Slf4j
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(PaymentNotFoundException.class)
@@ -124,6 +127,18 @@ public class GlobalExceptionHandler {
         );
     }
 
+        @ExceptionHandler(AccessDeniedException.class)
+        public ResponseEntity<ErrorResponse> handleAccessDenied(
+                        AccessDeniedException ex,
+                        HttpServletRequest request) {
+
+                return buildErrorResponse(
+                                HttpStatus.FORBIDDEN,
+                                "No tienes permisos para este recurso.",
+                                request.getRequestURI()
+                );
+        }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidationExceptions(
             MethodArgumentNotValidException ex,
@@ -163,6 +178,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleGenericException(
             Exception ex,
             HttpServletRequest request) {
+
+                log.error("Unexpected payment-service error for request {}", request.getRequestURI(), ex);
 
         return buildErrorResponse(
                 HttpStatus.INTERNAL_SERVER_ERROR,

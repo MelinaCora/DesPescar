@@ -6,6 +6,8 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 
 import com.despescar.payment_service.dto.request.RefundRequest;
 import com.despescar.payment_service.dto.response.RefundResponse;
@@ -25,10 +27,12 @@ public class RefundController {
      * Creates a new refund.
      */
     @PostMapping
+    @PreAuthorize("hasRole('ROLE_CLIENTE')")
     public ResponseEntity<RefundResponse> createRefund(
-            @Valid @RequestBody RefundRequest request) {
+            @Valid @RequestBody RefundRequest request,
+            Authentication authentication) {
 
-        RefundResponse response = refundService.createRefund(request);
+        RefundResponse response = refundService.createRefund(request, Long.valueOf(authentication.getName()));
 
         return ResponseEntity
                 .status(HttpStatus.CREATED)
@@ -39,10 +43,12 @@ public class RefundController {
      * Gets a refund by ID.
      */
     @GetMapping("/{refundId}")
+    @PreAuthorize("hasRole('ROLE_CLIENTE')")
     public ResponseEntity<RefundResponse> getRefundById(
-            @PathVariable UUID refundId) {
+            @PathVariable UUID refundId,
+            Authentication authentication) {
 
-        RefundResponse response = refundService.getRefundById(refundId);
+        RefundResponse response = refundService.getRefundById(refundId, Long.valueOf(authentication.getName()));
 
         return ResponseEntity.ok(response);
     }
@@ -51,11 +57,13 @@ public class RefundController {
      * Gets all refunds associated with a payment.
      */
     @GetMapping("/payment/{paymentId}")
+        @PreAuthorize("hasRole('ROLE_CLIENTE')")
     public ResponseEntity<List<RefundResponse>> getRefundsByPayment(
-            @PathVariable UUID paymentId) {
+            @PathVariable UUID paymentId,
+            Authentication authentication) {
 
         List<RefundResponse> response =
-                refundService.getRefundsByPayment(paymentId);
+                refundService.getRefundsByPayment(paymentId, Long.valueOf(authentication.getName()));
 
         return ResponseEntity.ok(response);
     }
@@ -64,11 +72,13 @@ public class RefundController {
      * Gets all refunds associated with a user.
      */
     @GetMapping("/user/{userId}")
+        @PreAuthorize("hasRole('ROLE_CLIENTE')")
     public ResponseEntity<List<RefundResponse>> getRefundsByUser(
-            @PathVariable Long userId) {
+            @PathVariable Long userId,
+            Authentication authentication) {
 
         List<RefundResponse> response =
-                refundService.getRefundsByUser(userId);
+                refundService.getRefundsByUser(userId, Long.valueOf(authentication.getName()));
 
         return ResponseEntity.ok(response);
     }

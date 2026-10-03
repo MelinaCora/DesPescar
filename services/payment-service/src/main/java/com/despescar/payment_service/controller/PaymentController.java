@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 
 import com.despescar.payment_service.dto.request.PaymentRequest;
 import com.despescar.payment_service.dto.response.PaymentResponse;
@@ -31,11 +33,13 @@ public class PaymentController {
 	 * Creates a new payment.
 	 */
 	@PostMapping
+	@PreAuthorize("hasRole('ROLE_CLIENTE')")
 	public ResponseEntity<PaymentResponse> createPayment(
-			@Valid @RequestBody PaymentRequest request) {
+			@Valid @RequestBody PaymentRequest request,
+			Authentication authentication) {
 
 		PaymentResponse response =
-				paymentService.createPayment(request);
+				paymentService.createPayment(request, Long.valueOf(authentication.getName()));
 
 		return ResponseEntity
 				.status(HttpStatus.CREATED)
@@ -46,11 +50,13 @@ public class PaymentController {
 	 * Gets a payment by ID.
 	 */
 	@GetMapping("/{paymentId}")
+	@PreAuthorize("hasRole('ROLE_CLIENTE')")
 	public ResponseEntity<PaymentResponse> getPaymentById(
-			@PathVariable UUID paymentId) {
+			@PathVariable UUID paymentId,
+			Authentication authentication) {
 
 		PaymentResponse response =
-				paymentService.getPaymentById(paymentId);
+				paymentService.getPaymentById(paymentId, Long.valueOf(authentication.getName()));
 
 		return ResponseEntity.ok(response);
 	}
@@ -59,11 +65,13 @@ public class PaymentController {
 	 * Gets all payments associated with a user.
 	 */
 	@GetMapping("/user/{userId}")
+	@PreAuthorize("hasRole('ROLE_CLIENTE')")
 	public ResponseEntity<List<PaymentResponse>> getPaymentsByUser(
-			@PathVariable Long userId) {
+			@PathVariable Long userId,
+			Authentication authentication) {
 
 		List<PaymentResponse> response =
-				paymentService.getPaymentsByUser(userId);
+				paymentService.getPaymentsByUser(userId, Long.valueOf(authentication.getName()));
 
 		return ResponseEntity.ok(response);
 	}
@@ -72,12 +80,15 @@ public class PaymentController {
 	 * Gets all payments associated with a reservation.
 	 */
 	@GetMapping("/reservation/{reservationId}")
+	@PreAuthorize("hasRole('ROLE_CLIENTE')")
 	public ResponseEntity<List<PaymentResponse>> getPaymentsByReservation(
-			@PathVariable Long reservationId) {
+			@PathVariable Long reservationId,
+			Authentication authentication) {
 
 		List<PaymentResponse> response =
 				paymentService.getPaymentsByReservation(
-						reservationId
+						reservationId,
+						Long.valueOf(authentication.getName())
 				);
 
 		return ResponseEntity.ok(response);
@@ -87,11 +98,13 @@ public class PaymentController {
 	 * Cancels a pending payment.
 	 */
 	@DeleteMapping("/{paymentId}")
+	@PreAuthorize("hasRole('ROLE_CLIENTE')")
 	public ResponseEntity<PaymentResponse> cancelPayment(
-			@PathVariable UUID paymentId) {
+			@PathVariable UUID paymentId,
+			Authentication authentication) {
 
 		PaymentResponse response =
-				paymentService.cancelPayment(paymentId);
+				paymentService.cancelPayment(paymentId, Long.valueOf(authentication.getName()));
 
 		return ResponseEntity.ok(response);
 	}

@@ -15,11 +15,12 @@ public class PaymentMapper {
     public Payment toEntity(
             PaymentRequest request,
             BigDecimal amount,
-            String currency) {
+            String currency,
+            Long userId) {
 
         return Payment.builder()
                 .reservationId(request.getReservationId())
-                .userId(request.getUserId())
+                .userId(userId)
                 .amount(amount)
                 .currency(currency)
                 .provider(PaymentProvider.MERCADO_PAGO)

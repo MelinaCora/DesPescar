@@ -7,7 +7,6 @@ import com.despescar.reservationservice.dto.flight.response.FlightLookupResponse
 import com.despescar.reservationservice.dto.hotel.response.HotelLookupResponse;
 import com.despescar.reservationservice.dto.packagecatalog.response.PackageLookupResponse;
 import com.despescar.reservationservice.dto.reservation.request.BookingInitRequest;
-import com.despescar.reservationservice.dto.reservation.request.ProcessPaymentRequest;
 import com.despescar.reservationservice.dto.reservation.request.SplitPaymentSetupRequest;
 import com.despescar.reservationservice.dto.reservation.response.BookingInitResponse;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
@@ -57,10 +56,13 @@ public class BookingService {
      * PASO 1: Iniciar la reserva (Crea el cascarón vacío)
      */
     @Transactional
-    public BookingInitResponse initializeBooking(BookingInitRequest request, String authorizationHeader) {
+    public BookingInitResponse initializeBooking(
+            BookingInitRequest request,
+            String authorizationHeader,
+            Long authenticatedUserId) {
 
         boolean carritoActivo = bookingRepository.findByEstado(ReservationStatus.INICIADA).stream()
-                .anyMatch(r -> r.getCreadorId().equals(request.getCreadorId()));
+                .anyMatch(r -> r.getCreadorId().equals(authenticatedUserId));
 
         if (carritoActivo) {
             throw new BookingException("CARRITO_DUPLICADO", "Ya tienes una reserva en proceso.", HttpStatus.BAD_REQUEST);
@@ -89,7 +91,7 @@ public class BookingService {
         }
 
         Reservation reserva = Reservation.builder()
-                .creadorId(request.getCreadorId())
+            .creadorId(authenticatedUserId)
                 .cantidadPasajeros(request.getCantidadPasajeros())
                 .tipoPago(request.getPaymentType())
                 .flightIds(request.getFlightIds())
@@ -110,7 +112,7 @@ public class BookingService {
     }
 
     @Transactional
-    public String procesarPago(Long id, ProcessPaymentRequest dto) {
+    public String procesarPago(Long id, Long payerUserId) {
 
         Reservation reserva = bookingRepository.findById(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
@@ -122,21 +124,41 @@ public class BookingService {
         validarExpiracion(reserva);
 
         List<ReservationDetail> detallesAPagar = detailRepository
-                .findByReservation_IdAndPayerUserIdAndPaymentStatus(id, dto.getPagadorId(), PaymentStatus.PENDIENTE);
+                .findByReservation_IdAndPayerUserIdAndPaymentStatus(id, payerUserId, PaymentStatus.PENDIENTE);
 
         if (detallesAPagar.isEmpty()) {
             throw new BookingException("SIN_DEUDAS", "No tienes pagos pendientes en este carrito.", HttpStatus.BAD_REQUEST);
+        }
+
+        return "Pago pendiente de confirmacion del proveedor. La reserva no se confirmara hasta recibir un callback validado.";
+    }
+
+    @Transactional
+    public String confirmarPagoValidado(Long id, Long payerUserId, String providerTransactionId) {
+        if (payerUserId == null || providerTransactionId == null || providerTransactionId.isBlank()) {
+            throw new BookingException("CONFIRMACION_INVALIDA", "La confirmacion del proveedor esta incompleta.", HttpStatus.BAD_REQUEST);
+        }
+
+        Reservation reserva = bookingRepository.findById(id)
+                .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
+
+        if (!ReservationStatus.PENDIENTE_PAGO.equals(reserva.getEstado())) {
+            throw new BookingException("MODIFICACION_PROHIBIDA", "La reserva no está lista para pago (Estado actual: " + reserva.getEstado() + ")", HttpStatus.BAD_REQUEST);
+        }
+
+        validarExpiracion(reserva);
+
+        List<ReservationDetail> detallesAPagar = detailRepository
+                .findByReservation_IdAndPayerUserIdAndPaymentStatus(id, payerUserId, PaymentStatus.PENDIENTE);
+
+        if (detallesAPagar.isEmpty()) {
+            throw new BookingException("SIN_DEUDAS", "No hay pagos pendientes para este pagador.", HttpStatus.BAD_REQUEST);
         }
 
         for (ReservationDetail detalle : detallesAPagar) {
             if (detalle.getPassengerName() == null || detalle.getPassengerDni() == null) {
                 throw new BookingException("DOCUMENTACION_INCOMPLETA", "Falta documentación del pasajero asignado al asiento " + detalle.getOutboundSeatNumber(), HttpStatus.BAD_REQUEST);
             }
-        }
-
-        boolean pagoExitoso = true;
-        if (!pagoExitoso) {
-            throw new BookingException("PAGO_RECHAZADO", "El pago fue rechazado.", HttpStatus.PAYMENT_REQUIRED);
         }
 
         detallesAPagar.forEach(detalle -> detalle.setPaymentStatus(PaymentStatus.PAGADO));
@@ -163,7 +185,17 @@ public class BookingService {
         return "Pago realizado correctamente. Esperando pagos del resto del grupo.";
     }
 
-    public ReservationResponse obtenerReserva(Long id) {
+    public ReservationResponse obtenerReserva(Long id, Long authenticatedUserId) {
+        Reservation reserva = bookingRepository.findById(id)
+                .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
+        if (!reserva.getCreadorId().equals(authenticatedUserId)) {
+            throw new BookingException("ACCESO_DENEGADO", "No tienes acceso a esta reserva.", HttpStatus.FORBIDDEN);
+        }
+        validarExpiracion(reserva);
+        return reservationMapper.toResponse(reserva);
+    }
+
+    public ReservationResponse obtenerReservaInterna(Long id) {
         Reservation reserva = bookingRepository.findById(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
         validarExpiracion(reserva);
@@ -248,11 +280,11 @@ public class BookingService {
     }
 
     @Transactional
-    public void setupSplitPayment(Long id, SplitPaymentSetupRequest request) {
+    public void setupSplitPayment(Long id, SplitPaymentSetupRequest request, Long authenticatedUserId) {
         Reservation reserva = bookingRepository.findById(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
 
-        if (!reserva.getCreadorId().equals(request.getSolicitanteId())) {
+        if (!reserva.getCreadorId().equals(authenticatedUserId)) {
             throw new BookingException("ACCESO_DENEGADO", "Solo el creador puede configurar el pago compartido.", HttpStatus.FORBIDDEN);
         }
 

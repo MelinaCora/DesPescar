@@ -43,6 +43,10 @@ public class PaymentSyncAuthenticationFilter extends OncePerRequestFilter {
                         List.of(new SimpleGrantedAuthority("ROLE_SERVICE_PAYMENT"))
                 );
                 SecurityContextHolder.getContext().setAuthentication(authentication);
+            } else {
+                SecurityContextHolder.clearContext();
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Invalid internal service token.");
+                return;
             }
         }
 
@@ -51,8 +55,12 @@ public class PaymentSyncAuthenticationFilter extends OncePerRequestFilter {
 
     private boolean matchesPaymentSyncEndpoint(HttpServletRequest request) {
         String uri = request.getRequestURI();
-        return HttpMethod.POST.matches(request.getMethod())
-                && uri != null
-                && uri.matches("^/api/bookings/[^/]+/pay$");
+        if (uri == null) {
+            return false;
+        }
+        return (HttpMethod.POST.matches(request.getMethod())
+                && uri.matches("^/api/bookings/internal/[^/]+/payment-confirmed$"))
+                || (HttpMethod.GET.matches(request.getMethod())
+                && uri.matches("^/api/bookings/internal/[^/]+$"));
     }
 }

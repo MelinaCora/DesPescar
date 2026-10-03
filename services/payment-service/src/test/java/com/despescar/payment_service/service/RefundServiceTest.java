@@ -95,7 +95,7 @@ class RefundServiceTest {
                     .build();
         });
 
-        RefundResponse response = refundService.createRefund(request);
+        RefundResponse response = refundService.createRefund(request, 55L);
 
         assertThat(response.getStatus()).isEqualTo(RefundStatus.APPROVED);
         assertThat(response.getRefundTransactionId()).isEqualTo("refund-123");
@@ -112,7 +112,7 @@ class RefundServiceTest {
 
         when(paymentRepository.findById(payment.getId())).thenReturn(Optional.of(payment));
 
-        assertThatThrownBy(() -> refundService.createRefund(request))
+        assertThatThrownBy(() -> refundService.createRefund(request, 55L))
                 .isInstanceOf(InvalidPaymentStateException.class)
                 .hasMessage("Payment cannot be refunded because its current status is: PENDING");
     }
@@ -131,7 +131,7 @@ class RefundServiceTest {
         when(paymentRepository.findById(payment.getId())).thenReturn(Optional.of(payment));
         when(refundRepository.findByPaymentId(payment.getId())).thenReturn(List.of(existingRefund));
 
-        assertThatThrownBy(() -> refundService.createRefund(request))
+        assertThatThrownBy(() -> refundService.createRefund(request, 55L))
                 .isInstanceOf(RefundAmountExceededException.class)
                 .hasMessageContaining("Available amount: 70.00");
     }
@@ -141,7 +141,7 @@ class RefundServiceTest {
         UUID refundId = UUID.randomUUID();
         when(refundRepository.findById(refundId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> refundService.getRefundById(refundId))
+        assertThatThrownBy(() -> refundService.getRefundById(refundId, 55L))
                 .isInstanceOf(com.despescar.payment_service.exception.RefundNotFoundException.class)
                 .hasMessage("Refund not found with id: " + refundId);
     }

@@ -40,9 +40,9 @@ public class ReservationClient {
     public ReservationResponse getReservation(Long reservationId) {
         try {
             ResponseEntity<ReservationResponse> response = restTemplate.exchange(
-                    reservationServiceUrl + "/api/bookings/{reservationId}",
+                    reservationServiceUrl + "/api/bookings/internal/{reservationId}",
                     HttpMethod.GET,
-                    HttpEntity.EMPTY,
+                    new HttpEntity<>(buildHeaders()),
                     ReservationResponse.class,
                     reservationId
             );
@@ -78,7 +78,7 @@ public class ReservationClient {
 
         try {
             restTemplate.exchange(
-                    reservationServiceUrl + "/api/bookings/{reservationId}/pay",
+                    reservationServiceUrl + "/api/bookings/internal/{reservationId}/payment-confirmed",
                     HttpMethod.POST,
                     new HttpEntity<>(request, buildHeaders()),
                     String.class,

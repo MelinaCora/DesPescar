@@ -13,6 +13,9 @@ import com.despescar.payment_service.entity.PaymentHistory;
 import com.despescar.payment_service.enums.PaymentStatus;
 import com.despescar.payment_service.mapper.PaymentHistoryMapper;
 import com.despescar.payment_service.repository.PaymentHistoryRepository;
+import com.despescar.payment_service.repository.PaymentRepository;
+import com.despescar.payment_service.exception.PaymentNotFoundException;
+import org.springframework.security.access.AccessDeniedException;
 
 import lombok.RequiredArgsConstructor;
 
@@ -22,6 +25,7 @@ public class PaymentHistoryService {
 
     private final PaymentHistoryRepository paymentHistoryRepository;
     private final PaymentHistoryMapper paymentHistoryMapper;
+    private final PaymentRepository paymentRepository;
 
     @Transactional
     public void saveHistory(
@@ -40,7 +44,12 @@ public class PaymentHistoryService {
     }
 
     @Transactional(readOnly = true)
-    public List<PaymentHistoryResponse> getHistoryByPayment(UUID paymentId) {
+    public List<PaymentHistoryResponse> getHistoryByPayment(UUID paymentId, Long authenticatedUserId) {
+        var payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new PaymentNotFoundException("Payment not found with id: " + paymentId));
+        if (!authenticatedUserId.equals(payment.getUserId())) {
+            throw new AccessDeniedException("No tienes acceso al historial de este pago.");
+        }
 
         return paymentHistoryRepository
                 .findByPayment_IdOrderByChangedAtAsc(paymentId)

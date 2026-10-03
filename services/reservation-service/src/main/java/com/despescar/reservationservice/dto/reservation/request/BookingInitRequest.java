@@ -9,9 +9,6 @@ import java.util.UUID;
 
 @Data
 public class BookingInitRequest {
-    @NotNull
-    private Long creadorId;
-
     @NotEmpty
     private List<UUID> flightIds;
 

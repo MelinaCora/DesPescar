@@ -31,13 +31,13 @@ public class PassengerService {
     private final FlightClient flightClient;
 
     @Transactional
-    public void assignPassengersToSeats(Long reservationId, PassengerAssignationRequest request) {
+    public void assignPassengersToSeats(Long reservationId, PassengerAssignationRequest request, Long authenticatedUserId) {
 
         // 1. Obtener y validar la reserva
         Reservation reserva = bookingRepository.findById(reservationId)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "Reserva inexistente", HttpStatus.NOT_FOUND));
 
-        if (!reserva.getCreadorId().equals(request.getSolicitanteId())) {
+        if (!reserva.getCreadorId().equals(authenticatedUserId)) {
             throw new BookingException("ACCESO_DENEGADO", "Solo el creador puede asignar pasajeros", HttpStatus.FORBIDDEN);
         }
 
@@ -63,7 +63,7 @@ public class PassengerService {
                             "El asiento seleccionado no existe.", HttpStatus.BAD_REQUEST));
 
             // B) Validación crítica de bloqueo
-            if (asientoFisico.getBlockedByUserId() == null || !asientoFisico.getBlockedByUserId().equals(request.getSolicitanteId())) {
+            if (asientoFisico.getBlockedByUserId() == null || !asientoFisico.getBlockedByUserId().equals(authenticatedUserId)) {
                 throw new BookingException("ASIENTO_NO_BLOQUEADO",
                         "El asiento " + asientoFisico.getNumberSeat() + " no está bloqueado por ti. Selecciónalo primero en el mapa.", HttpStatus.CONFLICT);
             }
