@@ -13,3 +13,4 @@ bin/
 spring.log
 
 .mvn/wrapper/maven-wrapper.jar
+database/.env

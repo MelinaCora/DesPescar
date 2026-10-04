@@ -1,0 +1,37 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: despescar-mysql
+    restart: unless-stopped
+    environment:
+      # Mismo valor por defecto que usan los application.properties (${DB_PASSWORD:despescar_dev}).
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-despescar_dev}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # Solo se ejecuta la primera vez, cuando el volumen esta vacio.
+      - ./init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # Por TCP (127.0.0.1): durante la inicializacion MySQL solo escucha por socket,
+      # asi que "healthy" recien aparece cuando acepta conexiones reales.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  adminer:
+    image: adminer
+    container_name: despescar-adminer
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: mysql
+    ports:
+      # 8090 y no 8080, porque identity-service usa el 8080.
+      - "8090:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql_data:

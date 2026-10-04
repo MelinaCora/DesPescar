@@ -1,0 +1,7 @@
+CREATE DATABASE IF NOT EXISTS despescar_identity;
+CREATE DATABASE IF NOT EXISTS despescar_flight;
+CREATE DATABASE IF NOT EXISTS despescar_hotel;
+CREATE DATABASE IF NOT EXISTS despescar_reservation;
+CREATE DATABASE IF NOT EXISTS despescar_package;
+CREATE DATABASE IF NOT EXISTS despescar_payment;
+CREATE DATABASE IF NOT EXISTS despescar_koiia;
