@@ -169,12 +169,7 @@ public class BookingService {
         if (pendientes == 0) {
             reserva.setEstado(ReservationStatus.CONFIRMADA);
 
-            for (UUID flightId : reserva.getFlightIds()) {
-                flightClient.adjustSeats(flightId.toString(), -reserva.getCantidadPasajeros());
-            }
-            if (reserva.getHotelId() != null) {
-                hotelClient.adjustRooms(reserva.getHotelId(), -1);
-            }
+            ajustarInventario(reserva, -1);
 
             bookingRepository.save(reserva);
             notificarCambioEnTiempoReal(reserva);
@@ -211,8 +206,15 @@ public class BookingService {
             throw new BookingException("ACCESO_DENEGADO", "Solo el creador puede cancelar la reserva.", HttpStatus.FORBIDDEN);
         }
 
+        // El inventario solo se descuenta al confirmar el pago: unicamente ahi hay que devolverlo.
+        boolean inventarioDescontado = ReservationStatus.CONFIRMADA.equals(reserva.getEstado());
+
         reserva.setEstado(ReservationStatus.CANCELADA);
         bookingRepository.save(reserva);
+
+        if (inventarioDescontado) {
+            ajustarInventario(reserva, 1);
+        }
 
         List<ReservationDetail> detalles = detailRepository.findByReservation_Id(id);
         for (ReservationDetail detalle : detalles) {
@@ -228,6 +230,20 @@ public class BookingService {
         notificarCambioEnTiempoReal(reserva);
     }
 
+
+    /**
+     * Descuenta (sentido -1) o devuelve (sentido 1) asientos y habitaciones.
+     * Flight-Service ajusta por numero de vuelo, y la reserva guarda el id del vuelo: se resuelve antes.
+     */
+    private void ajustarInventario(Reservation reserva, int sentido) {
+        for (UUID flightId : reserva.getFlightIds()) {
+            String flightNumber = flightClient.getFlightByNumber(flightId).getFlightNumber();
+            flightClient.adjustSeats(flightNumber, sentido * reserva.getCantidadPasajeros());
+        }
+        if (reserva.getHotelId() != null) {
+            hotelClient.adjustRooms(reserva.getHotelId(), sentido);
+        }
+    }
 
     private void validarExpiracion(Reservation reserva) {
         if (LocalDateTime.now().isAfter(reserva.getLimiteTiempo()) &&

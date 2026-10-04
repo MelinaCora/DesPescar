@@ -53,6 +53,8 @@ Está listo cuando el log dice `Started ReservationServiceApplication`. Crea las
 
 Si no se completa a tiempo, la reserva pasa a `EXPIRADA`.
 
+**Inventario:** los asientos de `flightservice` y la habitación de `hotel-service` se descuentan **cuando el último pagador confirma el pago** (la reserva pasa a `CONFIRMADA`), no al crearla. Si el creador cancela una reserva ya `CONFIRMADA`, se devuelven. Una reserva que expira o se cancela antes de confirmarse no toca el inventario. Hace falta el mismo `INVENTORY_SERVICE_TOKEN` en los tres servicios.
+
 **Tiempos:** una reserva dura **15 minutos** desde que se crea, y un asiento elegido se retiene **15 minutos**. Cada minuto un proceso automático libera lo vencido.
 
 ## Endpoints y permisos
