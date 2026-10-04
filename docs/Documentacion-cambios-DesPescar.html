@@ -31,7 +31,7 @@
 <p class="sub">Documentación de cambios y puesta en marcha del entorno local<br>
 Backend: <code>MelinaCora/DesPescar</code>, rama <code>features/full-integration-docker-setup</code> &middot; Frontend: <code>TenSF25/DesPescar</code>, rama <code>features/merge-koi-gateway</code> &middot; 4 de octubre de 2026</p>
 
-<div class="box"><b>Cómo usar este documento.</b> Describe los cambios hechos al poner en marcha el entorno local y el estado en que quedó. Para <b>levantar el entorno paso a paso</b> usá <code>docs/INSTRUCTIVO-DOCKER.md</code>. Algunas partes se actualizaron al publicarlo en el repositorio: el Docker vive en <code>database/</code> y la contraseña de MySQL pasó a ser común.</div>
+<div class="box"><b>Cómo usar este documento.</b> Es el <b>registro de los cambios</b> hechos al poner en marcha el entorno local y del estado en que quedó; no es una guía de uso. Para <b>levantar el entorno</b> usá la documentación por servicio: empezá por <code>docs/README.md</code> (índice, requisitos, orden de arranque y equivalencias entre Linux y Windows) y seguí con la guía de cada servicio. Algunas partes de este registro se actualizaron al publicarlo: el Docker vive en <code>database/</code> y la contraseña de MySQL pasó a ser común.</div>
 
 <h2>1. Resumen</h2>
 <p>Se dejó funcionando el entorno local completo: base de datos MySQL en Docker, siete microservicios Spring Boot y el gateway, con datos de ejemplo y usuarios de prueba. Además se corrigieron dos problemas de comportamiento:</p>
@@ -96,7 +96,7 @@ mvn spring-boot:run</pre>
 mvn spring-boot:run \
   -Dspring-boot.run.arguments="--resilience4j.timelimiter.instances.gatewayCircuitBreaker.timeoutDuration=30s \
   --spring.cloud.gateway.httpclient.response-timeout=30s"</pre>
-<p>Se suben <b>los dos</b> límites (el del circuit breaker y el de respuesta del cliente HTTP). Probado con un servidor de prueba que tarda 8 segundos: pasa por el gateway con 200; con el límite de 5 segundos cortaba con 504. Es necesario para el chatbot, que puede tardar hasta unos 10 segundos. Guía del chatbot: <code>docs/INSTRUCTIVO-CHATBOT-GROQ.md</code>.</p>
+<p>Se suben <b>los dos</b> límites (el del circuit breaker y el de respuesta del cliente HTTP). Probado con un servidor de prueba que tarda 8 segundos: pasa por el gateway con 200; con el límite de 5 segundos cortaba con 504. Es necesario para el chatbot, que puede tardar hasta unos 10 segundos. Guías: <code>docs/gateway-service.md</code> y <code>docs/koi-ia-service.md</code>.</p>
 
 <h2>4. Datos de ejemplo cargados</h2>
 <p>El proyecto no trae datos iniciales para vuelos, hoteles ni paquetes. Se cargaron por la API con un token de <code>SUPER_ADMIN</code>. Esa carga ahora está en el repositorio: <code>database/seed/seed.sh</code> (repetible, no duplica datos). Sus fechas son relativas al día en que se ejecuta; las de esta tabla son las de la primera carga manual.</p>
@@ -187,7 +187,8 @@ mvn spring-boot:run \
 <h2>8. Pendientes y recomendaciones</h2>
 <ul>
   <li><b>Memoria:</b> el equipo tiene 6,9 GB de RAM y el swap llegó a estar lleno (5,4 de 5,5 GB). Conviene cerrar IntelliJ y detener <code>koi-ia-service</code> si no se usa. Cerrar IntelliJ no afecta a los servicios, que no dependen de él.</li>
-  <li><b>Chatbot:</b> <code>koi-ia-service</code> necesita una <code>GROQ_API_KEY</code> real (https://console.groq.com/home). Sin ella no responde con IA.</li>
+  <li><b>Chatbot:</b> <code>koi-ia-service</code> necesita una <code>GROQ_API_KEY</code> real (https://console.groq.com/home). Sin ella no responde con IA. Además, por el código, <b>no puede traer hoteles ni paquetes</b>: sus herramientas llaman a <code>hotel-service</code> y <code>package-service</code> sin token y esos servicios exigen sesión (comprobado: <code>hotel-service</code> responde 403 sin token y 200 con token). Y su búsqueda de vuelos <b>ignora las fechas</b> (trae los tres primeros vuelos de esa ruta).</li>
+  <li><b>Windows:</b> las guías incluyen los comandos para PowerShell, revisados uno por uno pero <b>no ejecutados en Windows</b>. Hay que validarlos con una persona que use Windows. También se agregó un <code>.gitattributes</code> para que <code>seed.sh</code> conserve sus saltos de línea de Linux al clonar en Windows.</li>
   <li><b><code>payment-service</code></b> (puerto 8084) no se arrancó. Los datos de MercadoPago quedarían vacíos, por lo que los pagos no funcionarían de verdad.</li>
   <li><b>Checkout API / pago grupal:</b> sigue en la rama <code>features/payment-service-update</code>. Antes de integrarlo hay que acordar con su autora o autor si se mantiene <code>POST /api/payments</code>, cómo se enruta en el gateway y cómo se autentica, y que el frontend tenga una pantalla para usarlo.</li>
   <li><b>Contraseñas en el repositorio:</b> resuelto para MySQL en esta rama (variable <code>DB_PASSWORD</code> con valor común). Siguen existiendo contraseñas anteriores en el historial de otras ramas públicas.</li>
@@ -208,7 +209,7 @@ mvn spring-boot:run \
   <li><b>Datos de ejemplo:</b> <code>./database/seed/seed.sh</code></li>
   <li><b>Frontend</b> (<code>features/merge-koi-gateway</code>): <code>pnpm dev</code> en <code>http://localhost:5173</code>, que apunta al gateway en el puerto 8087.</li>
 </ol>
-<p>El detalle completo y los problemas comunes están en <code>docs/INSTRUCTIVO-DOCKER.md</code>. Arrancar todos los servicios a la vez con poca memoria los hace tardar mucho más; conviene hacerlo de a uno o dos.</p>
+<p>El detalle de cada paso y los problemas comunes están en la guía de cada servicio, a partir de <code>docs/README.md</code>. Arrancar todos los servicios a la vez con poca memoria los hace tardar mucho más; conviene hacerlo de a uno o dos.</p>
 
 </body>
 </html>
