@@ -17,6 +17,7 @@ Reservas de vuelos (y, opcionalmente, hotel o paquete), mapa de asientos y **sel
 |---|---|---|
 | `JWT_SECRET` | **Sí** | Validar los tokens. El mismo valor en todos los servicios. |
 | `RESERVATION_SERVICE_SYNC_TOKEN` | **Para poder pagar** | Contraseña compartida con [`payment-service`](payment-service.md) (ver abajo). **El mismo valor en los dos.** |
+| `INVENTORY_SERVICE_TOKEN` | **Para descontar asientos y habitaciones** | Contraseña con la que este servicio le habla a `flightservice` y `hotel-service`. **El mismo valor en los tres.** |
 | `DB_PASSWORD` | No | Solo si cambiaste la contraseña de MySQL. |
 
 ## Levantarlo
@@ -27,6 +28,7 @@ Con MySQL arriba ([`mysql-docker.md`](mysql-docker.md)), desde la raíz del repo
 ```bash
 export JWT_SECRET='despescar-dev-secret-key-2026-must-be-long-enough'
 export RESERVATION_SERVICE_SYNC_TOKEN='despescar-dev-sync-token'
+export INVENTORY_SERVICE_TOKEN='despescar-dev-inventory-token'
 cd services/reservation-service
 mvn spring-boot:run
 ```
@@ -35,6 +37,7 @@ mvn spring-boot:run
 ```powershell
 $env:JWT_SECRET = 'despescar-dev-secret-key-2026-must-be-long-enough'
 $env:RESERVATION_SERVICE_SYNC_TOKEN = 'despescar-dev-sync-token'
+$env:INVENTORY_SERVICE_TOKEN = 'despescar-dev-inventory-token'
 cd services\reservation-service
 mvn spring-boot:run
 ```
@@ -91,9 +94,7 @@ Al elegir un asiento queda `RESERVADO_TEMPORAL` a nombre del usuario por 15 minu
 
 **Cómo probarlo:** es lo más práctico desde el navegador. Entrá al frontend con dos usuarios distintos (por ejemplo, una ventana normal y una privada), abrí el mapa de asientos del mismo vuelo, y elegí un asiento en una: en la otra tiene que aparecer ocupado al instante. En las herramientas del navegador, pestaña **Network → WS**, se ve la conexión; en **Console** (modo desarrollo) se imprimen los mensajes STOMP.
 
-**Pendientes de seguridad (según el código, no se cambiaron):**
-- La conexión **no valida el token**: hay un `TODO` y se acepta cualquier texto después de `Bearer `.
-- El `userId` viaja dentro del mensaje, elegido por el cliente. Alguien con sesión podría retener o liberar asientos a nombre de otra persona. La asignación de pasajeros sí está protegida, porque usa el usuario del token.
+**Seguridad de la conexión:** el `CONNECT` valida el token (firma, vencimiento y `userId`) y rechaza la conexión si falta o es inválido; sin conexión autenticada no se puede publicar. El usuario que retiene o suelta un asiento sale **del token**, no del mensaje: el campo `userId` que el cliente envíe se ignora.
 
 ## Probar la creación de una reserva
 

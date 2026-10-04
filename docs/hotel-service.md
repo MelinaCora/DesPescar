@@ -14,7 +14,8 @@ Catálogo de hoteles: nombre, ciudad, estrellas, precio por noche y habitaciones
 
 | Variable | Obligatoria | Para qué |
 |---|---|---|
-| `JWT_SECRET` | No | Tiene un valor de desarrollo por defecto. Si ya usás el mismo valor en el resto de los servicios (recomendado), no cambia nada. |
+| `JWT_SECRET` | **Sí** | Validar los tokens. El mismo valor en todos los servicios. Ya no tiene valor por defecto. |
+| `INVENTORY_SERVICE_TOKEN` | **Para que reservas descuente habitaciones** | Contraseña compartida con [`reservation-service`](reservation-service.md) (y `flightservice`). **El mismo valor en todos.** Vacía, el ajuste de habitaciones se rechaza con `401`. |
 | `DB_PASSWORD` | No | Solo si cambiaste la contraseña de MySQL. |
 
 ## Levantarlo
@@ -24,6 +25,7 @@ Con MySQL arriba ([`mysql-docker.md`](mysql-docker.md)), desde la raíz del repo
 **Linux**
 ```bash
 export JWT_SECRET='despescar-dev-secret-key-2026-must-be-long-enough'
+export INVENTORY_SERVICE_TOKEN='despescar-dev-inventory-token'
 cd services/hotel-service
 mvn spring-boot:run
 ```
@@ -31,6 +33,7 @@ mvn spring-boot:run
 **Windows (PowerShell)**
 ```powershell
 $env:JWT_SECRET = 'despescar-dev-secret-key-2026-must-be-long-enough'
+$env:INVENTORY_SERVICE_TOKEN = 'despescar-dev-inventory-token'
 cd services\hotel-service
 mvn spring-boot:run
 ```
@@ -43,7 +46,7 @@ Está listo cuando el log dice `Started HotelServiceApplication`. Crea la tabla 
 |---|---|
 | `GET /hoteles`, `GET /hoteles/{id}`, `GET /hoteles/ciudad/{city}` | **Sesión iniciada** (sin token responde `403`) |
 | `POST /hoteles`, `PUT /hoteles/{id}`, `DELETE /hoteles/{id}` | `SUPER_ADMIN` o `HOTEL_ADMIN` |
-| `PATCH /hoteles/{id}/rooms` | Uso interno de [`reservation-service`](reservation-service.md) (ajusta las habitaciones disponibles) |
+| `PATCH /hoteles/{id}/rooms` | **Solo [`reservation-service`](reservation-service.md)**, con el encabezado `X-Internal-Service-Token` (`INVENTORY_SERVICE_TOKEN`). Un token de usuario, aunque sea de administrador, responde `401`. El gateway lo bloquea (`403`). |
 
 Campos de un hotel: `nombre`, `ciudad`, `direccion`, `estrellas` (1 a 5), `precioPorNoche` (mayor o igual a 0), `habitacionesDisponibles` (mayor o igual a 0) y `allInclusive` (opcional).
 

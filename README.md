@@ -9,13 +9,15 @@ Plataforma de reservas de viajes construida con arquitectura de microservicios e
 | Servicio | Puerto | Base de datos | Descripción |
 |---|---|---|---|
 | `identity-service` | 8080 | `despescar_identity` | Autenticación, usuarios y roles |
-| `flightservice` | 8081 | `despescar_flight` | Gestión de vuelos, aerolíneas y aeropuertos |
+| `flightservice` | 8081 | `despescar_flight` | Vuelos, aerolíneas, aeropuertos y tarifas |
 | `hotel-service` | 8083 | `despescar_hotel` | Gestión de hoteles |
-| `payment-service` | 8084 | — | Procesamiento de pagos *(en desarrollo)* |
-| `reservation-service` | 8085 | `despescar_reservation` | Reservas de vuelos, hoteles y paquetes |
+| `payment-service` | 8084 | `despescar_payment` | Pagos con MercadoPago, webhook, reembolsos e historial |
+| `reservation-service` | 8085 | `despescar_reservation` | Reservas, mapa de asientos y selección en tiempo real (WebSocket) |
 | `package-service` | 8086 | `despescar_package` | Paquetes turísticos (vuelo + hotel) |
-| `gateway-service` | 8087 | — | API Gateway para exponer una única entrada al frontend |
-| `koi-ia-service` | 8088 | `despescar_koiia` | Chatbot KOI para orientar y recomendar viajes |
+| `gateway-service` | 8087 | — | Entrada única para el frontend: valida JWT y rol, limita peticiones |
+| `koi-ia-service` | 8088 | `despescar_koiia` | Chatbot KOI (IA de Groq) para orientar y recomendar viajes |
+
+Cada servicio tiene su guía en [`docs/`](docs/README.md), con variables de entorno, comandos y problemas comunes. Las rutas de abajo se llaman por el gateway (`http://localhost:8087`) salvo que se indique otra cosa.
 
 ---
 
@@ -27,113 +29,37 @@ Plataforma de reservas de viajes construida con arquitectura de microservicios e
 POST /api/auth/login
 ```
 
-El usuario envía email y contraseña al **identity-service**. Si las credenciales son correctas, recibe un `accessToken` (JWT) y un `refreshToken`.
+El usuario envía email y contraseña a **identity-service** y recibe un `accessToken` (JWT, dura 15 minutos) y un `refreshToken` (7 días). El JWT incluye `sub` (email), `userId` y `role` (`SUPER_ADMIN`, `AIRLINE_ADMIN`, `HOTEL_ADMIN` o `USER`). Se envía en `Authorization: Bearer <token>`.
 
-El JWT incluye:
-- `sub`: email del usuario
-- `role`: rol principal (`SUPER_ADMIN`, `AIRLINE_ADMIN`, `HOTEL_ADMIN`, `USER`)
-
-Este token debe enviarse en el header `Authorization: Bearer <token>` en todas las llamadas posteriores.
-
----
-
-### 2. Consulta de vuelos
+### 2. Consultar vuelos, hoteles y paquetes
 
 ```
-GET /api/flights                          → listar todos
-GET /api/flights/number/{flightNumber}    → buscar por número
-GET /api/flights/airline/{airlineId}      → buscar por aerolínea
-GET /api/flights/origin/{airportId}       → buscar por aeropuerto de origen
-GET /api/flights/destination/{airportId}  → buscar por destino
+GET /api/flights/search?origin=EZE&destination=COR&departureDate=2026-10-18&passengers=1   → pública
+GET /api/flights, /api/flights/{id}, /api/airports, /api/airports/code/{code}              → públicas
+GET /api/hotels, /api/hotels/{id}, /api/hotels/ciudad/{ciudad}                             → con sesión
+GET /api/packages, /api/packages/{id}                                                      → con sesión
 ```
 
-Requiere autenticación. El campo `availableSeats` indica asientos libres en tiempo real.
+Buscar y ver vuelos no exige iniciar sesión; sí hace falta para avanzar con la compra. Un paquete combina un `flightNumber` y un `hotelId` con un precio base.
 
----
+### 3. Comprar un vuelo
 
-### 3. Consulta de hoteles
+1. **Crear la reserva:** `POST /api/bookings/init` con `flightIds`, `cantidadPasajeros`, `paymentType` (`SINGLE_PAYMENT` o `SPLIT_PAYMENT`), `baggageIds` y, opcionalmente, `hotelId` y `packageId`. El usuario sale del token. La reserva queda `INICIADA`.
+2. **Elegir asientos** por WebSocket (`ws://localhost:8085/ws-despescar`, directo al servicio). Cada asiento se retiene 15 minutos.
+3. **Cargar los pasajeros:** `PUT /api/bookings/{id}/passengers`. La reserva pasa a `PENDIENTE_PAGO`.
+4. **Pagar:** `POST /api/payments` con `{ "reservationId": N }`. Responde con un `checkoutUrl` de MercadoPago. El importe sale de la reserva, no del pedido.
+5. **Confirmación:** MercadoPago llama al webhook y `payment-service` avisa a `reservation-service` por una ruta interna.
 
-```
-GET /api/hotels                 → listar todos
-GET /api/hotels/{id}            → buscar por ID
-GET /api/hotels/ciudad/{ciudad} → buscar por ciudad
-```
-
-Requiere autenticación. El campo `habitacionesDisponibles` refleja disponibilidad real.
-
----
-
-### 4. Consulta de paquetes turísticos
+### 4. Estados de una reserva
 
 ```
-GET /api/packages               → listar paquetes activos (con filtros opcionales)
-GET /api/packages/{id}          → detalle de un paquete
+INICIADA → PENDIENTE_PAGO → CONFIRMADA          (pagada)
+         → ESPERANDO_PAGADORES → CONFIRMADA     (pago dividido: faltan pagadores)
+cualquiera → CANCELADA                          (la cancela su creador: DELETE /api/bookings/{id})
+cualquiera → EXPIRADA                           (pasaron 15 minutos sin completarla)
 ```
 
-Un paquete combina un `flightNumber` y un `hotelId` con un precio base. Requiere autenticación.
-
----
-
-### 5. Crear una reserva
-
-```
-POST /api/bookings
-Authorization: Bearer <token>
-
-{
-  "creadorId": 1,
-  "vueloCodigo": "AR1234",
-  "hotelId": "uuid-del-hotel",        ← opcional
-  "packageId": 5,                      ← opcional, auto-completa vuelo y hotel
-  "asientos": [
-    {
-      "numeroAsiento": "12A",
-      "usuarioId": 1,
-      "pagadorId": 1
-    }
-  ]
-}
-```
-
-**El sistema valida:**
-- ✅ Que el vuelo exista y tenga estado reservable (`SCHEDULED`, `DELAYED`)
-- ✅ Que haya suficientes asientos disponibles
-- ✅ Que el hotel tenga habitaciones disponibles (si se incluyó)
-- ✅ Que el paquete esté activo y los datos sean consistentes (si se incluyó)
-- ✅ Que el asiento no esté ya reservado
-
-**Al confirmar la reserva:**
-- Se descuenta la cantidad de asientos en `flightservice`
-- Se descuenta 1 habitación en `hotel-service` (si aplica)
-- La reserva queda en estado `PENDIENTE` con 15 minutos para pagar
-
----
-
-### 6. Ciclo de vida de una reserva
-
-```
-PENDIENTE → COMPLETADA   (todos los pasajeros pagaron)
-PENDIENTE → CANCELADA    (el creador la cancela manualmente)
-PENDIENTE → EXPIRADA     (pasaron los 15 minutos sin pagar)
-```
-
-Cuando una reserva pasa a `CANCELADA` o `EXPIRADA`, el inventario se restaura automáticamente en `flightservice` y `hotel-service`.
-
-El scheduler revisa reservas expiradas cada 60 segundos.
-
-Los cambios de estado se notifican en tiempo real via **WebSocket** (`/topic/reserva/{id}`).
-
----
-
-### 7. Pagar una reserva
-
-```
-POST /api/bookings/{id}/pagar
-```
-
-Cada pasajero paga su asiento de forma independiente. Cuando todos los pasajeros pagaron, la reserva pasa a `COMPLETADA`.
-
-> La integración real con un procesador de pagos está pendiente (`payment-service`).
+Un proceso automático revisa cada 60 segundos las reservas y las retenciones de asiento vencidas. Los cambios de asientos se publican por WebSocket en `/topic/flight/{flightId}`.
 
 ---
 
@@ -141,230 +67,127 @@ Cada pasajero paga su asiento de forma independiente. Cuando todos los pasajeros
 
 | Rol | Puede hacer |
 |---|---|
-| `USER` | Consultar vuelos, hoteles y paquetes. Crear y gestionar sus reservas |
-| `HOTEL_ADMIN` | Todo lo anterior + crear/editar/eliminar hoteles |
-| `AIRLINE_ADMIN` | Todo lo anterior + crear/editar/eliminar vuelos, aerolíneas y aeropuertos |
-| `SUPER_ADMIN` | Todo. Único rol que puede gestionar paquetes turísticos |
+| `USER` | Es el **cliente**: consulta, reserva y paga (en reservas y pagos equivale a `ROLE_CLIENTE`) |
+| `HOTEL_ADMIN` | Crear, editar y borrar hoteles |
+| `AIRLINE_ADMIN` | Crear, editar y borrar vuelos, aerolíneas, aeropuertos y tarifas |
+| `SUPER_ADMIN` | Todo lo anterior, gestionar usuarios y roles, y gestionar paquetes turísticos (es el único que puede) |
+
+Los roles de administrador **no heredan** los permisos de cliente: reservar y pagar exige `USER`.
 
 ---
 
 ## Seguridad
 
-- Autenticación **JWT stateless** compartida entre todos los servicios
-- Firma HMAC-SHA256 con clave configurable via variable de entorno `JWT_SECRET`
-- Refresh tokens con expiración independiente
-- Bloqueo de cuenta tras múltiples intentos fallidos de login
-- El `gateway-service` valida JWT y rol antes de enrutar, manteniendo además la validación en cada microservicio
-
----
+- Autenticación **JWT stateless** compartida entre todos los servicios, firmada con HMAC-SHA256 y la variable `JWT_SECRET` (obligatoria, sin valor por defecto).
+- Refresh tokens con expiración independiente. La cuenta se bloquea 15 minutos tras 5 intentos fallidos de login.
+- El `gateway-service` valida el JWT y el rol antes de enrutar; cada servicio vuelve a validar el suyo.
+- Las llamadas entre servicios usan un token compartido en el encabezado `X-Internal-Service-Token`: `RESERVATION_SERVICE_SYNC_TOKEN` (pagos ↔ reservas) e `INVENTORY_SERVICE_TOKEN` (reservas → vuelos y hoteles, para descontar asientos y habitaciones). El gateway bloquea esas rutas (`403`).
+- El WebSocket de asientos valida el JWT al conectar.
 
 ## Gateway (8087)
 
-- Entrada única para frontend: `http://localhost:8087`
-- Timeouts homogéneos para llamadas salientes (connect/read)
-- Respuestas de error unificadas con `requestId`
-- Request tracing con header `X-Request-Id` + métrica `despescar.gateway.requests`
-- Rate limiting por IP y circuit breaker con fallback `/fallback/unavailable`
+- Entrada única del frontend, con CORS abierto (sin credenciales).
+- Tiempo de espera de 5 segundos (`504` si se supera) y circuit breaker con respuesta `/fallback/unavailable`.
+- Límite de 120 peticiones por minuto por IP (no cuenta `/api/auth`, `/actuator` ni `/fallback`).
+- Errores unificados con `requestId` y encabezado `X-Request-Id`.
+- No pasan por él: `/api/fares`, `/api/refunds`, `/api/payment-history` y el WebSocket.
+
+Detalle en [`docs/gateway-service.md`](docs/gateway-service.md).
 
 ---
 
 ## Endpoints por servicio
 
-### `identity-service` (8080)
+Se indican las rutas **del servicio** (puerto propio). Entre paréntesis, cómo se llaman por el gateway cuando cambia.
+
+### `identity-service` (8080) — por el gateway: `/api/auth/**` y `/api/users/**`
 | Método | Endpoint | Para qué sirve |
 |---|---|---|
-| POST | `/auth/register` | Registrar un usuario nuevo |
-| POST | `/auth/login` | Iniciar sesión y devolver tokens JWT |
+| POST | `/auth/register` | Registrar un usuario (queda como `USER`) |
+| POST | `/auth/login` | Iniciar sesión |
 | POST | `/auth/refresh` | Renovar el access token |
-| POST | `/auth/logout` | Cerrar sesión invalidando el refresh token |
-| GET | `/auth/me` | Ver el usuario autenticado |
-| GET | `/users/me` | Ver perfil del usuario autenticado |
-| GET | `/users/me/roles` | Ver roles del usuario autenticado |
-| GET | `/users` | Listar usuarios (solo admin) |
-| GET | `/users/{id}` | Obtener usuario por ID (solo admin) |
-| GET | `/users/roles` | Listar roles disponibles (solo admin) |
-| POST | `/users/{id}/roles` | Asignar un rol a un usuario |
-| DELETE | `/users/{id}/roles/{roleId}` | Quitar un rol a un usuario |
+| POST | `/auth/logout` | Cerrar sesión (revoca el refresh token) |
+| GET | `/auth/me` | Correo y rol del usuario autenticado |
+| GET | `/users/me` | Perfil del usuario autenticado |
+| GET | `/users/me/roles` | Roles del usuario autenticado |
+| GET | `/users` | Listar usuarios (`SUPER_ADMIN`) |
+| GET | `/users/{id}` | Usuario por ID (`SUPER_ADMIN`) |
+| GET | `/users/roles` | Listar roles (`SUPER_ADMIN`) |
+| POST | `/users/{id}/roles` | Asignar un rol (`SUPER_ADMIN`) |
+| DELETE | `/users/{id}/roles/{roleId}` | Quitar un rol (`SUPER_ADMIN`) |
 
 ### `flightservice` (8081)
 | Método | Endpoint | Para qué sirve |
 |---|---|---|
+| GET | `/api/flights/search` | Buscar vuelos (público) |
 | POST | `/api/flights` | Crear un vuelo |
-| GET | `/api/flights` | Listar vuelos |
-| GET | `/api/flights/{id}` | Buscar vuelo por ID |
-| GET | `/api/flights/number/{flightNumber}` | Buscar vuelo por número |
-| GET | `/api/flights/airline/{airlineId}` | Buscar vuelos por aerolínea |
-| GET | `/api/flights/origin/{airportId}` | Buscar vuelos por aeropuerto de origen |
-| GET | `/api/flights/destination/{airportId}` | Buscar vuelos por aeropuerto de destino |
-| PUT | `/api/flights/{id}` | Actualizar vuelo |
-| DELETE | `/api/flights/{id}` | Eliminar vuelo |
-| PATCH | `/api/flights/number/{flightNumber}/seats?delta=` | Ajustar asientos disponibles |
-| POST | `/api/airlines` | Crear aerolínea |
-| GET | `/api/airlines` | Listar aerolíneas |
-| GET | `/api/airlines/{id}` | Buscar aerolínea por ID |
-| GET | `/api/airlines/code/{code}` | Buscar aerolínea por código |
-| PUT | `/api/airlines/{id}` | Actualizar aerolínea |
-| DELETE | `/api/airlines/{id}` | Eliminar aerolínea |
-| POST | `/api/airports` | Crear aeropuerto |
-| GET | `/api/airports` | Listar aeropuertos |
-| GET | `/api/airports/{id}` | Buscar aeropuerto por ID |
-| GET | `/api/airports/code/{code}` | Buscar aeropuerto por código IATA |
-| GET | `/api/airports/country/{country}` | Filtrar aeropuertos por país |
-| GET | `/api/airports/city/{city}` | Filtrar aeropuertos por ciudad |
-| PUT | `/api/airports/{id}` | Actualizar aeropuerto |
-| DELETE | `/api/airports/{id}` | Eliminar aeropuerto |
-| POST | `/api/baggage-policies` | Crear política de equipaje |
-| GET | `/api/baggage-policies` | Listar políticas de equipaje |
-| GET | `/api/baggage-policies/{id}` | Buscar política por ID |
+| GET | `/api/flights`, `/api/flights/{id}` | Listar y buscar por ID (públicos) |
+| GET | `/api/flights/number/{flightNumber}` | Buscar por número |
+| GET | `/api/flights/airline/{airlineId}` | Buscar por aerolínea |
+| GET | `/api/flights/origin/{airportId}` | Buscar por aeropuerto de origen |
+| GET | `/api/flights/destination/{airportId}` | Buscar por aeropuerto de destino |
+| PUT / DELETE | `/api/flights/{id}` | Actualizar / eliminar |
+| PATCH | `/api/flights/number/{flightNumber}/seats?delta=` | **Interno**: ajusta asientos (solo `reservation-service`) |
+| POST / GET | `/api/airlines`, `/api/airlines/{id}`, `/api/airlines/code/{code}` | Crear y consultar aerolíneas |
+| PUT / DELETE | `/api/airlines/{id}` | Actualizar / eliminar |
+| POST / GET | `/api/airports`, `/api/airports/{id}`, `/api/airports/code/{code}`, `/country/{country}`, `/city/{city}` | Crear y consultar aeropuertos |
+| PUT / DELETE | `/api/airports/{id}` | Actualizar / eliminar |
+| POST / GET | `/api/fares`, `/api/fares/{id}` | Tarifas y equipaje (tabla `baggage_policies`). **Sin ruta en el gateway** |
 
-### `hotel-service` (8083)
+### `hotel-service` (8083) — por el gateway: `/hoteles/**` y `/api/hotels/**`
 | Método | Endpoint | Para qué sirve |
 |---|---|---|
-| GET | `/test` | Health simple del servicio |
+| GET | `/test` | Comprobación simple del servicio |
 | POST | `/hoteles` | Crear hotel |
-| GET | `/hoteles` | Listar hoteles |
-| GET | `/hoteles/{id}` | Buscar hotel por ID |
-| GET | `/hoteles/ciudad/{city}` | Buscar hoteles por ciudad |
-| PUT | `/hoteles/{id}` | Actualizar hotel |
-| DELETE | `/hoteles/{id}` | Eliminar hotel |
-| PATCH | `/hoteles/{id}/rooms?delta=` | Ajustar habitaciones disponibles |
+| GET | `/hoteles`, `/hoteles/{id}`, `/hoteles/ciudad/{city}` | Listar y buscar |
+| PUT / DELETE | `/hoteles/{id}` | Actualizar / eliminar |
+| PATCH | `/hoteles/{id}/rooms?delta=` | **Interno**: ajusta habitaciones (solo `reservation-service`) |
 
 ### `package-service` (8086)
 | Método | Endpoint | Para qué sirve |
 |---|---|---|
-| POST | `/api/packages` | Crear paquete turístico |
-| GET | `/api/packages` | Listar paquetes con filtros opcionales |
-| GET | `/api/packages/{id}` | Buscar paquete por ID |
-| PUT | `/api/packages/{id}` | Actualizar paquete |
-| DELETE | `/api/packages/{id}` | Desactivar paquete |
-| POST | `/api/packages/{id}/activate` | Reactivar paquete |
+| POST | `/api/packages` | Crear paquete (`SUPER_ADMIN`) |
+| GET | `/api/packages` | Listar con filtros opcionales |
+| GET | `/api/packages/{id}` | Buscar por ID |
+| PUT | `/api/packages/{id}` | Actualizar (`SUPER_ADMIN`) |
+| DELETE | `/api/packages/{id}` | Desactivar (`SUPER_ADMIN`) |
+| POST | `/api/packages/{id}/activate` | Reactivar (`SUPER_ADMIN`) |
 
-### `reservation-service` (8085)
+### `reservation-service` (8085) — por el gateway: `/api/bookings/**` y `/api/extra-baggage/**`
 | Método | Endpoint | Para qué sirve |
 |---|---|---|
-| POST | `/api/bookings` | Crear una reserva |
-| GET | `/api/bookings/{id}` | Obtener reserva por ID |
-| DELETE | `/api/bookings/{id}?usuarioId=` | Cancelar reserva manualmente |
-| PATCH | `/api/bookings/{id}/passenger` | Actualizar datos de un pasajero |
-| POST | `/api/bookings/{id}/pagar` | Procesar el pago de una reserva |
-| POST | `/extra-baggage/{detalleReservaId}` | Agregar equipaje extra |
+| GET | `/api/bookings/flights/{flightId}/seats` y `/seat-map` | Asientos y plano del vuelo (público) |
+| POST | `/api/bookings/init` | Crear una reserva |
+| PUT | `/api/bookings/{id}/passengers` | Cargar pasajeros y asientos |
+| GET | `/api/bookings/{id}` | Obtener la reserva |
+| DELETE | `/api/bookings/{id}` | Cancelar la reserva |
+| POST | `/api/bookings/{id}/split-setup` | Configurar pago dividido |
+| POST | `/api/bookings/{id}/pay` | Registrar el pago de un pasajero (pago dividido) |
+| GET | `/api/bookings/internal/{id}` | **Interno**: datos de la reserva (solo `payment-service`) |
+| POST | `/api/bookings/internal/{id}/payment-confirmed` | **Interno**: confirmar un pago (solo `payment-service`) |
+| POST | `/extra-baggage/{detalleReservaId}` | Agregar equipaje extra (`/api/extra-baggage/...` por el gateway) |
+| WS | `/ws-despescar` | STOMP: `/app/select-seat/{flightId}`, `/app/deselect-seat/{flightId}`, `/topic/flight/{flightId}`. **Directo, sin gateway** |
 
-### `koi-ia-service` (8088)
+### `payment-service` (8084) — por el gateway: `/api/payments/**`
 | Método | Endpoint | Para qué sirve |
 |---|---|---|
-| POST | `/api/koi/sessions` | Crear una nueva conversación KOI |
-| GET | `/api/koi/sessions/{sessionId}` | Ver el estado actual de la conversación |
-| POST | `/api/koi/sessions/{sessionId}/messages` | Enviar un mensaje y recibir preguntas/recomendaciones |
+| POST | `/api/payments` | Crear el pago de una reserva (devuelve `checkoutUrl`) |
+| GET | `/api/payments/{paymentId}` | Obtener un pago |
+| GET | `/api/payments/user/{userId}` | Pagos del usuario (solo los propios) |
+| GET | `/api/payments/reservation/{reservationId}` | Pagos de una reserva |
+| DELETE | `/api/payments/{paymentId}` | Cancelar un pago pendiente |
+| POST | `/api/payments/mercadopago/webhook` | Confirmación de MercadoPago (público, con firma) |
+| POST / GET | `/api/refunds`, `/api/refunds/{id}`, `/payment/{id}`, `/user/{id}` | Reembolsos. **Solo directo al 8084** |
+| GET | `/api/payment-history/payment/{paymentId}` | Historial de un pago. **Solo directo al 8084** |
 
-#### IA en KOI: motor de reglas + LLM opcional (Ollama)
-
-Por defecto, KOI funciona con un **motor de reglas** (regex + memoria de sesión): detecta
-intención, extrae presupuesto/destino/origen/estilo/noches/mes, pregunta solo lo que falta
-y arma respuestas con plantillas. **No requiere ninguna IA externa para funcionar.**
-
-Opcionalmente, se puede conectar un **LLM local vía [Ollama](https://ollama.com)** para que
-complemente (no reemplace) esa lógica:
-- Mejora la extracción de datos cuando el usuario escribe en lenguaje libre (frases que el
-  regex no llega a interpretar).
-- Redacta saludos, preguntas y recomendaciones de forma más natural, cálida y variada.
-- El LLM **nunca decide precios ni paquetes**: esos datos siempre vienen de los
-  microservicios de catálogo (`package-service`, `flight-service`, `hotel-service`),
-  evitando alucinaciones. Si Ollama no está corriendo, no tiene el modelo descargado, o
-  tarda demasiado, KOI cae automáticamente en el motor de reglas sin romperse ni devolver
-  errores al usuario.
-
-Es decir: **activar o no la IA es 100% opcional y no afecta el funcionamiento base de KOI.**
-Podés desarrollar y testear todo el flujo sin instalar nada de esto.
-
-##### Cómo funciona por dentro
-
-```
-Usuario escribe un mensaje
-        │
-        ▼
-1) Extracción por regex (siempre corre, es la base confiable)
-        │
-        ▼
-2) Si koi.ai.enabled=true → se le pide al LLM que complete SOLO
-   los campos que el regex no pudo detectar (extractTravelInfo)
-        │
-        ▼
-3) KOI decide qué falta y arma la pregunta / busca recomendaciones
-   en package-service, flight-service y hotel-service
-        │
-        ▼
-4) Si koi.ai.enabled=true → se le pide al LLM que redacte el texto
-   final de forma más natural (humanizeGreeting/Question/Reply),
-   usando SOLO los datos reales ya resueltos en el paso 3
-        │
-        ▼
-5) Si el LLM falla o tarda (timeout), se devuelve el texto de
-   plantilla original. El usuario nunca ve un error.
-```
-
-##### Paso a paso: instalar Ollama y activar la IA
-
-**1) Instalar Ollama**
-
-| SO | Instrucciones |
-|---|---|
-| Windows | Descargar e instalar desde [ollama.com/download/windows](https://ollama.com/download/windows) (instalador `.exe`). Al terminar, Ollama queda corriendo como servicio en segundo plano. |
-| macOS | Descargar desde [ollama.com/download/mac](https://ollama.com/download/mac), o `brew install ollama`. |
-| Linux | `curl -fsSL https://ollama.com/install.sh | sh` |
-
-Verificar que quedó instalado y corriendo:
-```bash
-ollama --version
-ollama list
-```
-
-**2) Descargar el modelo**
-
-Usamos `llama3.2` (~2 GB, liviano y anda bien en notebooks sin GPU dedicada):
-```bash
-ollama pull llama3.2
-```
-Al terminar, `ollama list` debería mostrar `llama3.2` en la lista.
-
-**3) Activar la IA en koi-ia-service**
-
-En `services/koi-ia-service/src/main/resources/application.properties` (o mejor, en tu copia
-local / variables de entorno, para no pisar el default del equipo):
-```properties
-koi.ai.enabled=true
-koi.ai.ollama.base-url=http://localhost:11434
-koi.ai.ollama.model=llama3.2
-koi.ai.ollama.timeout-ms=8000
-```
-
-**4) Levantar el microservicio como siempre**
-```bash
-cd services/koi-ia-service
-mvn spring-boot:run
-```
-
-**5) Probar que la IA está respondiendo**
-
-Con Ollama y `koi-ia-service` corriendo:
-```bash
-curl -X POST http://localhost:8088/api/koi/sessions -H "Content-Type: application/json" -d "{}"
-```
-Si la IA está activa, el saludo (`reply`) va a variar levemente en su redacción cada vez que
-lo pidas (porque lo redacta el LLM), en vez de ser siempre el mismo texto fijo.
-
-##### Troubleshooting
-
-| Síntoma | Causa probable | Solución |
-|---|---|---|
-| Las respuestas son siempre el mismo texto de plantilla | `koi.ai.enabled=false` o Ollama no está corriendo | Verificar la propiedad y correr `ollama list` para confirmar que el servicio está activo |
-| Log: `No se pudo contactar a Ollama (...)` | Ollama no está escuchando en `localhost:11434`, o el modelo no fue descargado | Correr `ollama serve` manualmente y `ollama pull llama3.2` |
-| Respuestas muy lentas | El modelo corre 100% en CPU (sin GPU) | Usar un modelo más chico (`llama3.2:1b`) o aumentar `koi.ai.ollama.timeout-ms` |
-| Querés apagar la IA temporalmente | — | Poner `koi.ai.enabled=false`, no hace falta desinstalar nada |
-
-### `payment-service` (8084)
+### `koi-ia-service` (8088) — por el gateway: `/api/koi/**` (pública)
 | Método | Endpoint | Para qué sirve |
 |---|---|---|
-| GET | `/test` | Health simple del servicio |
+| POST | `/api/koi/sessions` | Crear una conversación |
+| GET | `/api/koi/sessions/{sessionId}` | Ver el estado de la conversación |
+| POST | `/api/koi/sessions/{sessionId}/messages` | Enviar un mensaje y recibir la respuesta |
+
+KOI usa un modelo de [Groq](https://groq.com) (`openai/gpt-oss-20b`) y consulta los demás servicios para sus respuestas. Necesita `GROQ_API_KEY`: sin ella el servicio no arranca. Cómo obtenerla, límites y limitaciones conocidas en [`docs/koi-ia-service.md`](docs/koi-ia-service.md).
 
 ---
 
@@ -422,5 +245,6 @@ Cliente / Frontend
           ├─► hotel-service      (8083)
           ├─► payment-service    (8084)
           ├─► reservation-service (8085)
-          └─► package-service    (8086)
+          ├─► package-service    (8086)
+          └─► koi-ia-service     (8088)
 ```

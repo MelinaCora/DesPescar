@@ -19,7 +19,6 @@ Cada servicio tiene su propia guía. Esta página es el índice: explica qué ha
 | [`gateway-service.md`](gateway-service.md) | Puerta de entrada del frontend: rutas, permisos y límites | 8087 |
 | [`koi-ia-service.md`](koi-ia-service.md) | Chatbot KOI con IA de Groq | 8088 |
 | [`frontend.md`](frontend.md) | Cómo se conecta el frontend `features/merge-koi-gateway` | 5173 |
-| [`Documentacion-cambios-DesPescar.pdf`](Documentacion-cambios-DesPescar.pdf) | Registro de los cambios hechos al armar este entorno | — |
 
 Para la teoría de Docker y su instalación paso a paso, ver [`../database/README.md`](../database/README.md).
 
@@ -61,8 +60,9 @@ Se definen **en la terminal donde arranca cada servicio** y no persisten entre t
 
 | Variable | La usan | Obligatoria |
 |---|---|---|
-| `JWT_SECRET` | identity, flight, reservation, package, payment y gateway (hotel tiene un valor por defecto) | Sí, **el mismo valor en todos** |
+| `JWT_SECRET` | identity, flight, reservation, package, payment y gateway | Sí, **el mismo valor en todos** |
 | `RESERVATION_SERVICE_SYNC_TOKEN` | reservation y payment | Imprescindible para pagar, el mismo valor en los dos |
+| `INVENTORY_SERVICE_TOKEN` | reservation, flight y hotel | Para que una reserva confirmada descuente asientos y habitaciones, el mismo valor en los tres |
 | `GROQ_API_KEY` | koi-ia-service | Sí, para el chatbot |
 | `MERCADOPAGO_ACCESS_TOKEN` y demás `MERCADOPAGO_*` | payment-service | Solo para generar el enlace de pago |
 | `DB_PASSWORD` | todos | Solo si cambiaste la contraseña de MySQL (por defecto `despescar_dev`) |
@@ -72,6 +72,7 @@ Valores de ejemplo para desarrollo local (**no sirven para producción**):
 ```
 JWT_SECRET                      despescar-dev-secret-key-2026-must-be-long-enough
 RESERVATION_SERVICE_SYNC_TOKEN  despescar-dev-sync-token
+INVENTORY_SERVICE_TOKEN         despescar-dev-inventory-token
 ```
 
 ## Comandos: Linux y Windows

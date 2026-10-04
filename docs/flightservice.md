@@ -8,13 +8,14 @@ Aeropuertos, aerolíneas, tarifas (Light, Standard…) y vuelos, incluida la bú
 |---|---|
 | Puerto | **8081** |
 | Base de datos | `despescar_flight` |
-| Por el gateway | `/api/flights/**`, `/api/airlines/**`, `/api/airports/**` y `/api/baggage-policies/**` |
+| Por el gateway | `/api/flights/**`, `/api/airlines/**` y `/api/airports/**` |
 
 ## Variables de entorno
 
 | Variable | Obligatoria | Para qué |
 |---|---|---|
 | `JWT_SECRET` | **Sí** | Validar los tokens. El mismo valor en todos los servicios. |
+| `INVENTORY_SERVICE_TOKEN` | **Para que reservas descuente asientos** | Contraseña compartida con [`reservation-service`](reservation-service.md) y `hotel-service`. **El mismo valor en todos.** Vacía, el ajuste de asientos se rechaza con `401`. |
 | `DB_PASSWORD` | No | Solo si cambiaste la contraseña de MySQL. |
 
 ## Levantarlo
@@ -24,6 +25,7 @@ Con MySQL arriba ([`mysql-docker.md`](mysql-docker.md)), desde la raíz del repo
 **Linux**
 ```bash
 export JWT_SECRET='despescar-dev-secret-key-2026-must-be-long-enough'
+export INVENTORY_SERVICE_TOKEN='despescar-dev-inventory-token'
 cd services/flightservice
 mvn spring-boot:run
 ```
@@ -31,6 +33,7 @@ mvn spring-boot:run
 **Windows (PowerShell)**
 ```powershell
 $env:JWT_SECRET = 'despescar-dev-secret-key-2026-must-be-long-enough'
+$env:INVENTORY_SERVICE_TOKEN = 'despescar-dev-inventory-token'
 cd services\flightservice
 mvn spring-boot:run
 ```
@@ -48,7 +51,7 @@ Consultar vuelos **no exige iniciar sesión**, tanto en este servicio como en el
 | `GET /api/fares` | Público en este servicio, pero **el gateway no tiene ruta** para `/api/fares` (devuelve 404 por el 8087) |
 | Otras consultas (`/api/airlines`, `/api/airports/country/...`, `/api/airports/city/...`, `/api/flights/number/...`, `/airline/`, `/origin/`, `/destination/`, `/api/fares/{id}`) | Sesión iniciada |
 | `POST`, `PUT` y `DELETE` en `/api/**` (crear, editar y borrar) | `SUPER_ADMIN` o `AIRLINE_ADMIN` |
-| `PATCH /api/flights/number/{flightNumber}/seats?delta=N` | Uso interno de [`reservation-service`](reservation-service.md) (ajusta los asientos disponibles) |
+| `PATCH /api/flights/number/{flightNumber}/seats?delta=N` | **Solo [`reservation-service`](reservation-service.md)**, con el encabezado `X-Internal-Service-Token` (`INVENTORY_SERVICE_TOKEN`). Un token de usuario responde `401`; el gateway lo bloquea (`403`). |
 
 ## Buscar vuelos
 
