@@ -19,6 +19,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+      # La primera inicializacion puede tardar varios minutos en equipos lentos; durante este
+      # periodo los fallos del chequeo no cuentan, asi no se marca "unhealthy" por error.
+      start_period: 300s
 
   adminer:
     image: adminer
