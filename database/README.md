@@ -2,7 +2,7 @@
 
 ## Guía para el equipo, desde cero
 
-> **Para levantar todo el backend paso a paso** (MySQL, microservicios, datos de ejemplo y frontend) usá el [instructivo](../docs/INSTRUCTIVO-DOCKER.md). Esta guía explica los conceptos y la instalación de Docker. El compose usa ahora la variable `DB_PASSWORD` (valor común `despescar_dev`) y Adminer quedó en el puerto **8090**, porque `identity-service` usa el 8080.
+> **Para levantar todo el backend paso a paso** (MySQL, microservicios, datos de ejemplo y frontend) usá el [documentación por servicio](../docs/README.md) (hay una guía para cada servicio, con los comandos para Linux y Windows; para esta parte, [`mysql-docker.md`](../docs/mysql-docker.md)). Esta guía explica los conceptos y la instalación de Docker. El compose usa ahora la variable `DB_PASSWORD` (valor común `despescar_dev`) y Adminer quedó en el puerto **8090**, porque `identity-service` usa el 8080.
 
 **Última actualización:** incluye lo aprendido en la primera instalación real del equipo (Linux Mint / Ubuntu 24.04), además del análisis del backend real (`DesPescar-features-chatbot-integration.zip`).
 
@@ -95,6 +95,24 @@ Después de este paso, **cerrá sesión y volvé a entrar** (o reiniciá) para q
 docker run hello-world
 ```
 Si aparece el mensaje "Hello from Docker!", la instalación está completa y funcional.
+
+### 3.2. Instalación en Windows (no probada por el equipo)
+
+Estos pasos siguen la documentación oficial de Docker y **todavía no se verificaron en una instalación real del equipo**; si algo no coincide, avisá y se corrige.
+
+1. Descargá e instalá **Docker Desktop** desde [docker.com](https://www.docker.com/products/docker-desktop/). El instalador usa **WSL 2** (o Hyper-V) y, si hace falta, te pide activarlo. Reiniciá el equipo si te lo indica.
+2. Abrí **Docker Desktop** y esperá a que diga *Engine running*. Mientras no esté abierto, los comandos `docker` no funcionan.
+3. Abrí **PowerShell** y comprobá:
+
+```powershell
+docker --version
+docker compose version
+docker run hello-world
+```
+
+Si aparece "Hello from Docker!", quedó listo. Si da un error de virtualización, hay que activarla en la BIOS/UEFI del equipo (suele llamarse *Virtualization Technology* o *SVM*). En Windows Home se necesita WSL 2.
+
+Los comandos del resto de esta guía (`docker compose ...`) son iguales en PowerShell. Cambia solo la copia de archivos: `cp` → `Copy-Item`.
 
 ### ¿Cómo sé que quedó bien instalado? (chequeo rápido general)
 
@@ -233,7 +251,11 @@ Este archivo **sí se sube a Git** (es solo una plantilla, sin secretos reales d
 Normalmente **no hace falta crear un `.env`**: el compose y los microservicios ya usan `despescar_dev` por defecto. Solo si querés otra contraseña, copiá la plantilla y cambiala (y exportá `DB_PASSWORD` con el mismo valor antes de arrancar cada microservicio):
 
 ```bash
-cp .env.example .env
+cp .env.example .env            # Linux
+```
+
+```powershell
+Copy-Item .env.example .env     # Windows (PowerShell)
 ```
 
 Y el `.env` real (con el nombre exacto `.env`, sin `.example`) **no se sube a Git** — se agrega a `.gitignore`:
@@ -264,11 +286,13 @@ Nada más que eso. Las tablas las crea Hibernate automáticamente cuando cada mi
 
 ```bash
 # 1. Clonar el repo del backend (si no lo tenés todavía)
-git clone <url-del-repo-backend>
-cd despescar-backend/database
+git clone https://github.com/MelinaCora/DesPescar.git
+cd DesPescar
+git switch features/full-integration-docker-setup   # mientras no se integre a main
+cd database
 
 # 2. (Opcional) solo si querés una contraseña distinta a despescar_dev
-# cp .env.example .env
+# Linux: cp .env.example .env   ·   Windows (PowerShell): Copy-Item .env.example .env
 
 # 3. Levantar el contenedor de MySQL + Adminer
 docker compose up -d
