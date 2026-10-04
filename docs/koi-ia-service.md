@@ -94,18 +94,18 @@ Con MySQL arriba y la clave cargada (sección 2), desde la raíz del repositorio
 **Linux**
 ```bash
 cd services/koi-ia-service
-mvn "-Dmaven.test.skip=true" spring-boot:run
+mvn spring-boot:run
 ```
 
 **Windows (PowerShell)**
 ```powershell
 cd services\koi-ia-service
-mvn "-Dmaven.test.skip=true" spring-boot:run
+mvn spring-boot:run
 ```
 
 - Está listo cuando el log dice `Started KoiIaServiceApplication in ... seconds`. La primera vez tarda varios minutos porque descarga dependencias.
 - Este servicio no trae `mvnw`, por eso se usa `mvn`.
-- Se usa `-Dmaven.test.skip=true` porque `KoiAiAssistantTest` está desactualizado y no compila: arma el asistente con un `OllamaClient` y llama a `extractTravelInfo`, que el código actual (basado en Groq) ya no tiene. Sin esa opción falla con `COMPILATION ERROR`.
+- Los tests (`mvn test`, 13 pruebas) cubren el asistente y el servicio de conversaciones con la IA simulada: no necesitan `GROQ_API_KEY` ni MySQL.
 
 ## 4. De dónde saca los datos
 
@@ -183,7 +183,6 @@ Si el chat muestra error, mirá la pestaña **Network** de las herramientas del 
 | Síntoma | Causa y solución |
 |---|---|
 | `Could not resolve placeholder 'GROQ_API_KEY'` al arrancar | La variable no está cargada **en esa terminal**. Repetí la sección 2 y arrancá de nuevo. |
-| `COMPILATION ERROR` / `testCompile` al arrancar | Falta `-Dmaven.test.skip=true` (sección 3). |
 | `Port 8088 was already in use` | Ya hay un chatbot corriendo. **Linux:** `ss -ltnp \| grep 8088`. **Windows:** `netstat -ano \| findstr :8088`. Detené el anterior (`Ctrl+C` en su terminal, o `kill <PID>` / `Stop-Process -Id <PID>`). |
 | Error de conexión con MySQL (`Communications link failure`, `Access denied`) | MySQL no está arriba o tiene otra contraseña. Ver [`mysql-docker.md`](mysql-docker.md). |
 | El chat responde con error 504 desde el frontend | El gateway cortó a los 5 segundos. Levantalo con el tiempo ampliado (sección 5). |

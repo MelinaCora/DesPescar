@@ -1,92 +1,109 @@
 package com.despescar.koiiaservice.service.ai;
 
-import com.despescar.koiiaservice.client.OllamaClient;
+import com.despescar.koiiaservice.dto.request.KoiConversationMessageRequest.MensajeHistorialDto;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.ai.chat.client.ChatClient;
 
-import java.math.BigDecimal;
-import java.util.Optional;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class KoiAiAssistantTest {
 
     @Mock
-    private OllamaClient ollamaClient;
+    private ChatClient.Builder chatClientBuilder;
 
-    @Test
-    void whenAiDisabledExtractionReturnsEmpty() {
-        KoiAiAssistant assistant = new KoiAiAssistant(ollamaClient, false);
+    @Mock
+    private KoiTravelTools koiTravelTools;
 
-        Optional<ExtractedTravelInfo> result = assistant.extractTravelInfo("quiero viajar a Bariloche con 2000 dolares");
+    @Mock
+    private ChatClient chatClient;
 
-        assertTrue(result.isEmpty());
+    @Mock
+    private ChatClient.ChatClientRequestSpec requestSpec;
+
+    @Mock
+    private ChatClient.CallResponseSpec callSpec;
+
+    private KoiAiAssistant assistant;
+
+    @BeforeEach
+    void setUp() {
+        when(chatClientBuilder.defaultSystem(anyString())).thenReturn(chatClientBuilder);
+        when(chatClientBuilder.build()).thenReturn(chatClient);
+        lenient().when(chatClient.prompt()).thenReturn(requestSpec);
+        lenient().when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        lenient().when(requestSpec.call()).thenReturn(callSpec);
+        assistant = new KoiAiAssistant(chatClientBuilder, koiTravelTools);
     }
 
     @Test
-    void whenAiEnabledParsesValidJsonFromOllama() {
-        KoiAiAssistant assistant = new KoiAiAssistant(ollamaClient, true);
-        String rawJson = "{\"budget\": 2000, \"travelers\": 2, \"destination\": \"Bariloche\", "
-                + "\"origin\": \"Buenos Aires\", \"travelStyle\": \"aventura\", \"nights\": 5, \"month\": \"julio\"}";
-        when(ollamaClient.generate(anyString(), anyBoolean())).thenReturn(Optional.of(rawJson));
+    void respuestaNormalSeDevuelveTalCualSinConsultarVuelos() {
+        when(callSpec.content()).thenReturn("¡Hola! ¿A dónde querés viajar?");
 
-        Optional<ExtractedTravelInfo> result = assistant.extractTravelInfo("quiero ir a Bariloche, somos 2, salimos de Buenos Aires");
+        String respuesta = assistant.procesarConversacion("hola", null);
 
-        assertTrue(result.isPresent());
-        assertEquals(new BigDecimal("2000"), result.get().budget());
-        assertEquals(2, result.get().travelers());
-        assertEquals("Bariloche", result.get().destination());
-        assertEquals("Buenos Aires", result.get().origin());
-        assertEquals("aventura", result.get().travelStyle());
-        assertEquals(5, result.get().nights());
-        assertEquals("julio", result.get().month());
+        assertEquals("¡Hola! ¿A dónde querés viajar?", respuesta);
+        verify(koiTravelTools, never()).buscarVuelosIdaYVuelta(anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
-    void whenOllamaReturnsInvalidJsonExtractionFallsBackToEmpty() {
-        KoiAiAssistant assistant = new KoiAiAssistant(ollamaClient, true);
-        when(ollamaClient.generate(anyString(), anyBoolean())).thenReturn(Optional.of("esto no es un json"));
+    void elHistorialSeIncluyeEnElPromptYSeIgnoranLosMensajesVacios() {
+        when(callSpec.content()).thenReturn("ok");
+        List<MensajeHistorialDto> history = List.of(historial("user", "quiero ir a Bariloche"), historial("assistant", "  "));
 
-        Optional<ExtractedTravelInfo> result = assistant.extractTravelInfo("mensaje cualquiera");
+        assistant.procesarConversacion("con 2 personas", history);
 
-        assertTrue(result.isEmpty());
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(requestSpec).user(prompt.capture());
+        assertTrue(prompt.getValue().contains("[HISTORIAL]"));
+        assertTrue(prompt.getValue().contains("- Usuario: quiero ir a Bariloche"));
+        assertTrue(prompt.getValue().contains("[MENSAJE ACTUAL]:\ncon 2 personas"));
+        assertTrue(!prompt.getValue().contains("- KOI:"));
     }
 
     @Test
-    void whenOllamaUnavailableExtractionFallsBackGracefully() {
-        KoiAiAssistant assistant = new KoiAiAssistant(ollamaClient, true);
-        when(ollamaClient.generate(anyString(), anyBoolean())).thenReturn(Optional.empty());
+    void cuandoLaIaPideBuscarVueloConsultaLasHerramientasYPideUnaSegundaRespuesta() {
+        String accion = "<ACCION>BUSCAR_VUELO</ACCION><ORIGEN>Buenos Aires</ORIGEN><DESTINO>Cordoba</DESTINO>"
+                + "<FECHA_IDA>2026-10-18</FECHA_IDA><FECHA_VUELTA>2026-10-25</FECHA_VUELTA>";
+        when(callSpec.content()).thenReturn(accion, "Encontré estos vuelos");
+        when(koiTravelTools.buscarVuelosIdaYVuelta("Buenos Aires", "Cordoba", "2026-10-18", "2026-10-25"))
+                .thenReturn("VUELO AR1234");
 
-        Optional<ExtractedTravelInfo> result = assistant.extractTravelInfo("mensaje cualquiera");
+        String respuesta = assistant.procesarConversacion("quiero volar a Cordoba", null);
 
-        assertTrue(result.isEmpty());
+        assertEquals("Encontré estos vuelos", respuesta);
+        ArgumentCaptor<String> prompts = ArgumentCaptor.forClass(String.class);
+        verify(requestSpec, times(2)).user(prompts.capture());
+        assertTrue(prompts.getAllValues().get(1).contains("VUELO AR1234"));
     }
 
     @Test
-    void humanizeTextReturnsEmptyWhenDisabled() {
-        KoiAiAssistant assistant = new KoiAiAssistant(ollamaClient, false);
+    void siFallaLaIaDevuelveUnMensajeAmableEnLugarDeLaExcepcion() {
+        when(callSpec.content()).thenThrow(new IllegalStateException("401 de Groq"));
 
-        Optional<String> result = assistant.humanizeGreeting("¡Hola! ¿En qué puedo ayudarte?");
+        String respuesta = assistant.procesarConversacion("hola", null);
 
-        assertTrue(result.isEmpty());
+        assertTrue(respuesta.contains("inconveniente"));
     }
 
-    @Test
-    void humanizeTextReturnsOllamaResponseWhenEnabled() {
-        KoiAiAssistant assistant = new KoiAiAssistant(ollamaClient, true);
-        when(ollamaClient.generate(anyString(), anyBoolean()))
-                .thenReturn(Optional.of("¡Hola! Qué alegría tenerte por acá, ¿en qué te ayudo hoy?"));
-
-        Optional<String> result = assistant.humanizeGreeting("¡Hola! ¿En qué puedo ayudarte?");
-
-        assertTrue(result.isPresent());
-        assertEquals("¡Hola! Qué alegría tenerte por acá, ¿en qué te ayudo hoy?", result.get());
+    private static MensajeHistorialDto historial(String role, String content) {
+        MensajeHistorialDto dto = new MensajeHistorialDto();
+        dto.setRole(role);
+        dto.setContent(content);
+        return dto;
     }
 }
