@@ -29,7 +29,7 @@
 
 <h1>DesPescar</h1>
 <p class="sub">Documentación de cambios y puesta en marcha del entorno local<br>
-Backend: <code>MelinaCora/DesPescar</code>, rama <code>features/docker-setup</code> &middot; Frontend: <code>TenSF25/DesPescar</code>, rama <code>features/merge-koi-gateway</code> &middot; 4 de octubre de 2026</p>
+Backend: <code>MelinaCora/DesPescar</code>, rama <code>features/full-integration-docker-setup</code> &middot; Frontend: <code>TenSF25/DesPescar</code>, rama <code>features/merge-koi-gateway</code> &middot; 4 de octubre de 2026</p>
 
 <div class="box"><b>Cómo usar este documento.</b> Describe los cambios hechos al poner en marcha el entorno local y el estado en que quedó. Para <b>levantar el entorno paso a paso</b> usá <code>docs/INSTRUCTIVO-DOCKER.md</code>. Algunas partes se actualizaron al publicarlo en el repositorio: el Docker vive en <code>database/</code> y la contraseña de MySQL pasó a ser común.</div>
 
@@ -82,9 +82,9 @@ mvn spring-boot:run</pre>
 <table>
   <tr><th>Variable</th><th>Quién la necesita</th><th>Obligatoria</th></tr>
   <tr><td><code>JWT_SECRET</code></td><td>identity, flight, reservation, package, payment, gateway</td><td>Sí, <b>la misma en todos</b>. Se usó una clave de ejemplo solo para desarrollo.</td></tr>
-  <tr><td><code>MERCADOPAGO_TOKEN</code></td><td><code>payment-service</code></td><td>Sí, sin valor por defecto (agregado en el último commit de pagos). Para desarrollo sirve un valor de prueba.</td></tr>
+  <tr><td><code>RESERVATION_SERVICE_SYNC_TOKEN</code></td><td><code>reservation-service</code> y <code>payment-service</code></td><td>Imprescindible para pagar, <b>el mismo valor en los dos</b> (ver 6.1). Si queda vacía los servicios arrancan, pero crear un pago falla con 401.</td></tr>
   <tr><td><code>GROQ_API_KEY</code></td><td><code>koi-ia-service</code></td><td>Sí para que responda la IA. Se arrancó con una clave de relleno.</td></tr>
-  <tr><td><code>MERCADOPAGO_*</code> (resto)</td><td><code>payment-service</code></td><td>No, tienen valor vacío por defecto.</td></tr>
+  <tr><td><code>MERCADOPAGO_*</code></td><td><code>payment-service</code></td><td>No para arrancar (valor vacío por defecto). <code>MERCADOPAGO_ACCESS_TOKEN</code> con una credencial de prueba es necesaria para generar el enlace de pago.</td></tr>
 </table>
 <p><b><code>koi-ia-service</code> debe arrancarse así</b>, porque su código de pruebas no compila:</p>
 <pre>mvn -Dmaven.test.skip=true spring-boot:run</pre>
@@ -132,6 +132,8 @@ mvn spring-boot:run \
 <p><b>Verificado con curl, sin token:</b> aeropuertos, vuelos y búsqueda devuelven 200. Siguen protegidos: <code>POST</code> a <code>/api/airports</code> (401), <code>/api/airlines</code> (401), <code>/api/packages</code> (401), <code>/api/users</code> (401) y <code>/hoteles</code> (403, lo responde el propio hotel-service).</p>
 <p>La búsqueda exige los parámetros <code>origin</code>, <code>destination</code>, <code>departureDate</code> y <code>passengers</code>; <code>returnDate</code> es opcional.</p>
 
+<p><b>Rutas internas bloqueadas.</b> En esta rama el gateway además responde <b>403</b> a todo <code>/api/bookings/internal/**</code>. Son las rutas con las que <code>payment-service</code> consulta y confirma reservas (usan el encabezado <code>X-Internal-Service-Token</code>, con el valor de <code>RESERVATION_SERVICE_SYNC_TOKEN</code>). Antes solo las protegía ese token, y el gateway no las filtraba: un usuario con sesión podía llegar a ellas. Los servicios se hablan directo por su puerto, así que el flujo de pago no se ve afectado. Probado con el gateway levantado: las rutas internas dan 403 (con y sin token), mientras <code>/api/bookings/1</code>, <code>/api/payments</code> y <code>/api/users</code> siguen dando 401 sin sesión.</p>
+
 <h3>6.2 Frontend: redirección al login y retorno al flujo de compra</h3>
 <p><b>Problema.</b> <code>ProtectedRoute</code> guardaba el <code>location</code> global del navegador, que no se puede almacenar en el historial, y la navegación a <code>/login</code> fallaba. Además, al iniciar sesión se enviaba siempre al inicio del rol, ignorando la página que el usuario intentaba abrir. <code>PublicRoute</code>, que envuelve <code>/login</code>, también redirigía al inicio apenas el usuario quedaba autenticado.</p>
 <table>
@@ -142,6 +144,20 @@ mvn spring-boot:run \
   <tr><td><code>components/Routes/PublicRoute.tsx</code></td><td>Usa el mismo destino, para no competir con la redirección del login.</td></tr>
 </table>
 <p>Se comprobó que el proyecto compila (<code>tsc --noEmit</code>) y pasa el linter en las carpetas modificadas.</p>
+
+<h3>6.3 Base de la rama y compatibilidad con el frontend</h3>
+<p>La rama parte de <code>features/auditoria-y-chatbot</code>, no de <code>features/payment-service-update</code>. Esta última agrega un commit (<code>7d5fab00</code>, Checkout API con pago grupal por fracciones) que <b>reemplaza</b> <code>POST /api/payments</code> por <code>/api/v1/payments</code>, lo deja sin autenticación (<code>permitAll</code>) y no está enrutado en el gateway. El frontend <code>features/merge-koi-gateway</code> paga con <code>POST /api/payments</code> y no tiene pantalla ni código para el pago grupal en ninguna de sus 21 ramas, por lo que ese commit queda fuera hasta que el equipo defina el contrato.</p>
+<p>Llamadas del frontend verificadas (leyendo el código) contra el backend de esta rama:</p>
+<table>
+  <tr><th>Frontend</th><th>Backend</th></tr>
+  <tr><td>Login, registro, renovar token, <code>/api/users/me</code></td><td>identity-service (vía gateway)</td></tr>
+  <tr><td>Aeropuertos, búsqueda y detalle de vuelos</td><td>flightservice; públicas en el gateway</td></tr>
+  <tr><td><code>/api/bookings/flights/{id}/seats</code> y <code>/seat-map</code>; WebSocket <code>:8085/ws-despescar</code></td><td>reservation-service</td></tr>
+  <tr><td><code>POST /api/bookings/init</code> y <code>PUT /api/bookings/{id}/passengers</code></td><td>reservation-service (mismos campos)</td></tr>
+  <tr><td><code>POST /api/payments</code> con <code>{reservationId}</code> y redirección al <code>checkoutUrl</code></td><td>payment-service</td></tr>
+  <tr><td>Chatbot: <code>/api/koi/sessions</code> y <code>/messages</code> (<code>message</code> + <code>history</code>)</td><td>koi-ia-service</td></tr>
+</table>
+<p><b>Límite de la verificación:</b> es lectura de código; el flujo completo no se probó en ejecución. El pago además requiere una credencial de prueba de MercadoPago. Los cambios de asientos que el frontend tiene sin commitear no se revisaron.</p>
 
 <h3>Flujo de selección de vuelo</h3>
 <ol>
@@ -171,6 +187,7 @@ mvn spring-boot:run \
   <li><b>Memoria:</b> el equipo tiene 6,9 GB de RAM y el swap llegó a estar lleno (5,4 de 5,5 GB). Conviene cerrar IntelliJ y detener <code>koi-ia-service</code> si no se usa. Cerrar IntelliJ no afecta a los servicios, que no dependen de él.</li>
   <li><b>Chatbot:</b> <code>koi-ia-service</code> necesita una <code>GROQ_API_KEY</code> real (https://console.groq.com/home). Sin ella no responde con IA.</li>
   <li><b><code>payment-service</code></b> (puerto 8084) no se arrancó. Los datos de MercadoPago quedarían vacíos, por lo que los pagos no funcionarían de verdad.</li>
+  <li><b>Checkout API / pago grupal:</b> sigue en la rama <code>features/payment-service-update</code>. Antes de integrarlo hay que acordar con su autora o autor si se mantiene <code>POST /api/payments</code>, cómo se enruta en el gateway y cómo se autentica, y que el frontend tenga una pantalla para usarlo.</li>
   <li><b>Contraseñas en el repositorio:</b> resuelto para MySQL en esta rama (variable <code>DB_PASSWORD</code> con valor común). Siguen existiendo contraseñas anteriores en el historial de otras ramas públicas.</li>
   <li><b>Variables de entorno:</b> <code>JWT_SECRET</code> y <code>GROQ_API_KEY</code> solo existen en los procesos arrancados; hay que exportarlas de nuevo tras cada reinicio.</li>
   <li><b>Docker al iniciar:</b> <code>sudo systemctl enable docker</code> evita tener que arrancarlo a mano.</li>
@@ -185,7 +202,7 @@ mvn spring-boot:run \
 <ol>
   <li><b>Docker:</b> <code>sudo systemctl start docker</code></li>
   <li><b>MySQL:</b> <code>cd database &amp;&amp; docker compose up -d</code> y esperar a <i>healthy</i>.</li>
-  <li><b>Servicios</b>, cada uno en su terminal, con <code>JWT_SECRET</code> (y <code>MERCADOPAGO_TOKEN</code> / <code>GROQ_API_KEY</code> si corresponde) exportados: <code>identity-service</code>, <code>flightservice</code>, <code>hotel-service</code>, <code>package-service</code>, <code>reservation-service</code>, <code>payment-service</code>, <code>koi-ia-service</code> (con <code>-Dmaven.test.skip=true</code>) y por último <code>gateway-service</code>.</li>
+  <li><b>Servicios</b>, cada uno en su terminal, con <code>JWT_SECRET</code> exportado (y <code>RESERVATION_SERVICE_SYNC_TOKEN</code> igual en reservas y pagos, <code>GROQ_API_KEY</code> si corresponde): <code>identity-service</code>, <code>flightservice</code>, <code>hotel-service</code>, <code>package-service</code>, <code>reservation-service</code>, <code>payment-service</code>, <code>koi-ia-service</code> (con <code>-Dmaven.test.skip=true</code>) y por último <code>gateway-service</code>.</li>
   <li><b>Datos de ejemplo:</b> <code>./database/seed/seed.sh</code></li>
   <li><b>Frontend</b> (<code>features/merge-koi-gateway</code>): <code>pnpm dev</code> en <code>http://localhost:5173</code>, que apunta al gateway en el puerto 8087.</li>
 </ol>

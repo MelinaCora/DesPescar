@@ -32,7 +32,7 @@ Con Docker corre **solo la base de datos** (MySQL y Adminer). Los microservicios
 ```bash
 git clone https://github.com/MelinaCora/DesPescar.git
 cd DesPescar
-git switch features/docker-setup
+git switch features/full-integration-docker-setup
 ```
 
 ## 2. Levantar MySQL y Adminer
@@ -54,16 +54,24 @@ Definilas en **cada terminal** donde vayas a arrancar un servicio (o ponelas en 
 
 ```bash
 export JWT_SECRET='despescar-dev-secret-key-2026-must-be-long-enough'
-export MERCADOPAGO_TOKEN='token-de-prueba'   # solo payment-service; con este valor arranca, pero los pagos reales no funcionan
-export GROQ_API_KEY='tu-clave'               # solo koi-ia-service (chatbot); sacala gratis en https://console.groq.com/home
+export RESERVATION_SERVICE_SYNC_TOKEN='despescar-dev-sync-token'   # reservation-service y payment-service, el mismo valor en los dos
+export GROQ_API_KEY='tu-clave'                                      # solo koi-ia-service (chatbot); sacala gratis en https://console.groq.com/home
+export MERCADOPAGO_ACCESS_TOKEN='TEST-...'                          # solo para pagos reales de prueba (credencial de prueba de MercadoPago)
 ```
 
 | Variable | La necesita | Notas |
 |---|---|---|
 | `JWT_SECRET` | identity, flight, reservation, package, payment, gateway | **Tiene que ser exactamente la misma en todos**, si no se rechazan los tokens entre servicios. `hotel-service` tiene un valor por defecto. |
-| `MERCADOPAGO_TOKEN` | payment-service | Obligatoria para que arranque. Para pagos reales hace falta un token de MercadoPago. |
+| `RESERVATION_SERVICE_SYNC_TOKEN` | reservation-service y payment-service | **Imprescindible para pagar.** Es la contraseña con la que payment-service le habla a reservation-service (ver abajo). **El mismo valor en los dos.** Si queda vacía, el servicio arranca igual, pero crear un pago falla con 401. |
 | `GROQ_API_KEY` | koi-ia-service | Obligatoria para que arranque. Sin una clave real el chatbot no responde con IA. |
+| `MERCADOPAGO_ACCESS_TOKEN` | payment-service | Opcional para arrancar. Sin una credencial de prueba de MercadoPago no se puede generar el enlace de pago. El resto de las variables `MERCADOPAGO_*` (URLs de retorno, webhook) también son opcionales. |
 | `DB_PASSWORD` | todos | **Solo** si cambiaste la contraseña de MySQL. Si no la tocaste, no la definas. |
+
+### Qué es `RESERVATION_SERVICE_SYNC_TOKEN`
+
+`payment-service` necesita hablar con `reservation-service` sin que haya un usuario de por medio: para pedirle los datos y el importe de la reserva al crear un pago, y para avisarle que MercadoPago confirmó el pago. Esas dos llamadas van a rutas internas (`/api/bookings/internal/...`) y se identifican con el encabezado `X-Internal-Service-Token`, cuyo valor es este token. Si no coincide en los dos servicios, reservas responde `401 Invalid internal service token`. No tiene relación con `JWT_SECRET`, que firma los tokens de los usuarios.
+
+Las rutas internas **no se pueden usar a través del gateway** (devuelve 403): los servicios se hablan directo por su puerto.
 
 ## 4. Arrancar los microservicios
 
@@ -83,7 +91,7 @@ cd services/gateway-service     && mvn spring-boot:run
 - Un servicio está listo cuando el log dice `Started ...Application in ... seconds`. El primer arranque tarda varios minutos porque descarga dependencias.
 - Se usa `mvn` y no `./mvnw` porque en algunos sistemas los `mvnw` no tienen permiso de ejecución y `gateway-service` y `koi-ia-service` no traen wrapper.
 - `koi-ia-service` se arranca con `-Dmaven.test.skip=true` porque `KoiAiAssistantTest` está desactualizado y no compila.
-- Para ver datos y probar la compra alcanzan `identity`, `flightservice`, `hotel`, `package`, `reservation` y el `gateway`. `payment` y `koi-ia` son opcionales.
+- Para buscar vuelos y ver datos alcanzan `identity`, `flightservice`, `hotel`, `package` y el `gateway`. Para **reservar** hace falta además `reservation-service`, y para **pagar**, `payment-service` con las variables de la sección 3. `koi-ia` (chatbot) es opcional.
 
 ## 5. Cargar datos de ejemplo
 
@@ -135,6 +143,26 @@ Abrilo en http://localhost:5173. Apunta por defecto al gateway en `http://localh
 2. Buscá EZE → COR en una de las fechas que imprimió el script (en ida y vuelta, la fecha de vuelta tiene que ser otra de esas fechas).
 3. Elegí un vuelo: te pide iniciar sesión (`cliente@despescar.com`) y vuelve a la compra.
 
+### Compatibilidad con el frontend
+
+Esta versión del backend está pensada para el frontend `TenSF25/DesPescar`, rama **`features/merge-koi-gateway`**. Se revisó, leyendo el código, que estas llamadas del frontend coinciden con el backend:
+
+| Qué hace el frontend | Llamada | Servicio |
+|---|---|---|
+| Registro, login y renovar token | `/api/auth/register`, `/login`, `/refresh`; `/api/users/me` | identity |
+| Aeropuertos y búsqueda de vuelos | `/api/airports`, `/api/flights/search`, `/api/flights/{id}` (públicas) | flightservice |
+| Mapa de asientos | `/api/bookings/flights/{id}/seats` y `/seat-map` | reservation |
+| Asientos en tiempo real | WebSocket `ws://localhost:8085/ws-despescar` | reservation |
+| Crear reserva | `POST /api/bookings/init` | reservation |
+| Cargar pasajeros | `PUT /api/bookings/{id}/passengers` | reservation |
+| Pagar | `POST /api/payments` con `{reservationId}` y redirección al `checkoutUrl` de MercadoPago | payment |
+| Chatbot | `/api/koi/sessions` y `/api/koi/sessions/{id}/messages` | koi-ia |
+
+Aclaraciones:
+
+- El pago redirige a MercadoPago. Para completarlo en local hace falta una credencial de prueba de MercadoPago (`MERCADOPAGO_ACCESS_TOKEN`) y, para volver al sitio, las variables `MERCADOPAGO_SUCCESS_URL`, `MERCADOPAGO_PENDING_URL` y `MERCADOPAGO_FAILURE_URL`. Sin eso el resto del flujo funciona, pero no se genera el enlace de pago.
+- **Pago grupal / Checkout API:** el commit `7d5fab00` de la rama `features/payment-service-update` (pago por fracciones en `/api/v1/payments`) **no está incluido**. Reemplaza `POST /api/payments`, que es el que usa este frontend, y no tiene pantalla en ninguna rama del frontend. Se integrará cuando el equipo defina su contrato.
+
 ## 8. Día a día
 
 ```bash
@@ -162,7 +190,8 @@ Después hay que volver a arrancar los servicios (para que recreen las tablas) y
 | `Unknown database 'despescar_...'` | El volumen es anterior a los scripts de `database/init`. Mismo arreglo: `down -v`. |
 | `Port 3306 is already in use` | Hay un MySQL instalado en tu sistema. Pararlo: `sudo systemctl stop mysql`. |
 | `Port 8080 was already in use` | Otro programa usa el 8080 (Adminer ya no, quedó en el 8090). Revisalo con `ss -ltnp \| grep 8080`. |
-| `Could not resolve placeholder 'JWT_SECRET'` (o `MERCADOPAGO_TOKEN`, `GROQ_API_KEY`) | Falta exportar la variable en esa terminal (sección 3). |
+| `Could not resolve placeholder 'JWT_SECRET'` (o `GROQ_API_KEY`) | Falta exportar la variable en esa terminal (sección 3). |
+| `401 Invalid internal service token` o "Reservation-Service rechazó la consulta" al pagar | `RESERVATION_SERVICE_SYNC_TOKEN` vacía o distinta en `reservation-service` y `payment-service`. Exportá el mismo valor en las dos terminales y reiniciá ambos. |
 | `Cannot connect to the Docker daemon` | Docker está apagado: `sudo systemctl start docker` (o abrí Docker Desktop). Para que arranque solo: `sudo systemctl enable docker`. |
 | Error 504 del gateway o todo muy lento | Falta de memoria: el gateway corta a los 5 segundos. Cerrá programas, arrancá menos servicios a la vez, o subí el límite: `mvn spring-boot:run -Dspring-boot.run.arguments="--resilience4j.timelimiter.instances.gatewayCircuitBreaker.timeoutDuration=30s"` en `gateway-service`. |
 | El selector de aeropuertos sale vacío | Falta correr el seed (sección 5), o el gateway no está levantado. |
