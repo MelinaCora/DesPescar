@@ -56,7 +56,7 @@ public class RefundService {
                 requireOwner(payment, authenticatedUserId);
 
         // 2. Validate payment status
-        if (payment.getStatus() != PaymentStatus.APPROVED) {
+        if (payment.getStatus() != PaymentStatus.AUTHORIZED) {
             throw new InvalidPaymentStateException(
                     "Payment cannot be refunded because its current status is: "
                             + payment.getStatus()

@@ -71,7 +71,7 @@ public class MercadoPagoWebhookService {
         payment.setTransactionId(gatewayResponse.getTransactionId());
         payment.setPaymentMethod(confirmedMethod);
 
-        if (newStatus == PaymentStatus.APPROVED) {
+        if (newStatus == PaymentStatus.AUTHORIZED) {
             payment.setPaymentDate(
                     LocalDateTime.now()
             );
@@ -80,7 +80,7 @@ public class MercadoPagoWebhookService {
         Payment updatedPayment =
                 paymentRepository.save(payment);
 
-        if (newStatus == PaymentStatus.APPROVED) {
+        if (newStatus == PaymentStatus.AUTHORIZED) {
             reservationClient.markReservationPaymentPaid(
                     updatedPayment.getReservationId(),
                     updatedPayment.getUserId(),
@@ -104,10 +104,10 @@ public class MercadoPagoWebhookService {
         return switch (mercadoPagoStatus.toLowerCase()) {
 
             case "approved" ->
-                    PaymentStatus.APPROVED;
+                    PaymentStatus.AUTHORIZED;
 
             case "rejected" ->
-                    PaymentStatus.REJECTED;
+                    PaymentStatus.CANCELLED;
 
             case "cancelled" ->
                     PaymentStatus.CANCELLED;

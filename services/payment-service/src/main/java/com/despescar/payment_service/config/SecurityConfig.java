@@ -28,6 +28,7 @@ public class SecurityConfig {
                     "/swagger-ui/**",
                     "/v3/api-docs/**"
                 ).permitAll()
+                    .requestMatchers("/api/v1/payments/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/payments/mercadopago/webhook").permitAll()
                 .anyRequest().authenticated()
             )

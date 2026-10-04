@@ -1,111 +1,73 @@
 package com.despescar.payment_service.controller;
 
-import java.util.List;
-import java.util.UUID;
-
+import com.despescar.payment_service.dto.request.CreateGroupRequestDTO;
+import com.despescar.payment_service.dto.request.PaymentAuthRequestDTO;
+import com.despescar.payment_service.dto.response.PaymentGroupResponseDTO;
+import com.despescar.payment_service.entity.PaymentGroup;
+import com.despescar.payment_service.service.PaymentService;
+import com.mercadopago.exceptions.MPApiException;
+import com.mercadopago.exceptions.MPException;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
 
-import com.despescar.payment_service.dto.request.PaymentRequest;
-import com.despescar.payment_service.dto.response.PaymentResponse;
-import com.despescar.payment_service.service.PaymentService;
-
-import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
-
+@Slf4j
 @RestController
-@RequestMapping("/api/payments")
+@RequestMapping("/api/v1/payments")
+@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class PaymentController {
 
 	private final PaymentService paymentService;
 
 	/**
-	 * Creates a new payment.
+	 * 1. GET: React lo llama para dibujar el "Carrito Compartido" y ver quién falta pagar
 	 */
-	@PostMapping
-	@PreAuthorize("hasRole('ROLE_CLIENTE')")
-	public ResponseEntity<PaymentResponse> createPayment(
-			@Valid @RequestBody PaymentRequest request,
-			Authentication authentication) {
-
-		PaymentResponse response =
-				paymentService.createPayment(request, Long.valueOf(authentication.getName()));
-
-		return ResponseEntity
-				.status(HttpStatus.CREATED)
-				.body(response);
+	@GetMapping("/group/{reservationId}")
+	public ResponseEntity<PaymentGroupResponseDTO> getPaymentGroup(@PathVariable Long reservationId) {
+		try {
+			return ResponseEntity.ok(paymentService.getGroupResponse(reservationId));
+		} catch (RuntimeException e) {
+			return ResponseEntity.notFound().build();
+		}
 	}
 
 	/**
-	 * Gets a payment by ID.
+	 * 2. POST (Interno): El microservicio de Reservas lo llama cuando se confirma el carrito
 	 */
-	@GetMapping("/{paymentId}")
-	@PreAuthorize("hasRole('ROLE_CLIENTE')")
-	public ResponseEntity<PaymentResponse> getPaymentById(
-			@PathVariable UUID paymentId,
-			Authentication authentication) {
-
-		PaymentResponse response =
-				paymentService.getPaymentById(paymentId, Long.valueOf(authentication.getName()));
-
-		return ResponseEntity.ok(response);
+	@PostMapping("/group")
+	public ResponseEntity<?> createPaymentGroup(@RequestBody CreateGroupRequestDTO request) {
+		try {
+			PaymentGroup group = paymentService.createPaymentGroup(
+					request.getReservationId(),
+					request.getTotalAmount(),
+					request.getUserIds()
+			);
+			return ResponseEntity.status(HttpStatus.CREATED).body("Grupo de pago creado. Expira a las: " + group.getExpiresAt());
+		} catch (RuntimeException e) {
+			return ResponseEntity.badRequest().body(e.getMessage());
+		}
 	}
 
 	/**
-	 * Gets all payments associated with a user.
+	 * 3. POST: React lo llama cuando un amigo carga su tarjeta y envía el Token
 	 */
-	@GetMapping("/user/{userId}")
-	@PreAuthorize("hasRole('ROLE_CLIENTE')")
-	public ResponseEntity<List<PaymentResponse>> getPaymentsByUser(
-			@PathVariable Long userId,
-			Authentication authentication) {
+	@PostMapping("/authorize-fraction")
+	public ResponseEntity<?> authorizeFraction(@RequestBody PaymentAuthRequestDTO request) {
+		try {
+			paymentService.authorizeFractionPayment(request);
+			return ResponseEntity.ok().body("Pago retenido con éxito. Esperando al resto del grupo.");
 
-		List<PaymentResponse> response =
-				paymentService.getPaymentsByUser(userId, Long.valueOf(authentication.getName()));
+		} catch (MPApiException apiEx) {
+			log.error("Error de la API de MP: {}", apiEx.getApiResponse().getContent());
+			return ResponseEntity.badRequest().body("Error al procesar la tarjeta con el banco.");
 
-		return ResponseEntity.ok(response);
-	}
+		} catch (MPException mpEx) {
+			log.error("Error interno del SDK de MP: {}", mpEx.getMessage());
+			return ResponseEntity.internalServerError().body("Error de comunicación con la pasarela.");
 
-	/**
-	 * Gets all payments associated with a reservation.
-	 */
-	@GetMapping("/reservation/{reservationId}")
-	@PreAuthorize("hasRole('ROLE_CLIENTE')")
-	public ResponseEntity<List<PaymentResponse>> getPaymentsByReservation(
-			@PathVariable Long reservationId,
-			Authentication authentication) {
-
-		List<PaymentResponse> response =
-				paymentService.getPaymentsByReservation(
-						reservationId,
-						Long.valueOf(authentication.getName())
-				);
-
-		return ResponseEntity.ok(response);
-	}
-
-	/**
-	 * Cancels a pending payment.
-	 */
-	@DeleteMapping("/{paymentId}")
-	@PreAuthorize("hasRole('ROLE_CLIENTE')")
-	public ResponseEntity<PaymentResponse> cancelPayment(
-			@PathVariable UUID paymentId,
-			Authentication authentication) {
-
-		PaymentResponse response =
-				paymentService.cancelPayment(paymentId, Long.valueOf(authentication.getName()));
-
-		return ResponseEntity.ok(response);
-	}
+		}
+    }
 }
