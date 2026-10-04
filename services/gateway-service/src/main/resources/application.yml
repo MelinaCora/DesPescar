@@ -16,7 +16,8 @@ spring:
           globalcors:
             cors-configurations:
               '[/**]':
-                allowedOriginPatterns: "*"
+                allowedOriginPatterns:
+                  - "http://localhost:5174"
                 allowedMethods:
                   - GET
                   - POST
@@ -25,7 +26,7 @@ spring:
                   - DELETE
                   - OPTIONS
                 allowedHeaders: "*"
-                allowCredentials: false
+                allowCredentials: true
           routes:
             - id: identity-auth
               uri: http://localhost:8080
