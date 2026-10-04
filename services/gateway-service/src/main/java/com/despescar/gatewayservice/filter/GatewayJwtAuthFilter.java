@@ -37,7 +37,7 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
         HttpMethod method = exchange.getRequest().getMethod();
         String path = exchange.getRequest().getPath().value();
 
-        if (method != HttpMethod.OPTIONS && isInternalOnlyPath(path)) {
+        if (method != HttpMethod.OPTIONS && isInternalOnlyPath(method, path)) {
             return GatewayResponseWriter.writeError(
                     exchange,
                     HttpStatus.FORBIDDEN,
@@ -118,8 +118,15 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
 
     // Rutas que solo usan los servicios entre si (payment-service llama directo a reservation-service).
     // No deben alcanzarse desde el exterior: solo las protege un token compartido.
-    private boolean isInternalOnlyPath(String path) {
-        return path.equals("/api/bookings/internal") || path.startsWith("/api/bookings/internal/");
+    // Tambien el ajuste de inventario (asientos y habitaciones) que reservation-service hace directo.
+    private boolean isInternalOnlyPath(HttpMethod method, String path) {
+        if (path.equals("/api/bookings/internal") || path.startsWith("/api/bookings/internal/")) {
+            return true;
+        }
+        return method == HttpMethod.PATCH
+                && (path.matches("/api/flights/number/[^/]+/seats")
+                || path.matches("/api/hotels/[^/]+/rooms")
+                || path.matches("/hoteles/[^/]+/rooms"));
     }
 
     // Consulta de vuelos sin sesion; mismas rutas que flightservice deja en permitAll.

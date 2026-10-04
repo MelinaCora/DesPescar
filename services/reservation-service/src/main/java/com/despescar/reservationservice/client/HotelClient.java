@@ -24,11 +24,14 @@ public class HotelClient {
 
     private final RestTemplate restTemplate;
     private final String hotelServiceUrl;
+    private final String inventoryToken;
 
     public HotelClient(
             @Qualifier("hotelServiceRestTemplate") RestTemplate restTemplate,
-            @Value("${hotel-service.url}") String hotelServiceUrl
+            @Value("${hotel-service.url}") String hotelServiceUrl,
+            @Value("${inventory.sync-token:}") String inventoryToken
     ) {
+        this.inventoryToken = inventoryToken;
         this.restTemplate = restTemplate;
         this.hotelServiceUrl = sanitizeBaseUrl(hotelServiceUrl);
     }
@@ -105,7 +108,7 @@ public class HotelClient {
             restTemplate.exchange(
                     hotelServiceUrl + "/hoteles/{id}/rooms?delta={delta}",
                     HttpMethod.PATCH,
-                    new HttpEntity<>(new HttpHeaders()),
+                    new HttpEntity<>(internalHeaders()),
                     Void.class,
                     hotelId, delta
             );
@@ -124,6 +127,14 @@ public class HotelClient {
                     HttpStatus.BAD_GATEWAY
             );
         }
+    }
+
+    private HttpHeaders internalHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        if (inventoryToken != null && !inventoryToken.isBlank()) {
+            headers.set("X-Internal-Service-Token", inventoryToken);
+        }
+        return headers;
     }
 
     private String sanitizeBaseUrl(String baseUrl) {

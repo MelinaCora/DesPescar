@@ -16,7 +16,7 @@ public class JwtService {
 
     private final SecretKey key;
 
-    public JwtService(@Value("${jwt.secret:despescar-dev-secret-key-2026-must-be-long-enough}") String secret) {
+    public JwtService(@Value("${jwt.secret}") String secret) {
         if (secret == null || secret.isBlank()) {
             throw new IllegalArgumentException("jwt.secret no puede estar vacio");
         }

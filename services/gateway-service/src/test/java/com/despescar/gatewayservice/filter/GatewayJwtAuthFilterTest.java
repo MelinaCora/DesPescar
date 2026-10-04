@@ -36,6 +36,25 @@ class GatewayJwtAuthFilterTest {
     }
 
     @Test
+    void inventoryAdjustmentPathsShouldBeBlockedEvenWithoutToken() {
+        GatewayJwtService jwtService = mock(GatewayJwtService.class);
+        GatewayJwtAuthFilter filter = new GatewayJwtAuthFilter(jwtService);
+        GatewayFilterChain chain = exchange -> Mono.empty();
+
+        for (String path : new String[] {
+                "/api/flights/number/AR1234/seats",
+                "/api/hotels/3f2b8c1e-0000-0000-0000-000000000001/rooms",
+                "/hoteles/3f2b8c1e-0000-0000-0000-000000000001/rooms"}) {
+            ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.patch(path).build());
+
+            filter.filter(exchange, chain).block();
+
+            assertThat(exchange.getResponse().getStatusCode()).as(path).isEqualTo(HttpStatus.FORBIDDEN);
+        }
+        verify(jwtService, never()).parseToken(org.mockito.Mockito.anyString());
+    }
+
+    @Test
     void protectedPathShouldRejectMissingBearerToken() {
         GatewayJwtService jwtService = mock(GatewayJwtService.class);
         GatewayJwtAuthFilter filter = new GatewayJwtAuthFilter(jwtService);

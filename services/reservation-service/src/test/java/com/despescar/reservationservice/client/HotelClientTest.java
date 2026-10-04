@@ -32,7 +32,7 @@ class HotelClientTest {
 
     @BeforeEach
     void setUp() {
-        hotelClient = new HotelClient(restTemplate, "http://localhost:8083");
+        hotelClient = new HotelClient(restTemplate, "http://localhost:8083", "test-inventory-token");
     }
 
     @Test

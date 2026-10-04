@@ -32,10 +32,13 @@ public class FlightClient {
 
     private final RestTemplate restTemplate;
     private final String flightServiceUrl;
+    private final String inventoryToken;
 
     public FlightClient(
             @Qualifier("flightServiceRestTemplate") RestTemplate restTemplate,
-            @Value("${flight-service.url}") String flightServiceUrl) {
+            @Value("${flight-service.url}") String flightServiceUrl,
+            @Value("${inventory.sync-token:}") String inventoryToken) {
+        this.inventoryToken = inventoryToken;
         this.restTemplate = restTemplate;
         this.flightServiceUrl = sanitizeBaseUrl(flightServiceUrl);
     }
@@ -167,7 +170,7 @@ public class FlightClient {
             restTemplate.exchange(
                     flightServiceUrl + "/api/flights/number/{flightNumber}/seats?delta={delta}",
                     HttpMethod.PATCH,
-                    new HttpEntity<>(new HttpHeaders()),
+                    new HttpEntity<>(internalHeaders()),
                     Void.class,
                     flightNumber, delta
             );
@@ -205,6 +208,14 @@ public class FlightClient {
 
     private boolean isTimeout(ResourceAccessException ex) {
         return ex.getMessage() != null && ex.getMessage().toLowerCase().contains("timed out");
+    }
+
+    private HttpHeaders internalHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        if (inventoryToken != null && !inventoryToken.isBlank()) {
+            headers.set("X-Internal-Service-Token", inventoryToken);
+        }
+        return headers;
     }
 
     private String sanitizeBaseUrl(String baseUrl) {

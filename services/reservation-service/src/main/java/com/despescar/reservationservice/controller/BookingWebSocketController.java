@@ -11,6 +11,7 @@ import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.annotation.SendToUser;
 import org.springframework.stereotype.Controller;
+import java.security.Principal;
 import java.util.UUID;
 
 @Controller
@@ -21,20 +22,22 @@ public class BookingWebSocketController {
     private final SimpMessagingTemplate messagingTemplate;
 
     @MessageMapping("/select-seat/{flightId}")
-    public void processSeatSelection(@DestinationVariable UUID flightId, SeatMessageRequest request) {
+    public void processSeatSelection(@DestinationVariable UUID flightId, SeatMessageRequest request, Principal principal) {
         System.out.println("📥 [WebSocket] Recibida selección para vuelo: " + flightId + " asiento ID: " + request.getSeatUuid());
+
+        Long userId = Long.valueOf(principal.getName());
 
         // Ahora el servicio bloquea usando el ID del asiento directamente
         Seat seatUpdated = seatService.blockedSeat(
                 request.getSeatUuid(),
-                request.getUserId()
+                userId
         );
 
         // La respuesta DEBE devolver el ID para que el frontend lo procese sin problemas
         SeatResponse response = SeatResponse.builder()
                 .seatNumber(seatUpdated.getSeatUuid().toString()) // Recomiendo devolver el UUID en este campo o crear un campo 'seatId'
                 .seatStatus(seatUpdated.getStatusSeat())
-                .blockedByUserId(request.getUserId())
+                .blockedByUserId(userId)
                 .build();
 
         String destination = "/topic/flight/" + flightId;
@@ -51,14 +54,16 @@ public class BookingWebSocketController {
     }
 
     @MessageMapping("/deselect-seat/{flightId}")
-    public void processSeatDeselection(@DestinationVariable UUID flightId, SeatMessageRequest request) {
+    public void processSeatDeselection(@DestinationVariable UUID flightId, SeatMessageRequest request, Principal principal) {
 
-        System.out.println("🔥 BACKEND RECIBIÓ DESELECCIÓN: Asiento ID=" + request.getSeatUuid() + ", Usuario=" + request.getUserId());
+        Long userId = Long.valueOf(principal.getName());
+
+        System.out.println("🔥 BACKEND RECIBIÓ DESELECCIÓN: Asiento ID=" + request.getSeatUuid() + ", Usuario=" + userId);
 
         // Desbloquear usando el ID único
         Seat seatUpdated = seatService.unblockSeat(
                 request.getSeatUuid(),
-                request.getUserId()
+                userId
         );
 
         SeatResponse response = SeatResponse.builder()
