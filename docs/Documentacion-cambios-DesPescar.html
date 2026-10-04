@@ -82,7 +82,7 @@ mvn spring-boot:run</pre>
 <table>
   <tr><th>Variable</th><th>Quién la necesita</th><th>Obligatoria</th></tr>
   <tr><td><code>JWT_SECRET</code></td><td>identity, flight, reservation, package, payment, gateway</td><td>Sí, <b>la misma en todos</b>. Se usó una clave de ejemplo solo para desarrollo.</td></tr>
-  <tr><td><code>RESERVATION_SERVICE_SYNC_TOKEN</code></td><td><code>reservation-service</code> y <code>payment-service</code></td><td>Imprescindible para pagar, <b>el mismo valor en los dos</b> (ver 6.1). Si queda vacía los servicios arrancan, pero crear un pago falla con 401.</td></tr>
+  <tr><td><code>RESERVATION_SERVICE_SYNC_TOKEN</code></td><td><code>reservation-service</code> y <code>payment-service</code></td><td>Imprescindible para pagar, <b>el mismo valor en los dos</b> (ver 6.1). Si queda vacía los servicios arrancan, pero crear un pago falla con un error 502 ("Reservation-Service rechazo la consulta de la reserva").</td></tr>
   <tr><td><code>GROQ_API_KEY</code></td><td><code>koi-ia-service</code></td><td>Sí para que responda la IA. Se arrancó con una clave de relleno.</td></tr>
   <tr><td><code>MERCADOPAGO_*</code></td><td><code>payment-service</code></td><td>No para arrancar (valor vacío por defecto). <code>MERCADOPAGO_ACCESS_TOKEN</code> con una credencial de prueba es necesaria para generar el enlace de pago.</td></tr>
 </table>

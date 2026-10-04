@@ -43,7 +43,7 @@ docker compose up -d
 docker compose ps
 ```
 
-Esperá a que `despescar-mysql` diga **healthy** (la primera vez descarga las imágenes y tarda un poco). En el primer arranque se crean solas las 7 bases de datos. Las tablas las crea Hibernate cuando arranca cada microservicio.
+Esperá a que `despescar-mysql` diga **healthy**. La primera vez descarga las imágenes e inicializa la base: en un equipo lento puede tardar **hasta 3 minutos**, y `docker compose up -d` espera a que termine antes de levantar Adminer. Es normal; no lo canceles. En el primer arranque se crean solas las 7 bases de datos. Las tablas las crea Hibernate cuando arranca cada microservicio.
 
 - No hace falta crear ningún archivo `.env`: la contraseña de `root` es `despescar_dev` por defecto, tanto en Docker como en los `application.properties`.
 - Para mirar las tablas: http://localhost:8090 → Sistema **MySQL**, servidor `mysql`, usuario `root`, contraseña `despescar_dev`.
@@ -62,14 +62,14 @@ export MERCADOPAGO_ACCESS_TOKEN='TEST-...'                          # solo para 
 | Variable | La necesita | Notas |
 |---|---|---|
 | `JWT_SECRET` | identity, flight, reservation, package, payment, gateway | **Tiene que ser exactamente la misma en todos**, si no se rechazan los tokens entre servicios. `hotel-service` tiene un valor por defecto. |
-| `RESERVATION_SERVICE_SYNC_TOKEN` | reservation-service y payment-service | **Imprescindible para pagar.** Es la contraseña con la que payment-service le habla a reservation-service (ver abajo). **El mismo valor en los dos.** Si queda vacía, el servicio arranca igual, pero crear un pago falla con 401. |
+| `RESERVATION_SERVICE_SYNC_TOKEN` | reservation-service y payment-service | **Imprescindible para pagar.** Es la contraseña con la que payment-service le habla a reservation-service (ver abajo). **El mismo valor en los dos.** Si queda vacía, los servicios arrancan igual, pero crear un pago falla con un error 502. |
 | `GROQ_API_KEY` | koi-ia-service | Obligatoria para que arranque. Sin una clave real el chatbot no responde con IA. |
 | `MERCADOPAGO_ACCESS_TOKEN` | payment-service | Opcional para arrancar. Sin una credencial de prueba de MercadoPago no se puede generar el enlace de pago. El resto de las variables `MERCADOPAGO_*` (URLs de retorno, webhook) también son opcionales. |
 | `DB_PASSWORD` | todos | **Solo** si cambiaste la contraseña de MySQL. Si no la tocaste, no la definas. |
 
 ### Qué es `RESERVATION_SERVICE_SYNC_TOKEN`
 
-`payment-service` necesita hablar con `reservation-service` sin que haya un usuario de por medio: para pedirle los datos y el importe de la reserva al crear un pago, y para avisarle que MercadoPago confirmó el pago. Esas dos llamadas van a rutas internas (`/api/bookings/internal/...`) y se identifican con el encabezado `X-Internal-Service-Token`, cuyo valor es este token. Si no coincide en los dos servicios, reservas responde `401 Invalid internal service token`. No tiene relación con `JWT_SECRET`, que firma los tokens de los usuarios.
+`payment-service` necesita hablar con `reservation-service` sin que haya un usuario de por medio: para pedirle los datos y el importe de la reserva al crear un pago, y para avisarle que MercadoPago confirmó el pago. Esas dos llamadas van a rutas internas (`/api/bookings/internal/...`) y se identifican con el encabezado `X-Internal-Service-Token`, cuyo valor es este token. Si no coincide en los dos servicios, reservas rechaza la llamada (403) y `POST /api/payments` responde `502 Reservation-Service rechazo la consulta de la reserva`. No tiene relación con `JWT_SECRET`, que firma los tokens de los usuarios.
 
 Las rutas internas **no se pueden usar a través del gateway** (devuelve 403): los servicios se hablan directo por su puerto.
 
@@ -191,7 +191,7 @@ Después hay que volver a arrancar los servicios (para que recreen las tablas) y
 | `Port 3306 is already in use` | Hay un MySQL instalado en tu sistema. Pararlo: `sudo systemctl stop mysql`. |
 | `Port 8080 was already in use` | Otro programa usa el 8080 (Adminer ya no, quedó en el 8090). Revisalo con `ss -ltnp \| grep 8080`. |
 | `Could not resolve placeholder 'JWT_SECRET'` (o `GROQ_API_KEY`) | Falta exportar la variable en esa terminal (sección 3). |
-| `401 Invalid internal service token` o "Reservation-Service rechazó la consulta" al pagar | `RESERVATION_SERVICE_SYNC_TOKEN` vacía o distinta en `reservation-service` y `payment-service`. Exportá el mismo valor en las dos terminales y reiniciá ambos. |
+| `502 Reservation-Service rechazo la consulta de la reserva` al pagar | `RESERVATION_SERVICE_SYNC_TOKEN` vacía o distinta en `reservation-service` y `payment-service`. Exportá el mismo valor en las dos terminales y reiniciá ambos. |
 | `Cannot connect to the Docker daemon` | Docker está apagado: `sudo systemctl start docker` (o abrí Docker Desktop). Para que arranque solo: `sudo systemctl enable docker`. |
 | Error 504 del gateway o todo muy lento | Falta de memoria: el gateway corta a los 5 segundos. Cerrá programas, arrancá menos servicios a la vez, o subí el límite: `mvn spring-boot:run -Dspring-boot.run.arguments="--resilience4j.timelimiter.instances.gatewayCircuitBreaker.timeoutDuration=30s"` en `gateway-service`. |
 | El selector de aeropuertos sale vacío | Falta correr el seed (sección 5), o el gateway no está levantado. |
