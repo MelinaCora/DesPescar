@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>DesPescar - Documentación de cambios y puesta en marcha</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  body { font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #1f2430; }
+  h1 { font-size: 22pt; margin: 0 0 4px; color: #4300D2; }
+  h2 { font-size: 14pt; margin: 22px 0 6px; padding-bottom: 3px; border-bottom: 2px solid #4300D2; color: #2a1a6e; page-break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 14px 0 4px; color: #2a1a6e; page-break-after: avoid; }
+  p { margin: 5px 0; }
+  .sub { color: #5b6270; margin-bottom: 14px; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 12px; font-size: 9.5pt; page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+  th { background: #ece8fb; text-align: left; }
+  th, td { border: 1px solid #c9c5e0; padding: 4px 7px; vertical-align: top; }
+  code { font-family: "DejaVu Sans Mono", "Liberation Mono", monospace; font-size: 9pt; background: #f1f1f6; padding: 1px 3px; border-radius: 3px; }
+  pre { font-family: "DejaVu Sans Mono", "Liberation Mono", monospace; font-size: 8.6pt; background: #f1f1f6; border: 1px solid #dcdce8; border-radius: 4px; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; page-break-inside: avoid; }
+  ul, ol { margin: 4px 0 8px 20px; padding: 0; }
+  li { margin: 2px 0; }
+  .box { border-left: 4px solid #4300D2; background: #f6f4ff; padding: 6px 12px; margin: 10px 0; }
+  .warn { border-left: 4px solid #d98200; background: #fff7ea; padding: 6px 12px; margin: 10px 0; }
+  .ok { color: #137333; font-weight: bold; }
+  .no { color: #b3261e; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>DesPescar</h1>
+<p class="sub">Documentación de cambios y puesta en marcha del entorno local<br>
+Backend: <code>MelinaCora/DesPescar</code>, rama <code>features/docker-setup</code> &middot; Frontend: <code>TenSF25/DesPescar</code>, rama <code>features/merge-koi-gateway</code> &middot; 4 de octubre de 2026</p>
+
+<div class="box"><b>Cómo usar este documento.</b> Describe los cambios hechos al poner en marcha el entorno local y el estado en que quedó. Para <b>levantar el entorno paso a paso</b> usá <code>docs/INSTRUCTIVO-DOCKER.md</code>. Algunas partes se actualizaron al publicarlo en el repositorio: el Docker vive en <code>database/</code> y la contraseña de MySQL pasó a ser común.</div>
+
+<h2>1. Resumen</h2>
+<p>Se dejó funcionando el entorno local completo: base de datos MySQL en Docker, siete microservicios Spring Boot y el gateway, con datos de ejemplo y usuarios de prueba. Además se corrigieron dos problemas de comportamiento:</p>
+<ul>
+  <li>El buscador de vuelos exigía iniciar sesión. Ahora la consulta de vuelos es pública y solo se pide login al avanzar con la compra.</li>
+  <li>La redirección al login al seleccionar un vuelo fallaba y, tras iniciar sesión, no devolvía al usuario al vuelo elegido.</li>
+</ul>
+<div class="box"><b>Alcance de la verificación.</b> Los endpoints se probaron con <code>curl</code> contra el gateway. De los cambios en el frontend, el usuario confirmó que la redirección al login funciona. Que, tras iniciar sesión, se vuelva a <code>/booking/baggage</code> con el vuelo elegido <b>no fue confirmado en el navegador</b>.</div>
+
+<h2>2. Base de datos (MySQL en Docker)</h2>
+<p>Los servicios esperan MySQL en <code>localhost:3306</code> con usuario <code>root</code>. En el repositorio, la carpeta <code>database/</code> contiene todo lo necesario:</p>
+<table>
+  <tr><th>Archivo</th><th>Función</th></tr>
+  <tr><td><code>database/docker-compose.yml</code></td><td>MySQL 8 como <code>despescar-mysql</code> (puerto 3306, volumen <code>mysql_data</code>, healthcheck por TCP) y Adminer en el puerto <b>8090</b>.</td></tr>
+  <tr><td><code>database/init/01_create_databases.sql</code></td><td>Crea las 7 bases de datos la primera vez que arranca el contenedor.</td></tr>
+  <tr><td><code>database/.env.example</code></td><td>Plantilla de <code>DB_PASSWORD</code>. Normalmente no hace falta crear un <code>.env</code>.</td></tr>
+  <tr><td><code>database/seed/</code></td><td>Script para cargar datos de ejemplo (sección 4).</td></tr>
+  <tr><td><code>database/README.md</code></td><td>Guía de conceptos e instalación de Docker (autoría de Noelia, actualizada).</td></tr>
+</table>
+<p>Bases de datos: <code>despescar_identity</code>, <code>despescar_hotel</code>, <code>despescar_flight</code>, <code>despescar_package</code>, <code>despescar_reservation</code>, <code>despescar_payment</code> y <code>despescar_koiia</code>. Todos los servicios usan <code>ddl-auto=update</code>, por lo que Hibernate crea las tablas al arrancar.</p>
+
+<h3>Contraseña común de MySQL</h3>
+<p>Antes cada persona escribía su propia contraseña en los siete <code>application.properties</code>, lo que producía conflictos constantes y dejaba contraseñas publicadas. Ahora los siete leen <code>spring.datasource.password=${DB_PASSWORD:despescar_dev}</code> y el compose usa el mismo valor por defecto, <code>despescar_dev</code>. Nadie tiene que tocar archivos. Los tests usan H2 en memoria y no se modificaron.</p>
+<div class="warn"><b>Atención.</b> Quien ya tenga un volumen de MySQL creado con otra contraseña debe recrearlo (<code>docker compose down -v</code>), porque MySQL solo toma la contraseña al crear el volumen. Las contraseñas anteriores siguen en el historial de otras ramas del repositorio público; si se reutilizan en otro lado conviene cambiarlas.</div>
+
+<h3>Puerto de Adminer</h3>
+<p>El Adminer original usaba el puerto 8080, el mismo que <code>identity-service</code>, y provocaba el error <i>Port 8080 was already in use</i>. Ahora está en <b>http://localhost:8090</b> (servidor <code>mysql</code>, usuario <code>root</code>).</p>
+
+<h2>3. Servicios y puertos</h2>
+<table>
+  <tr><th>Servicio</th><th>Puerto</th><th>Notas</th></tr>
+  <tr><td><code>identity-service</code></td><td>8080</td><td>Usuarios, login y roles. Crea 4 roles y 8 permisos al arrancar.</td></tr>
+  <tr><td><code>flightservice</code></td><td>8081</td><td>Aeropuertos, aerolíneas, vuelos y tarifas.</td></tr>
+  <tr><td><code>hotel-service</code></td><td>8083</td><td>Hoteles (tiene un <code>JWT_SECRET</code> por defecto).</td></tr>
+  <tr><td><code>payment-service</code></td><td>8084</td><td><b>No se arrancó</b>. Pendiente.</td></tr>
+  <tr><td><code>reservation-service</code></td><td>8085</td><td>Reservas y asientos.</td></tr>
+  <tr><td><code>package-service</code></td><td>8086</td><td>Paquetes turísticos.</td></tr>
+  <tr><td><code>gateway-service</code></td><td>8087</td><td>Punto de entrada del frontend.</td></tr>
+  <tr><td><code>koi-ia-service</code></td><td>8088</td><td>Chatbot. Sin IA real: ver sección 8.</td></tr>
+</table>
+
+<h3>Cómo arrancar cada servicio</h3>
+<p>Cada servicio va en su propia terminal. Se usó <code>mvn</code> (Maven 3.8.7 instalado), porque los <code>mvnw</code> no tienen permiso de ejecución y <code>koi-ia-service</code> y <code>gateway-service</code> no traen <code>mvnw</code>.</p>
+<pre>export JWT_SECRET='despescar-dev-secret-key-2026-must-be-long-enough'
+cd services/identity-service
+mvn spring-boot:run</pre>
+<p>Variables de entorno que usa el proyecto:</p>
+<table>
+  <tr><th>Variable</th><th>Quién la necesita</th><th>Obligatoria</th></tr>
+  <tr><td><code>JWT_SECRET</code></td><td>identity, flight, reservation, package, payment, gateway</td><td>Sí, <b>la misma en todos</b>. Se usó una clave de ejemplo solo para desarrollo.</td></tr>
+  <tr><td><code>MERCADOPAGO_TOKEN</code></td><td><code>payment-service</code></td><td>Sí, sin valor por defecto (agregado en el último commit de pagos). Para desarrollo sirve un valor de prueba.</td></tr>
+  <tr><td><code>GROQ_API_KEY</code></td><td><code>koi-ia-service</code></td><td>Sí para que responda la IA. Se arrancó con una clave de relleno.</td></tr>
+  <tr><td><code>MERCADOPAGO_*</code> (resto)</td><td><code>payment-service</code></td><td>No, tienen valor vacío por defecto.</td></tr>
+</table>
+<p><b><code>koi-ia-service</code> debe arrancarse así</b>, porque su código de pruebas no compila:</p>
+<pre>mvn -Dmaven.test.skip=true spring-boot:run</pre>
+<p>El archivo <code>KoiAiAssistantTest.java</code> usa <code>OllamaClient</code> y un método <code>extractTravelInfo</code> que ya no coinciden con el código actual (ahora usa Groq). No se modificó.</p>
+
+<h3>Límite de espera del gateway</h3>
+<p>El gateway corta cualquier petición a los 5 segundos con un error 504. Con el equipo sin memoria libre, el registro de usuarios tardaba más: el usuario se creaba en el backend pero el frontend recibía un error. Para esta ejecución se subió el límite a 30 segundos mediante un argumento de arranque, <b>sin modificar el <code>application.yml</code></b>:</p>
+<pre>cd services/gateway-service
+mvn spring-boot:run \
+  -Dspring-boot.run.arguments="--resilience4j.timelimiter.instances.gatewayCircuitBreaker.timeoutDuration=30s"</pre>
+
+<h2>4. Datos de ejemplo cargados</h2>
+<p>El proyecto no trae datos iniciales para vuelos, hoteles ni paquetes. Se cargaron por la API con un token de <code>SUPER_ADMIN</code>. Esa carga ahora está en el repositorio: <code>database/seed/seed.sh</code> (repetible, no duplica datos). Sus fechas son relativas al día en que se ejecuta; las de esta tabla son las de la primera carga manual.</p>
+<table>
+  <tr><th>Dato</th><th>Cantidad</th><th>Detalle</th></tr>
+  <tr><td>Aeropuertos</td><td>9</td><td>EZE, AEP, COR, MDZ, BRC, SLA, SCL, MIA, MAD</td></tr>
+  <tr><td>Aerolíneas</td><td>3</td><td>Aerolíneas Argentinas (AR), LATAM (LA), Flybondi (FO)</td></tr>
+  <tr><td>Tarifas</td><td>2</td><td>Light y Standard, asignadas a todos los vuelos</td></tr>
+  <tr><td>Vuelos</td><td>54</td><td>9 rutas con ida y vuelta, salidas el <b>20, 23 y 27 de octubre de 2026</b></td></tr>
+  <tr><td>Hoteles</td><td>6</td><td>Buenos Aires, Córdoba, Bariloche, Mendoza, Madrid y Miami</td></tr>
+  <tr><td>Paquetes</td><td>5 activos</td><td>Córdoba, Bariloche, Mendoza, Madrid y Miami</td></tr>
+</table>
+<p>Rutas disponibles: EZE-COR, AEP-COR, AEP-BRC (Aerolíneas Argentinas y Flybondi), AEP-MDZ, AEP-SLA, EZE-SCL, EZE-MIA y EZE-MAD, cada una con su ruta inversa. Solo existen vuelos para esos pares exactos de aeropuertos y esas tres fechas.</p>
+<div class="warn"><b>Notas.</b> Quedó un paquete de prueba llamado <i>Prueba</i> desactivado (<code>active=false</code>) porque el <code>DELETE</code> solo desactiva. Los datos viven en el volumen de Docker: si se borra, se vuelven a cargar con <code>database/seed/seed.sh</code>. En la carga manual original el paquete de Miami quedó enlazado por error al vuelo <code>LA1026</code> (Santiago a Buenos Aires); el script lo corrige buscando el número de vuelo real de cada ruta.</div>
+
+<h2>5. Usuarios de prueba</h2>
+<table>
+  <tr><th>Correo</th><th>Contraseña</th><th>Rol</th><th>Uso</th></tr>
+  <tr><td><code>admin@despescar.com</code></td><td><code>Admin2026!</code></td><td>SUPER_ADMIN</td><td>Administración y carga de datos</td></tr>
+  <tr><td><code>cliente@despescar.com</code></td><td><code>Cliente123!</code></td><td>USER</td><td>Probar la compra como cliente</td></tr>
+  <tr><td><code>usuario.prueba@despescar.com</code><br><code>otro.prueba@despescar.com</code></td><td><code>Prueba123!</code></td><td>USER</td><td>Pruebas de registro</td></tr>
+</table>
+<p>El administrador se registró por la API y se le asignó el rol con un <code>INSERT</code> en la tabla <code>user_roles</code> (<code>role_id = 2</code>), porque asignar roles ya exige ser <code>SUPER_ADMIN</code>. Existe también <code>noelia@test.com</code>, creado por el propio usuario. Son credenciales solo para desarrollo local.</p>
+
+<h2>6. Cambios en el código</h2>
+
+<h3>6.1 Backend: consulta pública de vuelos (gateway)</h3>
+<p><b>Problema.</b> El gateway exigía token Bearer en todo <code>/api/</code>, incluso para listar aeropuertos o buscar vuelos, por lo que el buscador aparecía vacío sin sesión. Además <code>flightservice</code> ya declaraba esas rutas como públicas, de modo que el bloqueo estaba solo en el gateway.</p>
+<p><b>Cambio.</b> Archivo <code>services/gateway-service/.../filter/GatewayJwtAuthFilter.java</code>: se agregó el método <code>isPublicFlightRead</code> y se invoca junto a <code>isPublicPath</code>. Deja pasar sin token únicamente peticiones <code>GET</code> a:</p>
+<ul>
+  <li><code>/api/flights</code>, <code>/api/flights/search</code> y <code>/api/flights/{id}</code></li>
+  <li><code>/api/airports</code> y <code>/api/airports/code/{code}</code></li>
+  <li><code>/api/fares</code></li>
+</ul>
+<p><b>Verificado con curl, sin token:</b> aeropuertos, vuelos y búsqueda devuelven 200. Siguen protegidos: <code>POST</code> a <code>/api/airports</code> (401), <code>/api/airlines</code> (401), <code>/api/packages</code> (401), <code>/api/users</code> (401) y <code>/hoteles</code> (403, lo responde el propio hotel-service).</p>
+<p>La búsqueda exige los parámetros <code>origin</code>, <code>destination</code>, <code>departureDate</code> y <code>passengers</code>; <code>returnDate</code> es opcional.</p>
+
+<h3>6.2 Frontend: redirección al login y retorno al flujo de compra</h3>
+<p><b>Problema.</b> <code>ProtectedRoute</code> guardaba el <code>location</code> global del navegador, que no se puede almacenar en el historial, y la navegación a <code>/login</code> fallaba. Además, al iniciar sesión se enviaba siempre al inicio del rol, ignorando la página que el usuario intentaba abrir. <code>PublicRoute</code>, que envuelve <code>/login</code>, también redirigía al inicio apenas el usuario quedaba autenticado.</p>
+<table>
+  <tr><th>Archivo (en <code>src/</code>)</th><th>Cambio</th></tr>
+  <tr><td><code>components/Routes/ProtectedRoute.tsx</code></td><td>Usa <code>useLocation()</code> de React Router y guarda esa ubicación como <code>state.from</code>.</td></tr>
+  <tr><td><code>features/auth/postLoginPath.ts</code> (nuevo)</td><td>Función <code>getPostLoginPath</code>: devuelve la ruta guardada en <code>state.from</code> (solo si empieza con <code>/</code>) o, si no hay, el inicio del rol.</td></tr>
+  <tr><td><code>features/auth/hooks/useAuth.ts</code></td><td>El login navega al destino calculado con <code>getPostLoginPath</code>, con <code>replace: true</code>.</td></tr>
+  <tr><td><code>components/Routes/PublicRoute.tsx</code></td><td>Usa el mismo destino, para no competir con la redirección del login.</td></tr>
+</table>
+<p>Se comprobó que el proyecto compila (<code>tsc --noEmit</code>) y pasa el linter en las carpetas modificadas.</p>
+
+<h3>Flujo de selección de vuelo</h3>
+<ol>
+  <li>Búsqueda en <code>/vuelos</code> (pública).</li>
+  <li>Al elegir vuelo: si la búsqueda es de ida y vuelta, el primer clic elige la ida y el segundo la vuelta; con solo ida, el primer clic basta.</li>
+  <li>Se navega a <code>/booking/baggage</code> (ruta protegida): sin sesión se redirige a <code>/login</code> y, tras iniciar sesión, se vuelve a esa misma dirección.</li>
+  <li>Elección de tarifa y equipaje, luego <code>/booking/seats</code> (asientos) y <code>/booking/checkout</code>.</li>
+</ol>
+<p>Los dos clics en una búsqueda de ida y vuelta son el comportamiento original del proyecto, no un fallo.</p>
+
+<h2 style="page-break-before: always;">7. Problemas encontrados y cómo se resolvieron</h2>
+<table>
+  <tr><th>Síntoma</th><th>Causa</th><th>Solución</th></tr>
+  <tr><td>Docker no conectaba</td><td>El servicio estaba apagado</td><td><code>sudo systemctl start docker</code> (acción del usuario)</td></tr>
+  <tr><td><code>Access denied</code> en MySQL</td><td>Contenedor y volumen anteriores con otra contraseña</td><td>Se eliminaron y se recreó con el compose</td></tr>
+  <tr><td><code>Could not resolve placeholder 'JWT_SECRET'</code></td><td>Variable de entorno no definida</td><td>Exportar <code>JWT_SECRET</code> antes de arrancar</td></tr>
+  <tr><td><code>Port 8080 was already in use</code></td><td>Adminer del proyecto anterior</td><td>Adminer recreado en el puerto 8090</td></tr>
+  <tr><td><code>./mvnw: Permission denied</code></td><td>Sin permiso de ejecución</td><td>Se usó <code>mvn</code> directamente</td></tr>
+  <tr><td>Error de compilación en <code>koi-ia-service</code></td><td>Test desactualizado (<code>OllamaClient</code>)</td><td><code>-Dmaven.test.skip=true</code></td></tr>
+  <tr><td>Selector de origen/destino vacío</td><td>Base vacía y gateway exigiendo token; además 504 puntuales</td><td>Datos de ejemplo, rutas públicas en el gateway y más memoria</td></tr>
+  <tr><td>El registro "no funcionaba"</td><td>504 del gateway a los 5 s; la memoria swap estaba llena</td><td>Límite del gateway a 30 s; liberar memoria</td></tr>
+  <tr><td>Tras un apagón, todo caído</td><td>Los procesos no sobreviven al reinicio</td><td>Se volvió a levantar Docker y los servicios</td></tr>
+</table>
+
+<h2>8. Pendientes y recomendaciones</h2>
+<ul>
+  <li><b>Memoria:</b> el equipo tiene 6,9 GB de RAM y el swap llegó a estar lleno (5,4 de 5,5 GB). Conviene cerrar IntelliJ y detener <code>koi-ia-service</code> si no se usa. Cerrar IntelliJ no afecta a los servicios, que no dependen de él.</li>
+  <li><b>Chatbot:</b> <code>koi-ia-service</code> necesita una <code>GROQ_API_KEY</code> real (https://console.groq.com/home). Sin ella no responde con IA.</li>
+  <li><b><code>payment-service</code></b> (puerto 8084) no se arrancó. Los datos de MercadoPago quedarían vacíos, por lo que los pagos no funcionarían de verdad.</li>
+  <li><b>Contraseñas en el repositorio:</b> resuelto para MySQL en esta rama (variable <code>DB_PASSWORD</code> con valor común). Siguen existiendo contraseñas anteriores en el historial de otras ramas públicas.</li>
+  <li><b>Variables de entorno:</b> <code>JWT_SECRET</code> y <code>GROQ_API_KEY</code> solo existen en los procesos arrancados; hay que exportarlas de nuevo tras cada reinicio.</li>
+  <li><b>Docker al iniciar:</b> <code>sudo systemctl enable docker</code> evita tener que arrancarlo a mano.</li>
+  <li><b>Tests de <code>koi-ia-service</code>:</b> actualizar <code>KoiAiAssistantTest.java</code> al cliente actual.</li>
+  <li><b><code>/api/fares</code></b> no tiene ruta en el gateway (404). No afecta a la búsqueda, porque las tarifas vienen dentro de cada vuelo; haría falta solo para una pantalla de administración de tarifas.</li>
+  <li><b>Precios:</b> en la búsqueda el vuelo EZE-COR apareció como <code>ARS 15.060</code> y no <code>60</code>. No se investigó el motivo de la conversión.</li>
+  <li><b>Hoteles y paquetes</b> siguen exigiendo sesión. Si deben verse sin iniciar sesión, hay que cambiar el gateway y los <code>SecurityConfig</code> de <code>hotel-service</code> y <code>package-service</code>.</li>
+  <li><b>Scripts de carga:</b> ya están en <code>database/seed/</code>.</li>
+</ul>
+
+<h2>9. Guía rápida para levantar todo</h2>
+<ol>
+  <li><b>Docker:</b> <code>sudo systemctl start docker</code></li>
+  <li><b>MySQL:</b> <code>cd database &amp;&amp; docker compose up -d</code> y esperar a <i>healthy</i>.</li>
+  <li><b>Servicios</b>, cada uno en su terminal, con <code>JWT_SECRET</code> (y <code>MERCADOPAGO_TOKEN</code> / <code>GROQ_API_KEY</code> si corresponde) exportados: <code>identity-service</code>, <code>flightservice</code>, <code>hotel-service</code>, <code>package-service</code>, <code>reservation-service</code>, <code>payment-service</code>, <code>koi-ia-service</code> (con <code>-Dmaven.test.skip=true</code>) y por último <code>gateway-service</code>.</li>
+  <li><b>Datos de ejemplo:</b> <code>./database/seed/seed.sh</code></li>
+  <li><b>Frontend</b> (<code>features/merge-koi-gateway</code>): <code>pnpm dev</code> en <code>http://localhost:5173</code>, que apunta al gateway en el puerto 8087.</li>
+</ol>
+<p>El detalle completo y los problemas comunes están en <code>docs/INSTRUCTIVO-DOCKER.md</code>. Arrancar todos los servicios a la vez con poca memoria los hace tardar mucho más; conviene hacerlo de a uno o dos.</p>
+
+</body>
+</html>

@@ -372,16 +372,17 @@ lo pidas (porque lo redacta el LLM), en vez de ser siempre el mismo texto fijo.
 
 - Java 17+
 - Maven 3.8+
-- MySQL 8+ corriendo en `localhost:3306`
-- Bases de datos creadas:
-  ```sql
-  CREATE DATABASE despescar_identity;
-  CREATE DATABASE despescar_flight;
-  CREATE DATABASE despescar_hotel;
-  CREATE DATABASE despescar_reservation;
-  CREATE DATABASE despescar_package;
-  CREATE DATABASE despescar_koiia;
-  ```
+- Docker con Compose v2: levanta MySQL (con las 7 bases `despescar_*` ya creadas) y Adminer, con una contraseña común de desarrollo
+- Python 3 (solo para cargar datos de ejemplo)
+
+Paso a paso (base de datos, variables de entorno, orden de arranque, datos de ejemplo y frontend): [`docs/INSTRUCTIVO-DOCKER.md`](docs/INSTRUCTIVO-DOCKER.md).
+
+```bash
+cd database && docker compose up -d      # MySQL en localhost:3306, Adminer en http://localhost:8090
+./seed/seed.sh                           # datos de ejemplo, con los servicios identity, flight, hotel y package en marcha
+```
+
+Si preferís usar un MySQL 8 instalado a mano, ejecutá `database/init/01_create_databases.sql` para crear las bases y definí `DB_PASSWORD` si tu contraseña de `root` no es `despescar_dev`.
 
 Cada servicio levanta con:
 ```bash
