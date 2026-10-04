@@ -372,16 +372,30 @@ lo pidas (porque lo redacta el LLM), en vez de ser siempre el mismo texto fijo.
 
 - Java 17+
 - Maven 3.8+
-- MySQL 8+ corriendo en `localhost:3306`
-- Bases de datos creadas:
-  ```sql
-  CREATE DATABASE despescar_identity;
-  CREATE DATABASE despescar_flight;
-  CREATE DATABASE despescar_hotel;
-  CREATE DATABASE despescar_reservation;
-  CREATE DATABASE despescar_package;
-  CREATE DATABASE despescar_koiia;
-  ```
+- Docker con Compose v2: levanta MySQL (con las 7 bases `despescar_*` ya creadas) y Adminer, con una contraseña común de desarrollo
+- Python 3 (solo para cargar datos de ejemplo)
+
+Funciona en **Linux** y en **Windows** (PowerShell). **Cada servicio tiene su guía** con las variables de entorno, los comandos para ambos sistemas y los problemas comunes: empezá por [`docs/README.md`](docs/README.md).
+
+| Guía | Trata de |
+|---|---|
+| [`docs/mysql-docker.md`](docs/mysql-docker.md) | MySQL y Adminer con Docker |
+| [`docs/datos-de-ejemplo.md`](docs/datos-de-ejemplo.md) | Datos y usuarios de prueba |
+| [`docs/identity-service.md`](docs/identity-service.md), [`flightservice`](docs/flightservice.md), [`hotel-service`](docs/hotel-service.md), [`payment-service`](docs/payment-service.md), [`reservation-service`](docs/reservation-service.md), [`package-service`](docs/package-service.md) | Cada microservicio |
+| [`docs/gateway-service.md`](docs/gateway-service.md) | Rutas, permisos y límites del gateway |
+| [`docs/koi-ia-service.md`](docs/koi-ia-service.md) | Chatbot KOI con Groq |
+| [`docs/frontend.md`](docs/frontend.md) | Cómo se conecta el frontend |
+
+Resumen mínimo:
+
+```bash
+cd database
+docker compose up -d      # MySQL en localhost:3306, Adminer en http://localhost:8090
+```
+
+Después, cada servicio en su terminal (ver su guía) y, con identity, flight, hotel y package en marcha, los datos de ejemplo (`./database/seed/seed.sh` en Linux; `py -3 database\seed\seed.py` en Windows).
+
+Si preferís usar un MySQL 8 instalado a mano, ejecutá `database/init/01_create_databases.sql` para crear las bases y definí `DB_PASSWORD` si tu contraseña de `root` no es `despescar_dev`.
 
 Cada servicio levanta con:
 ```bash

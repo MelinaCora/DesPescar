@@ -37,7 +37,16 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
         HttpMethod method = exchange.getRequest().getMethod();
         String path = exchange.getRequest().getPath().value();
 
-        if (method == HttpMethod.OPTIONS || isPublicPath(path)) {
+        if (method != HttpMethod.OPTIONS && isInternalOnlyPath(path)) {
+            return GatewayResponseWriter.writeError(
+                    exchange,
+                    HttpStatus.FORBIDDEN,
+                    "Forbidden",
+                    "Ruta de uso interno entre servicios."
+            );
+        }
+
+        if (method == HttpMethod.OPTIONS || isPublicPath(path) || isPublicFlightRead(method, path)) {
             return chain.filter(exchange);
         }
 
@@ -105,6 +114,25 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
                 || path.startsWith("/actuator/")
                 || path.equals("/actuator")
                 || path.startsWith("/fallback/");
+    }
+
+    // Rutas que solo usan los servicios entre si (payment-service llama directo a reservation-service).
+    // No deben alcanzarse desde el exterior: solo las protege un token compartido.
+    private boolean isInternalOnlyPath(String path) {
+        return path.equals("/api/bookings/internal") || path.startsWith("/api/bookings/internal/");
+    }
+
+    // Consulta de vuelos sin sesion; mismas rutas que flightservice deja en permitAll.
+    private boolean isPublicFlightRead(HttpMethod method, String path) {
+        if (method != HttpMethod.GET) {
+            return false;
+        }
+        return path.equals("/api/flights")
+                || path.equals("/api/flights/search")
+                || path.matches("/api/flights/[^/]+")
+                || path.equals("/api/airports")
+                || path.matches("/api/airports/code/[^/]+")
+                || path.equals("/api/fares");
     }
 
     private boolean requiresAuthentication(String path) {
