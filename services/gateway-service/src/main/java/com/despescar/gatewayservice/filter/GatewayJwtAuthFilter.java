@@ -37,7 +37,7 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
         HttpMethod method = exchange.getRequest().getMethod();
         String path = exchange.getRequest().getPath().value();
 
-        if (method == HttpMethod.OPTIONS || isPublicPath(path)) {
+        if (method == HttpMethod.OPTIONS || isPublicPath(path) || isPublicFlightRead(method, path)) {
             return chain.filter(exchange);
         }
 
@@ -105,6 +105,19 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
                 || path.startsWith("/actuator/")
                 || path.equals("/actuator")
                 || path.startsWith("/fallback/");
+    }
+
+    // Consulta de vuelos sin sesion; mismas rutas que flightservice deja en permitAll.
+    private boolean isPublicFlightRead(HttpMethod method, String path) {
+        if (method != HttpMethod.GET) {
+            return false;
+        }
+        return path.equals("/api/flights")
+                || path.equals("/api/flights/search")
+                || path.matches("/api/flights/[^/]+")
+                || path.equals("/api/airports")
+                || path.matches("/api/airports/code/[^/]+")
+                || path.equals("/api/fares");
     }
 
     private boolean requiresAuthentication(String path) {
