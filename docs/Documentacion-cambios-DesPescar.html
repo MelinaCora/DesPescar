@@ -94,7 +94,9 @@ mvn spring-boot:run</pre>
 <p>El gateway corta cualquier petición a los 5 segundos con un error 504. Con el equipo sin memoria libre, el registro de usuarios tardaba más: el usuario se creaba en el backend pero el frontend recibía un error. Para esta ejecución se subió el límite a 30 segundos mediante un argumento de arranque, <b>sin modificar el <code>application.yml</code></b>:</p>
 <pre>cd services/gateway-service
 mvn spring-boot:run \
-  -Dspring-boot.run.arguments="--resilience4j.timelimiter.instances.gatewayCircuitBreaker.timeoutDuration=30s"</pre>
+  -Dspring-boot.run.arguments="--resilience4j.timelimiter.instances.gatewayCircuitBreaker.timeoutDuration=30s \
+  --spring.cloud.gateway.httpclient.response-timeout=30s"</pre>
+<p>Se suben <b>los dos</b> límites (el del circuit breaker y el de respuesta del cliente HTTP). Probado con un servidor de prueba que tarda 8 segundos: pasa por el gateway con 200; con el límite de 5 segundos cortaba con 504. Es necesario para el chatbot, que puede tardar hasta unos 10 segundos. Guía del chatbot: <code>docs/INSTRUCTIVO-CHATBOT-GROQ.md</code>.</p>
 
 <h2>4. Datos de ejemplo cargados</h2>
 <p>El proyecto no trae datos iniciales para vuelos, hoteles ni paquetes. Se cargaron por la API con un token de <code>SUPER_ADMIN</code>. Esa carga ahora está en el repositorio: <code>database/seed/seed.sh</code> (repetible, no duplica datos). Sus fechas son relativas al día en que se ejecuta; las de esta tabla son las de la primera carga manual.</p>

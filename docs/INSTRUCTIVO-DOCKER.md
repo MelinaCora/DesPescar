@@ -63,7 +63,7 @@ export MERCADOPAGO_ACCESS_TOKEN='TEST-...'                          # solo para 
 |---|---|---|
 | `JWT_SECRET` | identity, flight, reservation, package, payment, gateway | **Tiene que ser exactamente la misma en todos**, si no se rechazan los tokens entre servicios. `hotel-service` tiene un valor por defecto. |
 | `RESERVATION_SERVICE_SYNC_TOKEN` | reservation-service y payment-service | **Imprescindible para pagar.** Es la contraseña con la que payment-service le habla a reservation-service (ver abajo). **El mismo valor en los dos.** Si queda vacía, los servicios arrancan igual, pero crear un pago falla con un error 502. |
-| `GROQ_API_KEY` | koi-ia-service | Obligatoria para que arranque. Sin una clave real el chatbot no responde con IA. |
+| `GROQ_API_KEY` | koi-ia-service | Obligatoria para que arranque. Sin una clave real el chatbot no responde con IA. Cómo conseguirla y levantar el chatbot: [`INSTRUCTIVO-CHATBOT-GROQ.md`](INSTRUCTIVO-CHATBOT-GROQ.md). |
 | `MERCADOPAGO_ACCESS_TOKEN` | payment-service | Opcional para arrancar. Sin una credencial de prueba de MercadoPago no se puede generar el enlace de pago. El resto de las variables `MERCADOPAGO_*` (URLs de retorno, webhook) también son opcionales. |
 | `DB_PASSWORD` | todos | **Solo** si cambiaste la contraseña de MySQL. Si no la tocaste, no la definas. |
 
@@ -91,7 +91,7 @@ cd services/gateway-service     && mvn spring-boot:run
 - Un servicio está listo cuando el log dice `Started ...Application in ... seconds`. El primer arranque tarda varios minutos porque descarga dependencias.
 - Se usa `mvn` y no `./mvnw` porque en algunos sistemas los `mvnw` no tienen permiso de ejecución y `gateway-service` y `koi-ia-service` no traen wrapper.
 - `koi-ia-service` se arranca con `-Dmaven.test.skip=true` porque `KoiAiAssistantTest` está desactualizado y no compila.
-- Para buscar vuelos y ver datos alcanzan `identity`, `flightservice`, `hotel`, `package` y el `gateway`. Para **reservar** hace falta además `reservation-service`, y para **pagar**, `payment-service` con las variables de la sección 3. `koi-ia` (chatbot) es opcional.
+- Para buscar vuelos y ver datos alcanzan `identity`, `flightservice`, `hotel`, `package` y el `gateway`. Para **reservar** hace falta además `reservation-service`, y para **pagar**, `payment-service` con las variables de la sección 3. `koi-ia` (chatbot) es opcional: ver [`INSTRUCTIVO-CHATBOT-GROQ.md`](INSTRUCTIVO-CHATBOT-GROQ.md).
 
 ## 5. Cargar datos de ejemplo
 
@@ -193,7 +193,7 @@ Después hay que volver a arrancar los servicios (para que recreen las tablas) y
 | `Could not resolve placeholder 'JWT_SECRET'` (o `GROQ_API_KEY`) | Falta exportar la variable en esa terminal (sección 3). |
 | `502 Reservation-Service rechazo la consulta de la reserva` al pagar | `RESERVATION_SERVICE_SYNC_TOKEN` vacía o distinta en `reservation-service` y `payment-service`. Exportá el mismo valor en las dos terminales y reiniciá ambos. |
 | `Cannot connect to the Docker daemon` | Docker está apagado: `sudo systemctl start docker` (o abrí Docker Desktop). Para que arranque solo: `sudo systemctl enable docker`. |
-| Error 504 del gateway o todo muy lento | Falta de memoria: el gateway corta a los 5 segundos. Cerrá programas, arrancá menos servicios a la vez, o subí el límite: `mvn spring-boot:run -Dspring-boot.run.arguments="--resilience4j.timelimiter.instances.gatewayCircuitBreaker.timeoutDuration=30s"` en `gateway-service`. |
+| Error 504 del gateway o todo muy lento | Falta de memoria: el gateway corta a los 5 segundos. Cerrá programas, arrancá menos servicios a la vez, o subí los **dos** límites a 30 segundos: `mvn spring-boot:run -Dspring-boot.run.arguments="--resilience4j.timelimiter.instances.gatewayCircuitBreaker.timeoutDuration=30s --spring.cloud.gateway.httpclient.response-timeout=30s"` en `gateway-service`. El chatbot, por ejemplo, necesita hasta unos 10 segundos por respuesta. |
 | El selector de aeropuertos sale vacío | Falta correr el seed (sección 5), o el gateway no está levantado. |
 | Los servicios se caen tras reiniciar el equipo | Es normal: no son servicios del sistema. Repetí las secciones 2, 3 y 4. |
 
