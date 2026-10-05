@@ -166,5 +166,7 @@ gateway:
   rate-limit:
     requests-per-minute: 120
     koi-messages-per-minute: 10
+    # Consultar y sumarse a pagos en grupo (por IP); el enlace no se adivina, pero se frena el barrido
+    grupo-requests-per-minute: 20
     # IPs de proxies/balanceadores (separadas por coma) cuyo X-Forwarded-For se acepta; vacio = nunca
     trusted-proxies: ${GATEWAY_TRUSTED_PROXIES:}

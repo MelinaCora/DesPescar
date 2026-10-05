@@ -6,6 +6,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.ConsumptionProbe;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
@@ -27,16 +28,26 @@ public class GatewayRateLimitFilter implements GlobalFilter, Ordered {
 
     private final int requestsPerMinute;
     private final int koiMessagesPerMinute;
+    private final int grupoRequestsPerMinute;
     private final Set<String> trustedProxies;
     private final Cache<String, Bucket> buckets;
     private final Cache<String, Bucket> koiBuckets;
+    private final Cache<String, Bucket> grupoBuckets;
 
+    /** Para los tests existentes: grupos con 20 pedidos por minuto. */
+    public GatewayRateLimitFilter(int requestsPerMinute, int koiMessagesPerMinute, String trustedProxies) {
+        this(requestsPerMinute, koiMessagesPerMinute, 20, trustedProxies);
+    }
+
+    @Autowired
     public GatewayRateLimitFilter(
             @Value("${gateway.rate-limit.requests-per-minute:120}") int requestsPerMinute,
             @Value("${gateway.rate-limit.koi-messages-per-minute:10}") int koiMessagesPerMinute,
+            @Value("${gateway.rate-limit.grupo-requests-per-minute:20}") int grupoRequestsPerMinute,
             @Value("${gateway.rate-limit.trusted-proxies:}") String trustedProxies) {
         this.requestsPerMinute = requestsPerMinute;
         this.koiMessagesPerMinute = koiMessagesPerMinute;
+        this.grupoRequestsPerMinute = grupoRequestsPerMinute;
         this.trustedProxies = Arrays.stream(trustedProxies.split(","))
                 .map(String::trim)
                 .filter(p -> !p.isEmpty())
@@ -46,6 +57,10 @@ public class GatewayRateLimitFilter implements GlobalFilter, Ordered {
                 .expireAfterAccess(Duration.ofMinutes(30))
                 .build();
         this.koiBuckets = Caffeine.newBuilder()
+                .maximumSize(10_000)
+                .expireAfterAccess(Duration.ofMinutes(30))
+                .build();
+        this.grupoBuckets = Caffeine.newBuilder()
                 .maximumSize(10_000)
                 .expireAfterAccess(Duration.ofMinutes(30))
                 .build();
@@ -70,6 +85,20 @@ public class GatewayRateLimitFilter implements GlobalFilter, Ordered {
                         HttpStatus.TOO_MANY_REQUESTS,
                         "Too Many Requests",
                         "Demasiados mensajes a KOI. Espera un minuto y segui."
+                );
+            }
+        }
+
+        // Consultar y sumarse a un grupo de pago (D-b20): balde propio contra el barrido de enlaces
+        if (isGrupoPath(exchange.getRequest().getPath().value())) {
+            Bucket grupoBucket = grupoBuckets.get(key, k -> newBucket(grupoRequestsPerMinute));
+            if (!grupoBucket.tryConsume(1)) {
+                exchange.getResponse().getHeaders().set("Retry-After", "60");
+                return GatewayResponseWriter.writeError(
+                        exchange,
+                        HttpStatus.TOO_MANY_REQUESTS,
+                        "Too Many Requests",
+                        "Demasiados pedidos sobre pagos en grupo. Espera un minuto y volve a intentar."
                 );
             }
         }
@@ -104,6 +133,12 @@ public class GatewayRateLimitFilter implements GlobalFilter, Ordered {
 
     private static boolean isKoiPath(String path) {
         return path.equals("/api/koi") || path.startsWith("/api/koi/");
+    }
+
+    // Se ignoran los parametros de matriz (;x=y) de cada segmento, como hace el ruteo
+    private static boolean isGrupoPath(String path) {
+        String limpio = path.replaceAll(";[^/]*", "");
+        return limpio.equals("/api/bookings/grupos") || limpio.startsWith("/api/bookings/grupos/");
     }
 
     // X-Forwarded-For lo controla el cliente: solo se mira si la conexion viene de un proxy de confianza,
