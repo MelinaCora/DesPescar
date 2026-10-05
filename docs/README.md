@@ -19,6 +19,7 @@ Cada servicio tiene su propia guía. Esta página es el índice: explica qué ha
 | [`gateway-service.md`](gateway-service.md) | Puerta de entrada del frontend: rutas, permisos y límites | 8087 |
 | [`koi-ia-service.md`](koi-ia-service.md) | Chatbot KOI con IA de Groq | 8088 |
 | [`frontend.md`](frontend.md) | Cómo se conecta el frontend `features/merge-koi-gateway` | 5173 |
+| [`despliegue.md`](despliegue.md) | Producción: Docker, Caddy (HTTPS) y Aiven | 80 y 443 |
 
 Para la teoría de Docker y su instalación paso a paso, ver [`../database/README.md`](../database/README.md).
 

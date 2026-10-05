@@ -1,0 +1,13 @@
+# {$DOMAIN} viene del .env (por ejemplo despescar.duckdns.org). Caddy saca y renueva el
+# certificado HTTPS solo, siempre que el dominio apunte a este servidor y los puertos 80 y 443 esten abiertos.
+{$DOMAIN} {
+	# WebSocket de asientos: va directo a reservation-service (no pasa por el gateway).
+	handle /ws-despescar* {
+		reverse_proxy reservation-service:8085
+	}
+
+	# Todo lo demas entra por el gateway. Caddy agrega X-Forwarded-For, que el gateway usa para el limite por IP.
+	handle {
+		reverse_proxy gateway-service:8087
+	}
+}

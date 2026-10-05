@@ -1,0 +1,12 @@
+.git
+.idea
+.vscode
+.settings
+.classpath
+.project
+**/target
+**/*.iml
+docs
+database
+deploy
+.env

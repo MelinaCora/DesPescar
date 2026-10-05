@@ -15,7 +15,7 @@ spring:
         add-to-simple-url-handler-mapping: true
         cors-configurations:
           '[/**]':
-            allowedOriginPatterns: "*"
+            allowedOriginPatterns: "${CORS_ALLOWED_ORIGINS:*}"
             allowedMethods:
               - GET
               - POST
@@ -27,60 +27,60 @@ spring:
             allowCredentials: false
       routes:
         - id: identity-auth
-          uri: http://localhost:8080
+          uri: ${IDENTITY_SERVICE_URL:http://localhost:8080}
           predicates:
             - Path=/api/auth/**
           filters:
             - RewritePath=/api/auth/?(?<segment>.*), /auth/$\{segment}
 
         - id: identity-users
-          uri: http://localhost:8080
+          uri: ${IDENTITY_SERVICE_URL:http://localhost:8080}
           predicates:
             - Path=/api/users/**
           filters:
             - RewritePath=/api/users/?(?<segment>.*), /users/$\{segment}
 
         - id: flights
-          uri: http://localhost:8081
+          uri: ${FLIGHT_SERVICE_URL:http://localhost:8081}
           predicates:
             - Path=/api/flights/**,/api/airlines/**,/api/airports/**,/api/fares/**
 
         - id: hotels-direct
-          uri: http://localhost:8083
+          uri: ${HOTEL_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/hoteles/**
 
         - id: hotels-api
-          uri: http://localhost:8083
+          uri: ${HOTEL_SERVICE_URL:http://localhost:8083}
           predicates:
             - Path=/api/hotels/**
           filters:
             - RewritePath=/api/hotels/?(?<segment>.*), /hoteles/$\{segment}
 
         - id: packages
-          uri: http://localhost:8086
+          uri: ${PACKAGE_SERVICE_URL:http://localhost:8086}
           predicates:
             - Path=/api/packages/**
 
         - id: reservations
-          uri: http://localhost:8085
+          uri: ${RESERVATION_SERVICE_URL:http://localhost:8085}
           predicates:
             - Path=/api/bookings/**
 
         - id: extra-baggage
-          uri: http://localhost:8085
+          uri: ${RESERVATION_SERVICE_URL:http://localhost:8085}
           predicates:
             - Path=/api/extra-baggage/**
           filters:
             - RewritePath=/api/extra-baggage/?(?<segment>.*), /extra-baggage/$\{segment}
 
         - id: payments
-          uri: http://localhost:8084
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8084}
           predicates:
             - Path=/api/payments/**
 
         - id: koi-ia
-          uri: http://localhost:8088
+          uri: ${KOI_SERVICE_URL:http://localhost:8088}
           predicates:
             - Path=/api/koi/**
 

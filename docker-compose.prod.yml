@@ -1,0 +1,125 @@
+# Produccion: todos los microservicios + Caddy (HTTPS). La base de datos es externa (Aiven).
+# Uso (desde la raiz del repo):  cp .env.example .env  # completar valores
+#                                docker compose -f docker-compose.prod.yml up -d --build
+# Solo Caddy publica puertos; los servicios se hablan entre si por nombre dentro de la red de Docker.
+
+x-java: &java
+  restart: unless-stopped
+  environment: &java-env
+    JAVA_OPTS: ${JAVA_OPTS:--Xmx300m -XX:+UseSerialGC}
+
+x-db: &db
+  DB_HOST: ${DB_HOST}
+  DB_PORT: ${DB_PORT}
+  DB_USER: ${DB_USER}
+  DB_PASSWORD: ${DB_PASSWORD}
+  DB_SSL_MODE: ${DB_SSL_MODE:-REQUIRED}
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-3}
+  JPA_SHOW_SQL: "false"
+
+services:
+  identity-service:
+    <<: *java
+    build: { context: ., args: { SERVICE: identity-service } }
+    environment:
+      <<: [*java-env, *db]
+      JWT_SECRET: ${JWT_SECRET}
+
+  flightservice:
+    <<: *java
+    build: { context: ., args: { SERVICE: flightservice } }
+    environment:
+      <<: [*java-env, *db]
+      JWT_SECRET: ${JWT_SECRET}
+      INVENTORY_SERVICE_TOKEN: ${INVENTORY_SERVICE_TOKEN}
+
+  hotel-service:
+    <<: *java
+    build: { context: ., args: { SERVICE: hotel-service } }
+    environment:
+      <<: [*java-env, *db]
+      JWT_SECRET: ${JWT_SECRET}
+      INVENTORY_SERVICE_TOKEN: ${INVENTORY_SERVICE_TOKEN}
+
+  reservation-service:
+    <<: *java
+    build: { context: ., args: { SERVICE: reservation-service } }
+    environment:
+      <<: [*java-env, *db]
+      JWT_SECRET: ${JWT_SECRET}
+      INVENTORY_SERVICE_TOKEN: ${INVENTORY_SERVICE_TOKEN}
+      RESERVATION_SERVICE_SYNC_TOKEN: ${RESERVATION_SERVICE_SYNC_TOKEN}
+      FLIGHT_SERVICE_URL: http://flightservice:8081
+      HOTEL_SERVICE_URL: http://hotel-service:8083
+    depends_on: [flightservice, hotel-service]
+
+  payment-service:
+    <<: *java
+    build: { context: ., args: { SERVICE: payment-service } }
+    environment:
+      <<: [*java-env, *db]
+      JWT_SECRET: ${JWT_SECRET}
+      RESERVATION_SERVICE_URL: http://reservation-service:8085
+      RESERVATION_SERVICE_SYNC_TOKEN: ${RESERVATION_SERVICE_SYNC_TOKEN}
+      MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
+      MERCADOPAGO_WEBHOOK_SECRET: ${MERCADOPAGO_WEBHOOK_SECRET:-}
+      MERCADOPAGO_NOTIFICATION_URL: https://${DOMAIN}/api/payments/mercadopago/webhook
+      MERCADOPAGO_SUCCESS_URL: ${FRONTEND_URL}/booking/payment/success
+      MERCADOPAGO_PENDING_URL: ${FRONTEND_URL}/booking/payment/pending
+      MERCADOPAGO_FAILURE_URL: ${FRONTEND_URL}/booking/payment/failure
+    depends_on: [reservation-service]
+
+  koi-ia-service:
+    <<: *java
+    build: { context: ., args: { SERVICE: koi-ia-service } }
+    environment:
+      <<: [*java-env, *db]
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      CORS_ALLOWED_ORIGINS: ${FRONTEND_URL}
+      FLIGHT_SERVICE_URL: http://flightservice:8081
+      HOTEL_SERVICE_URL: http://hotel-service:8083
+    depends_on: [flightservice, hotel-service]
+
+  gateway-service:
+    <<: *java
+    build: { context: ., args: { SERVICE: gateway-service } }
+    environment:
+      <<: *java-env
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ALLOWED_ORIGINS: ${FRONTEND_URL}
+      IDENTITY_SERVICE_URL: http://identity-service:8080
+      FLIGHT_SERVICE_URL: http://flightservice:8081
+      HOTEL_SERVICE_URL: http://hotel-service:8083
+      RESERVATION_SERVICE_URL: http://reservation-service:8085
+      PAYMENT_SERVICE_URL: http://payment-service:8084
+      KOI_SERVICE_URL: http://koi-ia-service:8088
+    depends_on: [identity-service, flightservice, hotel-service, reservation-service, payment-service, koi-ia-service]
+
+  # package-service esta desactivado a proposito (el front no lo usa). Para activarlo:
+  #  1) descomentar este bloque,
+  #  2) agregar PACKAGE_SERVICE_URL: http://package-service:8086 a gateway-service, reservation-service y koi-ia-service,
+  #  3) crear la base despescar_package en Aiven.
+  # package-service:
+  #   <<: *java
+  #   build: { context: ., args: { SERVICE: package-service } }
+  #   environment:
+  #     <<: [*java-env, *db]
+  #     JWT_SECRET: ${JWT_SECRET}
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data   # guarda los certificados: no borrar este volumen
+      - caddy_config:/config
+    depends_on: [gateway-service]
+
+volumes:
+  caddy_data:
+  caddy_config:
