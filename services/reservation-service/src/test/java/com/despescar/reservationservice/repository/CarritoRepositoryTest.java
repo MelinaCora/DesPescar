@@ -66,6 +66,27 @@ class CarritoRepositoryTest {
     }
 
     @Test
+    void misReservasTraeLasConfirmadasYLasQueCanceloElUsuarioLaMasNuevaPrimero() {
+        Long confirmada = em.persistAndFlush(carrito(7L, ReservationStatus.CONFIRMADA, AHORA)).getId();
+        Reservation cancelada = carrito(7L, ReservationStatus.CANCELADA, AHORA);
+        cancelada.setMotivoCancelacion("CANCELADA_POR_USUARIO");
+        Long canceladaId = em.persistAndFlush(cancelada).getId();
+        // No son reservas: un carrito vaciado, uno vencido, uno abierto y la reserva de otra persona
+        Reservation vaciado = carrito(7L, ReservationStatus.CANCELADA, AHORA);
+        vaciado.setMotivoCancelacion("CARRITO_VACIO");
+        em.persistAndFlush(vaciado);
+        em.persistAndFlush(carrito(7L, ReservationStatus.EXPIRADA, AHORA));
+        em.persistAndFlush(carrito(7L, ReservationStatus.INICIADA, AHORA.plusMinutes(15)));
+        em.persistAndFlush(carrito(8L, ReservationStatus.CONFIRMADA, AHORA));
+        em.clear();
+
+        List<Long> ids = bookingRepository.misReservas(7L, "CANCELADA_POR_USUARIO").stream()
+                .map(Reservation::getId).toList();
+
+        assertEquals(List.of(canceladaId, confirmada), ids);
+    }
+
+    @Test
     void guardaElCarritoConSusEstadiasYLaPoliticaCopiada() {
         Reservation c = carrito(7L, ReservationStatus.INICIADA, AHORA.plusMinutes(15));
         EstadiaHotel e = estadia();

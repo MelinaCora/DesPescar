@@ -22,8 +22,20 @@ public interface BookingRepository extends JpaRepository<Reservation, Long> {
     Optional<Reservation> findFirstByCreadorIdAndEstadoInOrderByIdDesc(Long creadorId,
                                                                        Collection<ReservationStatus> estados);
 
-    /** Reservas del usuario en esos estados, la más nueva primero (Mis reservas). */
-    List<Reservation> findByCreadorIdAndEstadoInOrderByIdDesc(Long creadorId, Collection<ReservationStatus> estados);
+    /**
+     * Mis reservas: las CONFIRMADA del usuario y las que estuvieron confirmadas y él canceló (motivo de
+     * la cancelación del dueño), la más nueva primero. Un carrito vaciado, abandonado o cerrado sin
+     * confirmarse también queda CANCELADA, pero nunca fue una reserva.
+     */
+    @Query("""
+            SELECT r FROM Reservation r
+            WHERE r.creadorId = :creadorId
+              AND (r.estado = com.despescar.reservationservice.enums.ReservationStatus.CONFIRMADA
+                   OR (r.estado = com.despescar.reservationservice.enums.ReservationStatus.CANCELADA
+                       AND r.motivoCancelacion = :motivoUsuario))
+            ORDER BY r.id DESC
+            """)
+    List<Reservation> misReservas(@Param("creadorId") Long creadorId, @Param("motivoUsuario") String motivoUsuario);
 
     /** Reservas canceladas por su dueño cuyo reembolso todavía no se pudo pedir a payment-service. */
     @Query("SELECT r.id FROM Reservation r WHERE r.reembolsoPendiente = true ORDER BY r.id")

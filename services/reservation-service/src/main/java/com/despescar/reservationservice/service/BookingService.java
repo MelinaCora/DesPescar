@@ -436,11 +436,10 @@ public class BookingService {
         return reservationMapper.toResponse(soporte.reservaDelUsuario(id, authenticatedUserId));
     }
 
-    /** Mis reservas: las confirmadas y canceladas que creó el usuario, la más nueva primero. */
+    /** Mis reservas: las confirmadas que creó el usuario y las que él canceló, la más nueva primero. */
     @Transactional(readOnly = true)
     public List<ReservationResponse> misReservas(Long usuarioId) {
-        return bookingRepository.findByCreadorIdAndEstadoInOrderByIdDesc(usuarioId,
-                        List.of(ReservationStatus.CONFIRMADA, ReservationStatus.CANCELADA)).stream()
+        return bookingRepository.misReservas(usuarioId, CancelacionService.MOTIVO).stream()
                 .map(reservationMapper::toResponse).toList();
     }
 
