@@ -30,7 +30,10 @@ public final class Motivos {
             return base;
         }
         BigDecimal diferencia = presupuesto.subtract(total);
-        if (diferencia.signum() >= 0) {
+        if (diferencia.signum() == 0) {
+            return base + " Justo en tu presupuesto.";
+        }
+        if (diferencia.signum() > 0) {
             return base + " Te quedan " + pesos(diferencia) + " del presupuesto.";
         }
         return base + " Se pasa por " + pesos(diferencia.negate())

@@ -34,4 +34,20 @@ class AeropuertosPorLugarTest {
         assertEquals(List.of(), AeropuertosPorLugar.resolver(AEROPUERTOS, null));
         assertEquals(List.of(), AeropuertosPorLugar.resolver(AEROPUERTOS, " "));
     }
+
+    @Test
+    void laCoincidenciaExactaGanaSobreLaParcial() {
+        List<AirportResponse> lista = List.of(aeropuerto("RIO", "Rio"), aeropuerto("RGL", "Rio Gallegos"),
+                aeropuerto("GIG", "Rio de Janeiro"));
+        assertEquals(List.of("RIO"), AeropuertosPorLugar.resolver(lista, "rio"));
+        assertEquals(List.of("RGL"), AeropuertosPorLugar.resolver(lista, "Rio Gallegos"));
+        assertEquals(List.of("GIG", "RGL"), AeropuertosPorLugar.resolver(
+                List.of(aeropuerto("RGL", "Rio Gallegos"), aeropuerto("GIG", "Rio de Janeiro")), "rio"));
+    }
+
+    @Test
+    void unaEntradaDeDosLetrasNoCoincideParcialmente() {
+        assertEquals(List.of(), AeropuertosPorLugar.resolver(AEROPUERTOS, "co"));
+        assertEquals(List.of(), AeropuertosPorLugar.resolver(AEROPUERTOS, "ba"));
+    }
 }

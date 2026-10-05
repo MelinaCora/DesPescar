@@ -10,6 +10,9 @@ import java.util.List;
  */
 public final class AeropuertosPorLugar {
 
+    /** Largo minimo del texto para aceptar coincidencias parciales. */
+    private static final int MIN_PARCIAL = 3;
+
     private AeropuertosPorLugar() {
     }
 
@@ -24,6 +27,14 @@ public final class AeropuertosPorLugar {
                 .toList();
         if (!porCodigo.isEmpty()) {
             return porCodigo;
+        }
+        List<String> porCiudadExacta = aeropuertos.stream()
+                .filter(a -> TextoBusqueda.normalizar(a.getCity()).equals(buscado))
+                .map(AirportResponse::getCode)
+                .sorted()
+                .toList();
+        if (!porCiudadExacta.isEmpty() || buscado.length() < MIN_PARCIAL) {
+            return porCiudadExacta;
         }
         return aeropuertos.stream()
                 .filter(a -> {

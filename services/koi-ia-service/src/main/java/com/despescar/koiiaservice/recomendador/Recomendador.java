@@ -42,6 +42,12 @@ public final class Recomendador {
     public static List<KoiRecommendationResponse> recomendar(PedidoRecomendacion pedido, List<VueloCandidato> idas,
                                                              List<VueloCandidato> vueltas,
                                                              List<HotelCandidato> hoteles) {
+        if (pedido.viajeros() < 1) {
+            return List.of();
+        }
+        idas = conPrecio(idas);
+        vueltas = conPrecio(vueltas);
+        hoteles = conHabitacionesValidas(hoteles);
         List<KoiVueloOpcion> vuelos = pedido.tipo() == TipoOpcion.HOTEL ? List.of() : itinerarios(pedido, idas, vueltas);
         List<KoiHotelOpcion> estadias = pedido.tipo() == TipoOpcion.VUELO ? List.of() : estadias(pedido, hoteles);
 
@@ -50,7 +56,7 @@ public final class Recomendador {
             case HOTEL -> estadias.stream().map(h -> new Candidata(null, h));
             case COMBO -> vuelos.stream().flatMap(v -> estadias.stream().map(h -> new Candidata(v, h)));
         };
-        List<Candidata> ordenadas = candidatas.sorted(Comparator.comparing(Candidata::total)).toList();
+        List<Candidata> ordenadas = candidatas.sorted(POR_TOTAL).toList();
 
         BigDecimal presupuesto = pedido.presupuesto();
         if (presupuesto == null) {
@@ -61,6 +67,24 @@ public final class Recomendador {
             return armar(pedido, elegir(dentro, MAX_OPCIONES), presupuesto);
         }
         return armar(pedido, elegir(ordenadas, MAX_CERCANAS), presupuesto);
+    }
+
+    /** Desempate estable: a igual total, por ids de vuelo/habitacion y fechas. */
+    private static final Comparator<Candidata> POR_TOTAL = Comparator.comparing(Candidata::total)
+            .thenComparing(Candidata::desempate);
+
+    private static List<VueloCandidato> conPrecio(List<VueloCandidato> vuelos) {
+        return vuelos.stream().filter(v -> v.precioTarifa() != null).toList();
+    }
+
+    private static List<HotelCandidato> conHabitacionesValidas(List<HotelCandidato> hoteles) {
+        return hoteles.stream()
+                .map(h -> new HotelCandidato(h.hotelId(), h.nombre(), h.ciudad(), h.estrellas(), h.imagen(),
+                        h.habitaciones().stream()
+                                .filter(hab -> hab.precioPorNoche() != null && hab.unidadesLibres() > 0)
+                                .toList()))
+                .filter(h -> !h.habitaciones().isEmpty())
+                .toList();
     }
 
     private static List<KoiVueloOpcion> itinerarios(PedidoRecomendacion pedido, List<VueloCandidato> idas,
@@ -84,7 +108,9 @@ public final class Recomendador {
 
     private static List<VueloCandidato> masBaratos(List<VueloCandidato> vuelos) {
         return vuelos.stream()
-                .sorted(Comparator.comparing(VueloCandidato::precioTarifa))
+                .sorted(Comparator.comparing(VueloCandidato::precioTarifa)
+                        .thenComparing(VueloCandidato::numero, Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(VueloCandidato::flightId, Comparator.nullsLast(Comparator.naturalOrder())))
                 .limit(MAX_VUELOS_POR_TRAMO)
                 .toList();
     }
@@ -102,6 +128,9 @@ public final class Recomendador {
     }
 
     private static List<KoiHotelOpcion> estadias(PedidoRecomendacion pedido, List<HotelCandidato> hoteles) {
+        if (pedido.checkIn() == null || pedido.checkOut() == null) {
+            return List.of();
+        }
         int noches = (int) ChronoUnit.DAYS.between(pedido.checkIn(), pedido.checkOut());
         if (noches < 1) {
             return List.of();
@@ -126,7 +155,10 @@ public final class Recomendador {
                             hotel.imagen(), h.id(), h.nombre(), pedido.checkIn(), pedido.checkOut(), noches,
                             cantidad, viajeros, precio);
                 })
-                .min(Comparator.comparing(KoiHotelOpcion::precio));
+                .min(Comparator.comparing(KoiHotelOpcion::precio)
+                        .thenComparing(KoiHotelOpcion::tipoHabitacionNombre,
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(KoiHotelOpcion::tipoHabitacionId));
     }
 
     static int habitacionesNecesarias(int viajeros, int capacidad) {
@@ -147,7 +179,7 @@ public final class Recomendador {
                 elegidas.add(c);
             }
         }
-        return elegidas.stream().sorted(Comparator.comparing(Candidata::total)).toList();
+        return elegidas.stream().sorted(POR_TOTAL).toList();
     }
 
     private static List<KoiRecommendationResponse> armar(PedidoRecomendacion pedido, List<Candidata> elegidas,
@@ -187,6 +219,12 @@ public final class Recomendador {
                 total = total.add(hotel.precio());
             }
             return total.setScale(2, RoundingMode.HALF_UP);
+        }
+
+        String desempate() {
+            return (hotel == null ? "" : hotel.hotelNombre() + "|" + hotel.hotelId() + "|" + hotel.tipoHabitacionId())
+                    + "#" + (vuelo == null ? "" : vuelo.numeroIda() + "|" + vuelo.numeroVuelta() + "|"
+                    + vuelo.departureFlightId() + "|" + vuelo.returnFlightId());
         }
 
         String clave() {

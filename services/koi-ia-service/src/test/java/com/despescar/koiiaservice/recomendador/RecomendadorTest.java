@@ -196,4 +196,94 @@ class RecomendadorTest {
         assertEquals("$ 1.500.000", Motivos.pesos(new BigDecimal("1500000")));
         assertEquals("$ 401", Motivos.pesos(new BigDecimal("400.50")));
     }
+
+    @Test
+    void sinFechasDeEstadiaNoArmaOpciones() {
+        for (PedidoRecomendacion p : List.of(
+                new PedidoRecomendacion(TipoOpcion.HOTEL, null, 2, null, CHECK_OUT),
+                new PedidoRecomendacion(TipoOpcion.HOTEL, null, 2, CHECK_IN, null))) {
+            assertTrue(Recomendador.recomendar(p, List.of(), List.of(), TRES_HOTELES).isEmpty());
+        }
+    }
+
+    @Test
+    void descartaPreciosNulosYHabitacionesSinUnidadesLibres() {
+        VueloCandidato idaSinPrecio = new VueloCandidato(id("X"), id("X-t"), "Flybondi", "X",
+                LocalDateTime.of(2026, 11, 19, 8, 0), LocalDateTime.of(2026, 11, 19, 10, 30), null);
+        List<HotelCandidato> hoteles = List.of(
+                hotel("SinPrecio", new HabitacionCandidata(id("sp"), "sp", 2, null, 3)),
+                hotel("SinCupo", hab("sc", 2, "100", 0)),
+                hotel("A", hab("A-doble", 2, "1000", 5)));
+
+        List<KoiRecommendationResponse> opciones = Recomendador.recomendar(combo("100000", 2),
+                List.of(idaSinPrecio, ida("FO1", "100")), List.of(vuelta("FO2", "100")), hoteles);
+
+        assertEquals(1, opciones.size());
+        assertEquals("FO1", opciones.get(0).vuelo().numeroIda());
+        assertEquals("A", opciones.get(0).hotel().hotelNombre());
+    }
+
+    @Test
+    void sinViajerosNoArmaOpciones() {
+        assertTrue(Recomendador.recomendar(combo("100000", 0), List.of(ida("FO1", "100")),
+                List.of(vuelta("FO2", "100")), TRES_HOTELES).isEmpty());
+    }
+
+    @Test
+    void conIgualTotalElOrdenNoDependeDeLaEntrada() {
+        HotelCandidato b = hotel("B", hab("B-doble", 2, "1000", 5));
+        HotelCandidato a = hotel("A", hab("A-doble", 2, "1000", 5));
+        PedidoRecomendacion pedido = new PedidoRecomendacion(TipoOpcion.HOTEL, null, 2, CHECK_IN, CHECK_OUT);
+
+        List<String> uno = Recomendador.recomendar(pedido, List.of(), List.of(), List.of(b, a)).stream()
+                .map(o -> o.hotel().hotelNombre()).toList();
+        List<String> otro = Recomendador.recomendar(pedido, List.of(), List.of(), List.of(a, b)).stream()
+                .map(o -> o.hotel().hotelNombre()).toList();
+
+        assertEquals(otro, uno);
+    }
+
+    @Test
+    void conIgualTarifaElVueloNoDependeDeLaEntrada() {
+        PedidoRecomendacion pedido = new PedidoRecomendacion(TipoOpcion.VUELO, null, 1, CHECK_IN, null);
+        List<String> uno = Recomendador.recomendar(pedido, List.of(ida("FO2", "100"), ida("FO1", "100")),
+                List.of(), List.of()).stream().map(o -> o.vuelo().numeroIda()).toList();
+        List<String> otro = Recomendador.recomendar(pedido, List.of(ida("FO1", "100"), ida("FO2", "100")),
+                List.of(), List.of()).stream().map(o -> o.vuelo().numeroIda()).toList();
+
+        assertEquals(otro, uno);
+    }
+
+    @Test
+    void elPresupuestoIgualAlTotalSeIncluye() {
+        List<KoiRecommendationResponse> opciones = Recomendador.recomendar(combo("3400", 2),
+                List.of(ida("FO1", "100")), List.of(vuelta("FO2", "100")), TRES_HOTELES);
+
+        assertEquals(montos("3400.00"), totales(opciones));
+        assertNull(opciones.get(0).excedeEn());
+        assertTrue(opciones.get(0).motivo().contains("Justo en tu presupuesto."));
+    }
+
+    @Test
+    void soloHotelPasadoDePresupuestoDevuelveLasDosMasCercanasConExcedente() {
+        PedidoRecomendacion pedido = new PedidoRecomendacion(TipoOpcion.HOTEL, new BigDecimal("2000"), 2,
+                CHECK_IN, CHECK_OUT);
+        List<KoiRecommendationResponse> opciones = Recomendador.recomendar(pedido, List.of(), List.of(), TRES_HOTELES);
+
+        assertEquals(montos("3000.00", "6000.00"), totales(opciones));
+        assertEquals(new BigDecimal("1000.00"), opciones.get(0).excedeEn());
+        assertEquals(new BigDecimal("4000.00"), opciones.get(1).excedeEn());
+    }
+
+    @Test
+    void conAerolineasDistintasLasMuestraJuntas() {
+        VueloCandidato otra = new VueloCandidato(id("FO2"), id("FO2-t"), "LATAM", "FO2",
+                LocalDateTime.of(2026, 11, 22, 13, 0), LocalDateTime.of(2026, 11, 22, 15, 30), new BigDecimal("100"));
+        PedidoRecomendacion pedido = new PedidoRecomendacion(TipoOpcion.VUELO, null, 1, CHECK_IN, CHECK_OUT);
+
+        List<KoiRecommendationResponse> opciones = Recomendador.recomendar(pedido, List.of(ida("FO1", "100")),
+                List.of(otra), List.of());
+
+        assertEquals("Flybondi / LATAM", opciones.get(0).vuelo().aerolinea());
+    }
 }
