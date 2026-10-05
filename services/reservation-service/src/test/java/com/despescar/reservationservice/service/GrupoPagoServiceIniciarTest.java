@@ -62,6 +62,8 @@ class GrupoPagoServiceIniciarTest {
     private InventarioCarrito inventario;
     @Mock
     private PlatformTransactionManager transactionManager;
+    @Mock
+    private GrupoCierre cierre;
 
     private GrupoPagoService service;
     private Reservation reserva;
@@ -70,7 +72,7 @@ class GrupoPagoServiceIniciarTest {
     void setUp() {
         service = new GrupoPagoService(bookingRepository, grupoRepository,
                 new CarritoSoporte(bookingRepository, RELOJ, transactionManager, inventario), inventario, new GrupoMapper(RELOJ),
-                new TokenEnlace(), new TransactionTemplate(transactionManager));
+                new TokenEnlace(), new TransactionTemplate(transactionManager), cierre);
         reserva = carrito(new BigDecimal("900000.00"));
         lenient().when(bookingRepository.findById(12L)).thenReturn(Optional.of(reserva));
         lenient().when(bookingRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(reserva));
