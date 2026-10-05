@@ -90,7 +90,7 @@ public class PassengerService {
 
         // 3. Guardar los detalles
         detailRepository.saveAll(detallesNuevos);
-        reserva.setDetalles(detallesNuevos);
+        reserva.getDetalles().addAll(detallesNuevos);
 
         // 4. Avanzar la máquina de estados
         if (reserva.getTipoPago().name().equals("SINGLE_PAYMENT")) {

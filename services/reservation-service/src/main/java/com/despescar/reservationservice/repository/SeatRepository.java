@@ -22,5 +22,10 @@ public interface SeatRepository extends JpaRepository<Seat, UUID> {
     @Query("SELECT s FROM Seat s WHERE s.seatUuid = :seatUuid")
     Optional<Seat> findByIdForUpdate(@Param("seatUuid") UUID seatUuid);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM Seat s WHERE s.flightId = :flightId AND s.numberSeat = :numberSeat")
+    Optional<Seat> findByFlightIdAndNumberSeatForUpdate(@Param("flightId") UUID flightId,
+                                                        @Param("numberSeat") String numberSeat);
+
     List<Seat> findByStatusSeatAndBloqueadoHastaBefore(String statusSeat, LocalDateTime time);
 }
