@@ -83,6 +83,7 @@ class FlightSearchPriceTest {
         assertEquals(0, new BigDecimal("160000.00").compareTo(precio.getTransparentFinalPrice()));
         assertEquals(0, BigDecimal.ZERO.compareTo(precio.getTaxesAndFees()));
         assertEquals(0, new BigDecimal("160000.00").compareTo(precio.getBaseFare()));
+        assertConsistente(precio);
         assertEquals("ARS", precio.getCurrency());
     }
 
@@ -91,6 +92,9 @@ class FlightSearchPriceTest {
         PriceDto precio = buscarPrecio(vuelo("85000.00", List.of(tarifa("Standard", "45000.00"))));
 
         assertEquals(0, new BigDecimal("130000.00").compareTo(precio.getTransparentFinalPrice()));
+        assertEquals(0, new BigDecimal("85000.00").compareTo(precio.getBaseFare()));
+        assertEquals(0, new BigDecimal("45000.00").compareTo(precio.getTaxesAndFees()));
+        assertConsistente(precio);
     }
 
     @Test
@@ -98,5 +102,31 @@ class FlightSearchPriceTest {
         PriceDto precio = buscarPrecio(vuelo("85000.00", List.of()));
 
         assertEquals(0, new BigDecimal("85000.00").compareTo(precio.getTransparentFinalPrice()));
+        assertConsistente(precio);
+    }
+
+    @Test
+    void conTarifasNulasElPrecioFinalEsElDelVuelo() {
+        Flight flight = vuelo("85000.00", List.of());
+        flight.setFares(null);
+
+        PriceDto precio = buscarPrecio(flight);
+
+        assertEquals(0, new BigDecimal("85000.00").compareTo(precio.getTransparentFinalPrice()));
+        assertConsistente(precio);
+    }
+
+    @Test
+    void elPrecioSeNormalizaAEscalaDosHalfUp() {
+        PriceDto precio = buscarPrecio(vuelo("85000.005", List.of(tarifa("Standard", "45000.1"))));
+
+        assertEquals(new BigDecimal("85000.01"), precio.getBaseFare());
+        assertEquals(new BigDecimal("45000.10"), precio.getTaxesAndFees());
+        assertEquals(new BigDecimal("130000.11"), precio.getTransparentFinalPrice());
+    }
+
+    private static void assertConsistente(PriceDto precio) {
+        assertEquals(2, precio.getTransparentFinalPrice().scale());
+        assertEquals(precio.getTransparentFinalPrice(), precio.getBaseFare().add(precio.getTaxesAndFees()));
     }
 }

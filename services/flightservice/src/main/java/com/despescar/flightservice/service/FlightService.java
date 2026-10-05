@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -128,9 +129,10 @@ public class FlightService {
     }
 
     private DetailedFlightResponseDto mapToDetailedFlightDto(Flight flight, String origin, String destination) {
-        BigDecimal basePrice = flight.getPrice() != null ? flight.getPrice() : BigDecimal.ZERO;
+        BigDecimal basePrice = (flight.getPrice() != null ? flight.getPrice() : BigDecimal.ZERO)
+                .setScale(2, RoundingMode.HALF_UP);
 
-        List<FareResponse> fareDtos = flight.getFares().stream().map(fare -> FareResponse.builder()
+        List<FareResponse> fareDtos = (flight.getFares() != null ? flight.getFares() : List.<Fare>of()).stream().map(fare -> FareResponse.builder()
                 .id(fare.getId())
                 .name(fare.getName())
                 .type(fare.getType())
@@ -153,7 +155,9 @@ public class FlightService {
                 .min(Comparator.comparing(FlightService::precioDeTarifa))
                 .orElse(null);
         // Precio final por pasajero con la tarifa más barata: el mismo que cobra el carrito.
-        BigDecimal finalPrice = basePrice.add(baseFare != null ? precioDeTarifa(baseFare) : BigDecimal.ZERO);
+        BigDecimal cheapestFarePrice = (baseFare != null ? precioDeTarifa(baseFare) : BigDecimal.ZERO)
+                .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal finalPrice = basePrice.add(cheapestFarePrice);
 
         return DetailedFlightResponseDto.builder()
                 .id(flight.getId())
@@ -178,9 +182,10 @@ public class FlightService {
                 .scales(List.of())
                 .includedServices(baseFare != null ? baseFare.getIncludedServices() : null)
                 .price(PriceDto.builder()
+                        // El carrito es siempre ARS (D20): las tarifas en otra moneda se rechazan al reservar.
                         .currency("ARS")
                         .baseFare(basePrice)
-                        .taxesAndFees(BigDecimal.ZERO)
+                        .taxesAndFees(cheapestFarePrice)
                         .transparentFinalPrice(finalPrice)
                         .build())
                 .fares(fareDtos)
