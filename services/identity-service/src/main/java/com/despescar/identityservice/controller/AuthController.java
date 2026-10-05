@@ -8,7 +8,11 @@ import com.despescar.identityservice.dto.response.CurrentUserResponse;
 import com.despescar.identityservice.dto.response.LoginResponse;
 import com.despescar.identityservice.dto.response.UserResponse;
 import com.despescar.identityservice.entity.User;
+import com.despescar.identityservice.dto.request.GoogleLoginRequest;
+import com.despescar.identityservice.dto.response.GoogleConfigResponse;
+import com.despescar.identityservice.google.GoogleTokenVerifier;
 import com.despescar.identityservice.service.AuthService;
+import com.despescar.identityservice.service.GoogleAuthService;
 import com.despescar.identityservice.service.UserService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
@@ -32,10 +36,19 @@ public class AuthController {
 
     private final UserService userService;
     private final AuthService authService;
+    private final GoogleAuthService googleAuthService;
+    private final GoogleTokenVerifier googleTokenVerifier;
 
-    public AuthController(UserService userService, AuthService authService) {
+    public AuthController(
+            UserService userService,
+            AuthService authService,
+            GoogleAuthService googleAuthService,
+            GoogleTokenVerifier googleTokenVerifier
+    ) {
         this.userService = userService;
         this.authService = authService;
+        this.googleAuthService = googleAuthService;
+        this.googleTokenVerifier = googleTokenVerifier;
     }
 
     @PostMapping("/register")
@@ -46,6 +59,18 @@ public class AuthController {
     @PostMapping("/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    /** Ingreso con Google: recibe el ID token del boton de Google y devuelve los mismos tokens que /login. */
+    @PostMapping("/google")
+    public LoginResponse google(@Valid @RequestBody GoogleLoginRequest request) {
+        return googleAuthService.login(request.getCredential());
+    }
+
+    /** Client id publico de Google para que el front muestre el boton (null si no esta configurado). */
+    @GetMapping("/google/config")
+    public GoogleConfigResponse googleConfig() {
+        return new GoogleConfigResponse(googleTokenVerifier.getClientId());
     }
 
     @PostMapping("/refresh")
