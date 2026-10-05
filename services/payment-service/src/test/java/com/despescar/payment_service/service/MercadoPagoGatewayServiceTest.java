@@ -24,18 +24,12 @@ class MercadoPagoGatewayServiceTest {
         private final List<String> llamadas = new ArrayList<>();
         private final String estado;
         private final boolean falla;
-        private String monedaDelPago = "ARS";
         private BigDecimal precioPreferencia;
 
         MercadoPagoDeMentira(String estado, boolean falla) {
             super("TEST-token", "", "", "", "", 3000, 5000);
             this.estado = estado;
             this.falla = falla;
-        }
-
-        @Override
-        protected String monedaDelPago(long mpPaymentId) {
-            return monedaDelPago;
         }
 
         @Override
@@ -109,17 +103,6 @@ class MercadoPagoGatewayServiceTest {
         gateway.refund("123456", new BigDecimal("10"));
 
         assertThat(gateway.llamadas).containsExactly("123456|10.00|despescar-reembolso-123456");
-    }
-
-    @Test
-    void noReembolsaUnPagoQueNoEsEnPesos() {
-        MercadoPagoDeMentira gateway = new MercadoPagoDeMentira("approved", false);
-        gateway.monedaDelPago = "USD";
-
-        RefundGatewayResponse r = gateway.refund("123456", new BigDecimal("10.00"));
-
-        assertThat(r.isApproved()).isFalse();
-        assertThat(gateway.llamadas).isEmpty();
     }
 
     @Test

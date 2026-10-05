@@ -5,9 +5,11 @@ import java.math.RoundingMode;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.despescar.payment_service.client.ReservationClient;
 import com.despescar.payment_service.client.dto.ReservationResponse;
@@ -37,46 +39,75 @@ public class PaymentService {
     private final PaymentHistoryService paymentHistoryService;
     private final PaymentGatewayService paymentGatewayService;
     private final ReservationClient reservationClient;
+    private final TransactionTemplate transactionTemplate;
 
     /**
      * Crea el pago del carrito completo. El monto es el montoTotal que calcula reservation-service
      * (nunca el del cliente); solo paga el creador y solo con la reserva en PENDIENTE_PAGO sin vencer.
-     * Un doble clic en Pagar devuelve el mismo pago PENDING (D19).
+     * Un doble clic en Pagar devuelve el mismo pago PENDING (D19), tambien si los dos pedidos llegan
+     * a la vez: el indice unico de pendienteDeReserva deja pasar un solo insert y el otro relee el
+     * pago ganador. El pago se confirma en la base antes de llamar al proveedor, asi la llamada
+     * remota no sostiene una transaccion.
      */
-    @Transactional
     public PaymentResponse createPayment(PaymentRequest request, Long authenticatedUserId) {
         Long reservationId = request.getReservationId();
         ReservationResponse reservation = reservationClient.getReservation(reservationId);
         BigDecimal amount = montoAPagar(reservation, reservationId, authenticatedUserId);
         PaymentProvider provider = paymentGatewayService.provider();
 
-        Payment reusable = descartarPendientesAnteriores(reservationId, authenticatedUserId, amount, provider);
-        if (reusable != null) {
-            return paymentMapper.toResponse(reusable);
+        Preparado preparado;
+        try {
+            preparado = transactionTemplate.execute(
+                    status -> reservarPago(request, authenticatedUserId, amount, provider));
+        } catch (DataIntegrityViolationException ex) {
+            // Otro pedido inserto antes el PENDING de esta reserva: se relee y se reutiliza.
+            preparado = transactionTemplate.execute(
+                    status -> reservarPago(request, authenticatedUserId, amount, provider));
         }
 
-        Payment payment = paymentMapper.toEntity(request, amount, MONEDA, authenticatedUserId);
+        Payment pago = preparado.pago();
+        if (!preparado.requiereCheckout()) {
+            return paymentMapper.toResponse(pago);
+        }
+
+        PaymentCheckoutResponse checkout = paymentGatewayService.createCheckout(
+                pago.getId().toString(), pago.getAmount(), pago.getCurrency());
+
+        return transactionTemplate.execute(status -> {
+            Payment actual = paymentRepository.findById(pago.getId())
+                    .orElseThrow(() -> new PaymentNotFoundException("Payment not found with id: " + pago.getId()));
+            actual.setPreferenceId(checkout.getPreferenceId());
+            actual.setCheckoutUrl(checkout.getCheckoutUrl());
+            return paymentMapper.toResponse(paymentRepository.save(actual));
+        });
+    }
+
+    /** Pago a devolver y si todavia hay que pedirle el checkout al proveedor. */
+    private record Preparado(Payment pago, boolean requiereCheckout) {
+    }
+
+    /** Descarta los PENDING viejos, reutiliza el vigente o inserta el nuevo PENDING, todo en una transaccion. */
+    private Preparado reservarPago(
+            PaymentRequest request, Long userId, BigDecimal amount, PaymentProvider provider) {
+
+        Payment reusable = descartarPendientesAnteriores(request.getReservationId(), userId, amount, provider);
+        if (reusable != null) {
+            // Sin checkoutUrl es un pago cuyo checkout no llego a pedirse (caida entre los dos pasos).
+            return new Preparado(reusable, reusable.getCheckoutUrl() == null);
+        }
+
+        Payment payment = paymentMapper.toEntity(request, amount, MONEDA, userId);
         payment.setStatus(PaymentStatus.PENDING);
         payment.setProvider(provider);
 
-        Payment savedPayment = paymentRepository.save(payment);
+        Payment savedPayment = paymentRepository.saveAndFlush(payment);
 
         paymentHistoryService.saveHistory(
                 savedPayment,
                 PaymentStatus.PENDING,
                 "Payment created and is pending."
         );
-
-        PaymentCheckoutResponse checkout = paymentGatewayService.createCheckout(
-                savedPayment.getId().toString(),
-                savedPayment.getAmount(),
-                savedPayment.getCurrency()
-        );
-
-        savedPayment.setPreferenceId(checkout.getPreferenceId());
-        savedPayment.setCheckoutUrl(checkout.getCheckoutUrl());
-
-        return paymentMapper.toResponse(paymentRepository.save(savedPayment));
+        return new Preparado(savedPayment, true);
     }
 
     @Transactional(readOnly = true)
@@ -180,14 +211,14 @@ public class PaymentService {
                 continue;
             }
             boolean mismoPago = previo.getProvider() == provider
-                    && previo.getAmount() != null && previo.getAmount().compareTo(amount) == 0
-                    && previo.getCheckoutUrl() != null;
+                    && previo.getAmount() != null && previo.getAmount().compareTo(amount) == 0;
             if (mismoPago && reusable == null) {
                 reusable = previo;
                 continue;
             }
             previo.setStatus(PaymentStatus.CANCELLED);
-            paymentRepository.save(previo);
+            // flush: el indice de pendienteDeReserva tiene que quedar libre antes de insertar el nuevo
+            paymentRepository.saveAndFlush(previo);
             paymentHistoryService.saveHistory(previo, PaymentStatus.CANCELLED,
                     "Reemplazado por un pago nuevo: cambio el total del carrito.");
         }

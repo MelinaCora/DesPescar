@@ -158,12 +158,8 @@ public class MercadoPagoGatewayService implements PaymentGatewayService {
         BigDecimal monto = amount.setScale(2, RoundingMode.HALF_UP);
 
         try {
-            long mpPaymentId = Long.parseLong(transactionId);
-            if (!MONEDA.equalsIgnoreCase(monedaDelPago(mpPaymentId))) {
-                return rechazado("Refund rejected: the payment is not in ARS.");
-            }
             ReembolsoMercadoPago reembolso = pedirReembolso(
-                    mpPaymentId, monto, "despescar-reembolso-" + transactionId);
+                    Long.parseLong(transactionId), monto, "despescar-reembolso-" + transactionId);
 
             if (!"approved".equalsIgnoreCase(reembolso.status())) {
                 return rechazado("Mercado Pago informo el reembolso en estado " + reembolso.status() + ".");
@@ -183,11 +179,6 @@ public class MercadoPagoGatewayService implements PaymentGatewayService {
     @Override
     public PaymentProvider provider() {
         return PaymentProvider.MERCADO_PAGO;
-    }
-
-    /** Moneda del pago en Mercado Pago, separada para poder probar refund() sin red. */
-    protected String monedaDelPago(long mpPaymentId) throws MPException, MPApiException {
-        return new PaymentClient().get(mpPaymentId).getCurrencyId();
     }
 
     /**

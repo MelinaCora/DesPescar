@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -19,9 +21,14 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.despescar.payment_service.client.ReservationClient;
 import com.despescar.payment_service.client.dto.ReservationResponse;
@@ -57,6 +64,9 @@ class PaymentServiceTest {
     @Mock
     private ReservationClient reservationClient;
 
+    @Spy
+    private TransactionTemplate transactionTemplate = new TransactionTemplate(mock(PlatformTransactionManager.class));
+
     @InjectMocks
     private PaymentService paymentService;
 
@@ -68,7 +78,7 @@ class PaymentServiceTest {
         when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MOCK);
         when(paymentRepository.findByReservationId(77L)).thenReturn(List.of());
         when(paymentMapper.toEntity(request, TOTAL, "ARS", 55L)).thenReturn(mapped);
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> {
             Payment p = invocation.getArgument(0);
             if (p.getId() == null) {
                 p.setId(UUID.randomUUID());
@@ -80,6 +90,8 @@ class PaymentServiceTest {
                         .preferenceId("MOCK-PREF-" + inv.getArgument(0))
                         .checkoutUrl("/pago/simulado?pago=" + inv.getArgument(0))
                         .build());
+        when(paymentRepository.findById(any(UUID.class))).thenAnswer(inv -> Optional.of(mapped));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
         when(paymentMapper.toResponse(any(Payment.class))).thenReturn(PaymentResponse.builder().build());
 
         paymentService.createPayment(request, 55L);
@@ -87,7 +99,8 @@ class PaymentServiceTest {
         assertThat(mapped.getStatus()).isEqualTo(PaymentStatus.PENDING);
         assertThat(mapped.getProvider()).isEqualTo(PaymentProvider.MOCK);
         assertThat(mapped.getCheckoutUrl()).isEqualTo("/pago/simulado?pago=" + mapped.getId());
-        verify(paymentRepository, times(2)).save(any(Payment.class));
+        verify(paymentRepository).saveAndFlush(any(Payment.class));
+        verify(paymentRepository).save(any(Payment.class));
         verify(paymentHistoryService).saveHistory(mapped, PaymentStatus.PENDING, "Payment created and is pending.");
     }
 
@@ -163,7 +176,7 @@ class PaymentServiceTest {
         when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MOCK);
         when(paymentRepository.findByReservationId(77L)).thenReturn(List.of(viejo));
         when(paymentMapper.toEntity(request, TOTAL, "ARS", 55L)).thenReturn(nuevo);
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> {
             Payment p = invocation.getArgument(0);
             if (p.getId() == null) {
                 p.setId(UUID.randomUUID());
@@ -172,14 +185,72 @@ class PaymentServiceTest {
         });
         when(paymentGatewayService.createCheckout(anyString(), eq(TOTAL), eq("ARS")))
                 .thenReturn(PaymentCheckoutResponse.builder().preferenceId("p").checkoutUrl("/pago/simulado?pago=x").build());
+        when(paymentRepository.findById(any(UUID.class))).thenReturn(Optional.of(nuevo));
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
         when(paymentMapper.toResponse(any(Payment.class))).thenReturn(PaymentResponse.builder().build());
 
         paymentService.createPayment(request, 55L);
 
+        InOrder orden = inOrder(paymentRepository);
+        orden.verify(paymentRepository).saveAndFlush(viejo);
+        orden.verify(paymentRepository).saveAndFlush(nuevo);
         assertThat(viejo.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
         verify(paymentHistoryService).saveHistory(viejo, PaymentStatus.CANCELLED,
                 "Reemplazado por un pago nuevo: cambio el total del carrito.");
         assertThat(nuevo.getStatus()).isEqualTo(PaymentStatus.PENDING);
+    }
+
+    @Test
+    void siOtroRequestGanoLaCarreraDevuelveSuPagoPendiente() {
+        PaymentRequest request = paymentRequest();
+        Payment ganador = payment(77L, 55L, PaymentStatus.PENDING, TOTAL);
+        ganador.setId(UUID.randomUUID());
+        ganador.setProvider(PaymentProvider.MOCK);
+        ganador.setCheckoutUrl("/pago/simulado?pago=" + ganador.getId());
+        when(reservationClient.getReservation(77L)).thenReturn(carrito(55L, "PENDIENTE_PAGO", 600L, TOTAL, "ARS"));
+        when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MOCK);
+        // primer intento: no se ve nada y el insert choca con el indice; segundo: ya esta el ganador
+        when(paymentRepository.findByReservationId(77L)).thenReturn(List.of()).thenReturn(List.of(ganador));
+        when(paymentMapper.toEntity(request, TOTAL, "ARS", 55L))
+                .thenReturn(payment(77L, 55L, PaymentStatus.PENDING, TOTAL));
+        when(paymentRepository.saveAndFlush(any(Payment.class)))
+                .thenThrow(new DataIntegrityViolationException("uk"));
+        when(paymentMapper.toResponse(ganador)).thenReturn(PaymentResponse.builder().id(ganador.getId()).build());
+
+        PaymentResponse r = paymentService.createPayment(request, 55L);
+
+        assertThat(r.getId()).isEqualTo(ganador.getId());
+        verify(paymentGatewayService, never()).createCheckout(any(), any(), any());
+    }
+
+    @Test
+    void elMontoSeNormalizaAEscala2() {
+        for (String[] caso : new String[][] {{"1060000", "1060000.00"}, {"1060000.005", "1060000.01"}}) {
+            org.mockito.Mockito.reset(paymentRepository, paymentMapper, paymentGatewayService, reservationClient);
+            BigDecimal esperado = new BigDecimal(caso[1]);
+            PaymentRequest request = paymentRequest();
+            Payment mapped = payment(77L, 55L, PaymentStatus.PENDING, esperado);
+            when(reservationClient.getReservation(77L))
+                    .thenReturn(carrito(55L, "PENDIENTE_PAGO", 600L, new BigDecimal(caso[0]), "ARS"));
+            when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MOCK);
+            when(paymentRepository.findByReservationId(77L)).thenReturn(List.of());
+            when(paymentMapper.toEntity(request, esperado, "ARS", 55L)).thenReturn(mapped);
+            when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(inv -> {
+                Payment p = inv.getArgument(0);
+                p.setId(UUID.randomUUID());
+                return p;
+            });
+            when(paymentRepository.findById(any(UUID.class))).thenReturn(Optional.of(mapped));
+            when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(paymentGatewayService.createCheckout(anyString(), eq(esperado), eq("ARS")))
+                    .thenReturn(PaymentCheckoutResponse.builder().preferenceId("p").checkoutUrl("/u").build());
+            when(paymentMapper.toResponse(any(Payment.class))).thenReturn(PaymentResponse.builder().build());
+
+            paymentService.createPayment(request, 55L);
+
+            verify(paymentMapper).toEntity(request, esperado, "ARS", 55L);
+            verify(paymentGatewayService).createCheckout(anyString(), eq(esperado), eq("ARS"));
+        }
     }
 
     @Test

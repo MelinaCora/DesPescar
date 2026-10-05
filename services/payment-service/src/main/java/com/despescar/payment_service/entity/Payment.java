@@ -63,6 +63,13 @@ public class Payment {
     @Column(nullable = false)
     private PaymentProvider provider;
 
+    /**
+     * Igual a reservationId mientras el pago esta PENDING y NULL en cualquier otro estado. Su indice
+     * unico impide dos pagos PENDING de la misma reserva aunque lleguen dos pedidos a la vez.
+     */
+    @Column(unique = true)
+    private Long pendienteDeReserva;
+
     @OneToMany(
             mappedBy = "payment",
             cascade = CascadeType.ALL,
@@ -70,8 +77,18 @@ public class Payment {
     )
     private List<PaymentHistory> history = new ArrayList<>();
 
+    @PreUpdate
+    void preUpdate() {
+        sincronizarPendiente();
+    }
+
+    private void sincronizarPendiente() {
+        pendienteDeReserva = status == PaymentStatus.PENDING ? reservationId : null;
+    }
+
     @PrePersist
     void prePersist() {
+        sincronizarPendiente();
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
         }
