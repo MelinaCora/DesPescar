@@ -26,6 +26,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", ex.getMessage()));
     }
 
+    @ExceptionHandler(RetencionNoEncontradaException.class)
+    public ResponseEntity<Map<String, String>> handleRetencionNoEncontrada(RetencionNoEncontradaException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ConflictoException.class)
+    public ResponseEntity<Map<String, String>> handleConflicto(ConflictoException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("error", ex.getMessage(), "codigo", ex.getCodigo()));
+    }
+
     @ExceptionHandler(SolicitudInvalidaException.class)
     public ResponseEntity<Map<String, String>> handleSolicitudInvalida(SolicitudInvalidaException ex) {
         return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
