@@ -22,11 +22,11 @@ public record HotelRequest(
         @Min(1) @Max(5) int estrellas,
         @Size(max = 2000) String descripcion,
         boolean allInclusive,
-        @NotNull List<@Pattern(regexp = "^https://\\S+$", message = "Las imágenes tienen que ser URLs https") String> imagenes,
-        @NotNull Set<Servicio> servicios,
-        @NotEmpty List<@Valid TramoDto> politicaCancelacion,
+        @NotNull List<@NotNull @Pattern(regexp = "^https://\\S+$", message = "Las imágenes tienen que ser URLs https") String> imagenes,
+        @NotNull Set<@NotNull Servicio> servicios,
+        @NotEmpty List<@NotNull @Valid TramoDto> politicaCancelacion,
         LocalTime horaCheckIn,
         String zonaHoraria,
         Long adminUserId,
-        @NotEmpty List<@Valid HabitacionRequest> habitaciones) {
+        @NotEmpty List<@NotNull @Valid HabitacionRequest> habitaciones) {
 }
