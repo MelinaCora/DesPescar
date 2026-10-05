@@ -1,6 +1,7 @@
 package com.despescar.payment_service.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
 
@@ -35,6 +36,8 @@ import com.mercadopago.resources.preference.Preference;
 @ConditionalOnProperty(name = "payments.provider", havingValue = "mercadopago")
 public class MercadoPagoGatewayService implements PaymentGatewayService {
 
+    private static final String MONEDA = "ARS";
+
     private final String notificationUrl;
     private final String successUrl;
     private final String pendingUrl;
@@ -45,13 +48,17 @@ public class MercadoPagoGatewayService implements PaymentGatewayService {
             @Value("${mercadopago.notification-url:}") String notificationUrl,
             @Value("${mercadopago.checkout.success-url:}") String successUrl,
             @Value("${mercadopago.checkout.pending-url:}") String pendingUrl,
-            @Value("${mercadopago.checkout.failure-url:}") String failureUrl) {
+            @Value("${mercadopago.checkout.failure-url:}") String failureUrl,
+            @Value("${mercadopago.connection-timeout-ms:5000}") int connectionTimeoutMs,
+            @Value("${mercadopago.socket-timeout-ms:15000}") int socketTimeoutMs) {
 
         if (!hasText(accessToken)) {
             throw new IllegalStateException(
                     "PAYMENT_PROVIDER=mercadopago necesita MERCADOPAGO_ACCESS_TOKEN (credenciales de prueba de Mercado Pago).");
         }
         MercadoPagoConfig.setAccessToken(accessToken);
+        MercadoPagoConfig.setConnectionTimeout(connectionTimeoutMs);
+        MercadoPagoConfig.setSocketTimeout(socketTimeoutMs);
         this.notificationUrl = notificationUrl;
         this.successUrl = successUrl;
         this.pendingUrl = pendingUrl;
@@ -64,12 +71,17 @@ public class MercadoPagoGatewayService implements PaymentGatewayService {
             BigDecimal amount,
             String currency) {
 
+        if (!MONEDA.equalsIgnoreCase(currency)) {
+            throw new ProveedorPagoException("Solo se cobra en pesos argentinos (ARS).", null);
+        }
+        BigDecimal monto = amount.setScale(2, RoundingMode.HALF_UP);
+
         try {
             PreferenceItemRequest item = PreferenceItemRequest.builder()
                     .title("DesPescar - Reserva")
                     .quantity(1)
-                    .currencyId(currency)
-                    .unitPrice(amount)
+                    .currencyId(MONEDA)
+                    .unitPrice(monto)
                     .build();
 
             PreferenceRequest.PreferenceRequestBuilder builder = PreferenceRequest.builder()
@@ -84,7 +96,7 @@ public class MercadoPagoGatewayService implements PaymentGatewayService {
                 builder.notificationUrl(notificationUrl);
             }
 
-            Preference preference = new PreferenceClient().create(builder.build());
+            Preference preference = crearPreferencia(builder.build());
 
             return PaymentCheckoutResponse.builder()
                     .preferenceId(preference.getId())
@@ -97,6 +109,11 @@ public class MercadoPagoGatewayService implements PaymentGatewayService {
         } catch (MPException | RuntimeException ex) {
             throw new ProveedorPagoException("No se pudo crear el checkout de Mercado Pago.", ex);
         }
+    }
+
+    /** Llamada HTTP de la preferencia, separada para poder probar createCheckout sin red. */
+    protected Preference crearPreferencia(PreferenceRequest request) throws MPException, MPApiException {
+        return new PreferenceClient().create(request);
     }
 
     @Override
@@ -138,9 +155,15 @@ public class MercadoPagoGatewayService implements PaymentGatewayService {
             return rechazado("Refund rejected: invalid amount.");
         }
 
+        BigDecimal monto = amount.setScale(2, RoundingMode.HALF_UP);
+
         try {
+            long mpPaymentId = Long.parseLong(transactionId);
+            if (!MONEDA.equalsIgnoreCase(monedaDelPago(mpPaymentId))) {
+                return rechazado("Refund rejected: the payment is not in ARS.");
+            }
             ReembolsoMercadoPago reembolso = pedirReembolso(
-                    Long.parseLong(transactionId), amount, "despescar-reembolso-" + transactionId);
+                    mpPaymentId, monto, "despescar-reembolso-" + transactionId);
 
             if (!"approved".equalsIgnoreCase(reembolso.status())) {
                 return rechazado("Mercado Pago informo el reembolso en estado " + reembolso.status() + ".");
@@ -153,13 +176,18 @@ public class MercadoPagoGatewayService implements PaymentGatewayService {
         } catch (MPApiException ex) {
             return rechazado("Mercado Pago rechazo el reembolso (HTTP " + ex.getStatusCode() + ").");
         } catch (MPException | RuntimeException ex) {
-            return rechazado("No se pudo pedir el reembolso a Mercado Pago: " + ex.getMessage());
+            return rechazado("No se pudo pedir el reembolso a Mercado Pago (" + ex.getClass().getSimpleName() + ").");
         }
     }
 
     @Override
     public PaymentProvider provider() {
         return PaymentProvider.MERCADO_PAGO;
+    }
+
+    /** Moneda del pago en Mercado Pago, separada para poder probar refund() sin red. */
+    protected String monedaDelPago(long mpPaymentId) throws MPException, MPApiException {
+        return new PaymentClient().get(mpPaymentId).getCurrencyId();
     }
 
     /**

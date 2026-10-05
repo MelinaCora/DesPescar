@@ -1,5 +1,7 @@
 package com.despescar.payment_service.client;
 
+import java.math.BigDecimal;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -14,6 +16,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import com.despescar.payment_service.client.dto.ConfirmacionReservaResponse;
 import com.despescar.payment_service.client.dto.ProcessPaymentRequest;
 import com.despescar.payment_service.client.dto.ReservationResponse;
 import com.despescar.payment_service.exception.ReservationClientException;
@@ -66,32 +69,51 @@ public class ReservationClient {
         }
     }
 
-    public void markReservationPaymentPaid(
+    /**
+     * Avisa a reservation-service que el pago se cobro (contrato C3) y devuelve si la reserva quedo
+     * CONFIRMADA. Un 400 o 404 se devuelve como RECHAZADA (hay que reembolsar). Caidas, 5xx y
+     * otros 4xx lanzan ReservationClientException: no se sabe el resultado y se reintenta.
+     */
+    public ConfirmacionReservaResponse confirmarPago(
             Long reservationId,
-            Long payerUserId,
-            String paymentToken) {
+            Long pagadorId,
+            String tokenPago,
+            BigDecimal monto) {
 
         ProcessPaymentRequest request = ProcessPaymentRequest.builder()
-                .pagadorId(payerUserId)
-                .tokenPago(paymentToken)
+                .pagadorId(pagadorId)
+                .tokenPago(tokenPago)
+                .monto(monto)
                 .build();
 
         try {
-            restTemplate.exchange(
+            ResponseEntity<ConfirmacionReservaResponse> response = restTemplate.exchange(
                     reservationServiceUrl + "/api/bookings/internal/{reservationId}/payment-confirmed",
                     HttpMethod.POST,
                     new HttpEntity<>(request, buildHeaders()),
-                    String.class,
+                    ConfirmacionReservaResponse.class,
                     reservationId
             );
+
+            ConfirmacionReservaResponse body = response.getBody();
+            if (body == null || body.estado() == null) {
+                throw new ReservationClientException("Reservation-Service no informo el resultado de la confirmacion.");
+            }
+            return body;
+        } catch (HttpClientErrorException.NotFound ex) {
+            return ConfirmacionReservaResponse.rechazada(
+                    "RESERVA_NO_ENCONTRADA", "La reserva " + reservationId + " no existe.");
+        } catch (HttpClientErrorException.BadRequest ex) {
+            return ConfirmacionReservaResponse.rechazada("PEDIDO_INVALIDO", ex.getResponseBodyAsString());
         } catch (HttpClientErrorException ex) {
-            throw new ReservationClientException("Reservation-Service rechazo la sincronizacion del pago.", ex);
+            throw new ReservationClientException(
+                    "Reservation-Service rechazo la confirmacion del pago (HTTP " + ex.getStatusCode().value() + ").", ex);
         } catch (HttpServerErrorException ex) {
-            throw new ReservationClientException("Reservation-Service no pudo sincronizar el pago.", ex);
+            throw new ReservationClientException("Reservation-Service no pudo confirmar el pago.", ex);
         } catch (ResourceAccessException ex) {
-            throw new ReservationClientException("No fue posible sincronizar la reserva con Reservation-Service.", ex);
+            throw new ReservationClientException("No fue posible confirmar el pago con Reservation-Service.", ex);
         } catch (RestClientException ex) {
-            throw new ReservationClientException("Se produjo un error al sincronizar la reserva.", ex);
+            throw new ReservationClientException("Se produjo un error al confirmar el pago.", ex);
         }
     }
 

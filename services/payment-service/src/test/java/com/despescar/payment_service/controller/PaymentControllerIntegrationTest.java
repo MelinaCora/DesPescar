@@ -34,6 +34,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import com.despescar.payment_service.client.ReservationClient;
+import com.despescar.payment_service.client.dto.ConfirmacionReservaResponse;
 import com.despescar.payment_service.client.dto.ReservationResponse;
 import com.despescar.payment_service.dto.response.PaymentCheckoutResponse;
 import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
@@ -229,15 +230,19 @@ class PaymentControllerIntegrationTest {
         Payment payment = payment(77L, 88L, PaymentStatus.PENDING);
         payment = paymentRepository.save(payment);
 
+        Mockito.when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MERCADO_PAGO);
         Mockito.when(paymentGatewayService.getPaymentStatus("445"))
                 .thenReturn(PaymentGatewayResponse.builder()
                         .approved(true)
                         .transactionId("445")
                         .externalReference(payment.getId().toString())
                         .status("approved")
+                        .amount(new BigDecimal("1250.50"))
                         .paymentTypeId("credit_card")
                         .message("approved")
                         .build());
+        Mockito.when(reservationClient.confirmarPago(77L, 88L, "445", new BigDecimal("1250.50")))
+                .thenReturn(new ConfirmacionReservaResponse("CONFIRMADA", null, "Reserva confirmada."));
 
         String requestId = "req-1";
         String timestamp = "1727401800";
@@ -264,7 +269,7 @@ class PaymentControllerIntegrationTest {
         org.assertj.core.api.Assertions.assertThat(paymentHistoryRepository.findByPayment_IdOrderByChangedAtAsc(payment.getId()))
                 .extracting(PaymentHistory::getStatus)
                 .containsExactly(PaymentStatus.APPROVED);
-        Mockito.verify(reservationClient).markReservationPaymentPaid(77L, 88L, "445");
+        Mockito.verify(reservationClient).confirmarPago(77L, 88L, "445", new BigDecimal("1250.50"));
     }
 
     private Payment payment(Long reservationId, Long userId, PaymentStatus status) {
