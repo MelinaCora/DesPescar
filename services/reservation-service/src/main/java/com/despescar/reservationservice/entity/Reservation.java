@@ -111,8 +111,9 @@ public class Reservation {
     private Long version;
 
     /**
-     * Igual a creadorId mientras el carrito esta INICIADA o PENDIENTE_PAGO y null en cualquier otro
-     * estado. Su indice unico garantiza un solo carrito abierto por usuario (NULL no choca en MySQL).
+     * Igual a creadorId mientras el carrito esta INICIADA, PENDIENTE_PAGO o ESPERANDO_PAGADORES (pago
+     * en grupo en curso, D-b17) y null en cualquier otro estado. Su indice unico garantiza un solo
+     * carrito abierto por usuario (NULL no choca en MySQL).
      */
     @Column(name = "carrito_abierto_de", unique = true)
     private Long carritoAbiertoDe;
@@ -121,7 +122,8 @@ public class Reservation {
     @PrePersist
     @PreUpdate
     void sincronizarCarritoAbierto() {
-        boolean abierto = estado == ReservationStatus.INICIADA || estado == ReservationStatus.PENDIENTE_PAGO;
+        boolean abierto = estado == ReservationStatus.INICIADA || estado == ReservationStatus.PENDIENTE_PAGO
+                || estado == ReservationStatus.ESPERANDO_PAGADORES;
         carritoAbiertoDe = abierto ? creadorId : null;
     }
 }
