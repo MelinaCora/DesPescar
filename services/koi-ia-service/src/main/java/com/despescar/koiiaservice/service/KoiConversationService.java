@@ -38,6 +38,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -87,6 +88,16 @@ public class KoiConversationService {
     public static final String SEGUIMOS_EXPLORANDO = "Si querés, decime un destino, otras fechas, cuántos viajan "
             + "o desde dónde salís, y busco de nuevo.";
     public static final String OPCIONES_DE_ANTES = "Estas son las opciones que te había armado:";
+    public static final List<String> DE_NADA = List.of(
+            "¡De nada! Para eso estoy 🐟 Si querés que ajuste algo o busque otra cosa, avisame.",
+            "¡Un placer! Cuando quieras seguimos armando el viaje.",
+            "¡No hay de qué! Acá estoy para lo que necesites.");
+    public static final List<String> DE_ACUERDO = List.of(
+            "¡Genial! Si querés que ajuste algo o busque otra cosa, avisame.",
+            "¡Buenísimo! Cuando quieras seguimos armando el viaje.");
+    public static final List<String> DESPEDIDAS = List.of(
+            "¡Buen viaje! Cuando quieras volver, acá voy a estar nadando 🐟",
+            "¡Chau! Que andes bien. Cuando quieras seguir armando el viaje, acá estoy 🐟");
     private static final String REINTENTAR = "Probá de nuevo en un ratito.";
     private static final String OTRA_FORMA = "¿Me lo decís de otra forma?";
     private static final String PRECIOS_ORIENTATIVOS =
@@ -185,6 +196,10 @@ public class KoiConversationService {
         guardarMensaje(session, MessageRole.USER, mensaje, null);
 
         LocalDate hoy = LocalDate.now(clock);
+        Turno sinModelo = turnoSinModelo(session, mensaje, ultimosMensajes, hoy);
+        if (sinModelo != null) {
+            return responder(session, sinModelo, DatosFaltantes.calcular(datosDe(session), hoy));
+        }
         Optional<KoiExtraccion> extraccion;
         String problemaDelModelo = null;
         try {
@@ -206,6 +221,8 @@ public class KoiConversationService {
         // Volver a pedir opciones siempre busca de nuevo; si ya estaba explorando y el mensaje no
         // trae fechas, tampoco se usan las que habían quedado guardadas.
         boolean pideOpciones = nuevos != null && HablaRioplatense.quiereExplorar(mensaje);
+        // Pidió ver las opciones de nuevo y no había ninguna para reenviar: se busca otra vez.
+        boolean pideVerDeNuevo = HablaRioplatense.quiereVerDeNuevo(mensaje);
         boolean exploraDeNuevo = pideOpciones && nuevos.esDestinoAbierto() && antes.esDestinoAbierto()
                 && !traeFechas(nuevos);
         DatosViaje base = busquedaNueva || exploraDeNuevo ? antes.paraBusquedaNueva() : antes;
@@ -228,17 +245,57 @@ public class KoiConversationService {
                     unir(comentario != null ? comentario : FUERA_DE_TEMA, avisos), null);
         } else if (!faltan.isEmpty() || !listoParaRecomendar(datos)) {
             turno = preguntar(session, faltan, datos, unir(comentario, avisos), null);
-        } else if (pideOpciones || !datos.equals(antes) || session.getStage() != ConversationStage.RECOMMENDING) {
+        } else if (pideOpciones || pideVerDeNuevo || !datos.equals(antes)
+                || session.getStage() != ConversationStage.RECOMMENDING) {
             turno = datos.esDestinoAbierto() ? explorar(session, datos, comentario, viajerosDeAntes)
                     : recomendar(session, datos, comentario);
         } else {
-            List<KoiRecommendationResponse> deAntes = opcionesDelUltimoMensajeDeKoi(ultimosMensajes);
-            turno = deAntes.isEmpty()
-                    ? new Turno(unir(comentario, datos.esDestinoAbierto() ? SEGUIMOS_EXPLORANDO : SEGUIMOS), List.of())
-                    : new Turno(unir(sinPrecios(comentario), OPCIONES_DE_ANTES), deAntes);
+            turno = new Turno(unir(comentario, datos.esDestinoAbierto() ? SEGUIMOS_EXPLORANDO : SEGUIMOS), List.of());
         }
+        return responder(session, turno, faltan);
+    }
 
-        turno = new Turno(acotarRespuesta(turno.texto()), turno.opciones());
+    /**
+     * Lo que se contesta sin consultar al modelo ni tocar los datos del viaje: una cortesía
+     * ("gracias", "dale", "chau") recibe una respuesta corta sin opciones, y las opciones ya
+     * mostradas solo se reenvían si las piden. Null si el mensaje sigue el camino normal.
+     */
+    private Turno turnoSinModelo(KoiConversationSession session, String mensaje,
+                                 List<KoiConversationMessage> ultimosMensajes, LocalDate hoy) {
+        if (HablaRioplatense.quiereVerDeNuevo(mensaje)) {
+            List<KoiRecommendationResponse> deAntes = opcionesDelUltimoMensajeDeKoi(ultimosMensajes);
+            return deAntes.isEmpty() ? null : new Turno(OPCIONES_DE_ANTES, deAntes);
+        }
+        HablaRioplatense.Cortesia cortesia = HablaRioplatense.cortesia(mensaje).orElse(null);
+        if (cortesia == null || cortesia == HablaRioplatense.Cortesia.SALUDA) {
+            return null; // el saludo sigue como siempre: comentario del modelo y la pregunta que toque
+        }
+        DatosViaje datos = datosDe(session);
+        List<MissingInfoField> faltan = DatosFaltantes.calcular(datos, hoy);
+        if (faltan.isEmpty() && listoParaRecomendar(datos) && session.getStage() != ConversationStage.RECOMMENDING) {
+            return null; // hay una búsqueda pendiente (por ejemplo, un reintento): "dale" la dispara
+        }
+        // La variante sale del último mensaje guardado: es estable y cambia a lo largo de la charla.
+        int variante = ultimosMensajes.isEmpty() ? 0 : Objects.hashCode(ultimosMensajes.get(0).getContent());
+        boolean agradece = cortesia == HablaRioplatense.Cortesia.AGRADECE;
+        if (cortesia == HablaRioplatense.Cortesia.DESPIDE) {
+            return new Turno(elegir(DESPEDIDAS, variante), List.of());
+        }
+        if (!faltan.isEmpty()) {
+            return new Turno(unir(agradece ? "¡De nada!" : "¡Genial!", KoiPreguntas.texto(faltan.get(0), datos)),
+                    List.of());
+        }
+        return new Turno(elegir(agradece ? DE_NADA : DE_ACUERDO, variante), List.of());
+    }
+
+    private static String elegir(List<String> variantes, int variante) {
+        return variantes.get(Math.floorMod(variante, variantes.size()));
+    }
+
+    /** Guarda la respuesta de KOI con sus opciones y arma lo que se le devuelve al usuario. */
+    private KoiConversationResponse responder(KoiConversationSession session, Turno respuesta,
+                                              List<MissingInfoField> faltan) {
+        Turno turno = new Turno(acotarRespuesta(respuesta.texto()), respuesta.opciones());
         session.setLastAssistantMessage(recortar(turno.texto(), MAX_ULTIMO_MENSAJE));
         session = sessionRepository.save(session);
         guardarMensaje(session, MessageRole.KOI, turno.texto(), opcionesJson.escribir(turno.opciones()));
@@ -363,16 +420,21 @@ public class KoiConversationService {
     }
 
     /** Las opciones que acompañaban a lo último que dijo KOI; vacío si ese mensaje no tenía. */
+    /** Las opciones del último mensaje de KOI, sin contar sus respuestas a una cortesía. */
     private List<KoiRecommendationResponse> opcionesDelUltimoMensajeDeKoi(List<KoiConversationMessage> nuevosPrimero) {
-        return nuevosPrimero.stream()
-                .filter(m -> m.getRole() == MessageRole.KOI)
-                .findFirst()
-                .map(m -> opcionesJson.leer(m.getOpcionesJson()))
-                .orElse(List.of());
-    }
-
-    private static String sinPrecios(String comentario) {
-        return comentario != null && MENCIONA_PRECIO.matcher(comentario).find() ? null : comentario;
+        for (int i = 0; i < nuevosPrimero.size(); i++) {
+            if (nuevosPrimero.get(i).getRole() != MessageRole.KOI) {
+                continue;
+            }
+            List<KoiRecommendationResponse> opciones = opcionesJson.leer(nuevosPrimero.get(i).getOpcionesJson());
+            KoiConversationMessage anterior = i + 1 < nuevosPrimero.size() ? nuevosPrimero.get(i + 1) : null;
+            boolean respondeUnaCortesia = anterior != null && anterior.getRole() == MessageRole.USER
+                    && HablaRioplatense.cortesia(anterior.getContent()).isPresent();
+            if (!opciones.isEmpty() || !respondeUnaCortesia) {
+                return opciones;
+            }
+        }
+        return List.of();
     }
 
     static String viajerosDeAntes(int viajeros) {

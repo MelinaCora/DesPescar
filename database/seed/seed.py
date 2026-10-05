@@ -49,24 +49,24 @@ AIRLINE_FACTOR = {"AR": 1.0, "FO": 0.85, "JA": 0.8}
 # Las tarifas son lo que se suma al precio del vuelo: Light no suma nada (solo equipaje de mano).
 FARES = (  # nombre, tipo, equipaje de mano, equipaje despachado, wifi, seleccion de asiento, base, impuestos (ARS)
     ("Light", "LIGHT", True, False, False, "PAID", 0, 0),
-    ("Standard", "STANDARD", True, True, True, "FREE", 28000, 7000),
+    ("Standard", "STANDARD", True, True, True, "FREE", 40000, 5000),
 )
 ROUTES = (  # origen, destino, minutos, precio base ARS, aerolineas que la vuelan (ida y vuelta, todos los dias)
-    ("AEP", "COR", 85, 80000, ("AR", "FO", "JA")),
-    ("AEP", "MDZ", 120, 95000, ("AR", "FO")),
-    ("AEP", "BRC", 150, 120000, ("AR", "FO", "JA")),
-    ("AEP", "SLA", 135, 110000, ("AR", "JA")),
-    ("AEP", "TUC", 120, 90000, ("AR", "FO")),
-    ("AEP", "IGR", 115, 100000, ("AR", "FO")),
-    ("AEP", "NQN", 115, 95000, ("AR", "JA")),
-    ("AEP", "MDQ", 65, 55000, ("AR", "FO")),
-    ("AEP", "USH", 215, 190000, ("AR", "FO")),
-    ("AEP", "FTE", 205, 180000, ("AR", "FO", "JA")),
-    ("EZE", "COR", 90, 85000, ("AR", "JA")),
-    ("EZE", "BRC", 150, 125000, ("AR",)),
-    ("EZE", "MDZ", 125, 98000, ("JA",)),
-    ("EZE", "USH", 215, 195000, ("AR",)),
-    ("EZE", "IGR", 120, 105000, ("AR",)),
+    ("AEP", "COR", 85, 88000, ("AR", "FO", "JA")),
+    ("AEP", "MDZ", 120, 120000, ("AR", "FO")),
+    ("AEP", "BRC", 150, 150000, ("AR", "FO", "JA")),
+    ("AEP", "SLA", 135, 140000, ("AR", "JA")),
+    ("AEP", "TUC", 120, 125000, ("AR", "FO")),
+    ("AEP", "IGR", 115, 130000, ("AR", "FO")),
+    ("AEP", "NQN", 115, 115000, ("AR", "JA")),
+    ("AEP", "MDQ", 65, 60000, ("AR", "FO")),
+    ("AEP", "USH", 215, 210000, ("AR", "FO")),
+    ("AEP", "FTE", 205, 200000, ("AR", "FO", "JA")),
+    ("EZE", "COR", 90, 90000, ("AR", "JA")),
+    ("EZE", "BRC", 150, 155000, ("AR",)),
+    ("EZE", "MDZ", 125, 125000, ("JA",)),
+    ("EZE", "USH", 215, 215000, ("AR",)),
+    ("EZE", "IGR", 120, 135000, ("AR",)),
 )
 DEPARTURE_HOURS = (6, 8, 10, 12, 14, 16, 18, 20)
 
@@ -199,7 +199,7 @@ def crear_vuelos(token, by_code, airlines, fares, flight_numbers, existentes=fro
                     number = f"{al}{1000 + n}"
                     flight_numbers.setdefault((al, a, b, day_index), number)
                     # tarifa base ARS: cada aerolinea tiene su factor y el precio varia un poco segun el dia
-                    amount = round(price * AIRLINE_FACTOR[al] * (1 + 0.04 * ((day_index + r) % 4)) / 500) * 500
+                    amount = round(price * AIRLINE_FACTOR[al] * (1 + 0.02 * ((day_index + r) % 4)) / 500) * 500
                     call("POST", FLIGHT + "/api/flights", {
                         "flightNumber": number, "airlineId": airlines[al], "originAirportId": by_code[a],
                         "destinationAirportId": by_code[b], "departureTime": dep.isoformat(),

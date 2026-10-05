@@ -31,4 +31,16 @@ public interface FlightRepository extends JpaRepository<Flight, UUID> {
             @Param("startOfDay") LocalDateTime startOfDay,
             @Param("endOfDay") LocalDateTime endOfDay
     );
+
+    /** Solo los horarios de salida (sin cargar vuelos) de una ruta, con lugar, entre desde y hasta (sin incluirlo). */
+    @Query("SELECT f.departureTime FROM Flight f WHERE f.originAirport.code = :origin "
+            + "AND f.destinationAirport.code = :destination AND f.status = :status AND f.availableSeats > 0 "
+            + "AND f.departureTime >= :desde AND f.departureTime < :hasta ORDER BY f.departureTime")
+    List<LocalDateTime> findSalidasConLugar(
+            @Param("origin") String origin,
+            @Param("destination") String destination,
+            @Param("status") FlightStatus status,
+            @Param("desde") LocalDateTime desde,
+            @Param("hasta") LocalDateTime hasta
+    );
 }

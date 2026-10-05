@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
 
@@ -58,6 +59,35 @@ public class FlightController {
 
         FlightSearchResponse response = flightService.searchFlights(origin, destination, departureDate, returnDate, passengers);
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Días con vuelos programados y con lugar de una ruta (códigos IATA), entre dos fechas.
+     * Lectura pública y liviana: solo fechas, para no bajar el listado completo.
+     */
+    @GetMapping("/fechas")
+    public ResponseEntity<List<LocalDate>> fechasConVuelos(
+            @RequestParam(required = false) String origin,
+            @RequestParam(required = false) String destination,
+            @RequestParam(required = false) String desde,
+            @RequestParam(required = false) String hasta) {
+
+        if (origin == null || origin.isBlank() || destination == null || destination.isBlank()
+                || desde == null || hasta == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        LocalDate primera;
+        LocalDate ultima;
+        try {
+            primera = LocalDate.parse(desde.trim());
+            ultima = LocalDate.parse(hasta.trim());
+        } catch (DateTimeParseException ex) {
+            return ResponseEntity.badRequest().build();
+        }
+        if (ultima.isBefore(primera)) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(flightService.fechasConVuelos(origin, destination, primera, ultima));
     }
 
     /**

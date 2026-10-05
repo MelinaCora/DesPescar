@@ -157,7 +157,8 @@ class GatewayJwtAuthFilterTest {
                 MockServerHttpRequest.post("/api/koi/sessions/abc/messages").build(),
                 MockServerHttpRequest.get("/api/koi/sessions/abc/messages").build(),
                 MockServerHttpRequest.get("/api/hotels/destinos").build(),
-                MockServerHttpRequest.get("/api/flights/search").build())) {
+                MockServerHttpRequest.get("/api/flights/search").build(),
+                MockServerHttpRequest.get("/api/flights/fechas?origin=AEP&destination=COR").build())) {
             AtomicReference<ServerHttpRequest> recibido = new AtomicReference<>();
             GatewayFilterChain chain = exchange -> {
                 recibido.set(exchange.getRequest());

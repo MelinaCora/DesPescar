@@ -2,7 +2,6 @@ package com.despescar.koiiaservice.client;
 
 import com.despescar.koiiaservice.client.dto.AirportResponse;
 import com.despescar.koiiaservice.client.dto.BusquedaVuelosResponse;
-import com.despescar.koiiaservice.client.dto.VueloListadoResponse;
 import com.despescar.koiiaservice.exception.KoiCatalogUnavailableException;
 import java.time.LocalDate;
 import java.util.List;
@@ -44,15 +43,23 @@ public class CatalogoVuelosClient {
         }
     }
 
-    /** Todos los vuelos publicados: con ellos KOI sabe qué rutas y días existen de verdad. */
-    public List<VueloListadoResponse> todos() {
+    /**
+     * Los días en que una ruta (códigos IATA) tiene vuelos programados y con lugar, entre dos
+     * fechas: con esto KOI sabe qué días existen de verdad sin bajar el listado completo.
+     */
+    public List<LocalDate> fechas(String origen, String destino, LocalDate desde, LocalDate hasta) {
         try {
-            List<VueloListadoResponse> vuelos = restClient.get()
-                    .uri("/api/flights")
+            List<LocalDate> fechas = restClient.get()
+                    .uri(b -> b.path("/api/flights/fechas")
+                            .queryParam("origin", origen)
+                            .queryParam("destination", destino)
+                            .queryParam("desde", desde)
+                            .queryParam("hasta", hasta)
+                            .build())
                     .retrieve()
-                    .body(new ParameterizedTypeReference<List<VueloListadoResponse>>() {
+                    .body(new ParameterizedTypeReference<List<LocalDate>>() {
                     });
-            return vuelos == null ? List.of() : vuelos;
+            return fechas == null ? List.of() : fechas;
         } catch (RestClientException ex) {
             throw new KoiCatalogUnavailableException("No se pudo consultar flightservice", ex);
         }

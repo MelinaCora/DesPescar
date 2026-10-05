@@ -5,9 +5,11 @@ import com.despescar.reservationservice.dto.passengers.request.PassengerAssignat
 import com.despescar.reservationservice.dto.reservation.request.BookingInitRequest;
 import com.despescar.reservationservice.dto.reservation.request.PaymentConfirmationRequest;
 import com.despescar.reservationservice.dto.reservation.response.BookingInitResponse;
+import com.despescar.reservationservice.dto.reservation.response.CancelacionResponse;
 import com.despescar.reservationservice.dto.reservation.response.ConfirmacionPagoResponse;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
 import com.despescar.reservationservice.service.BookingService;
+import com.despescar.reservationservice.service.CancelacionService;
 import com.despescar.reservationservice.service.CarritoService;
 import com.despescar.reservationservice.service.PassengerService;
 import java.util.List;
@@ -35,6 +37,7 @@ public class BookingController {
     private final BookingService bookingService;
     private final PassengerService passengerService;
     private final CarritoService carritoService;
+    private final CancelacionService cancelacionService;
 
     @PostMapping("/init")
     @PreAuthorize("hasRole('ROLE_CLIENTE')")
@@ -82,6 +85,27 @@ public class BookingController {
             @PathVariable Long id,
             @Valid @RequestBody PaymentConfirmationRequest request) {
         return ResponseEntity.ok(bookingService.confirmarPago(id, request));
+    }
+
+    /** Mis reservas: confirmadas y canceladas del usuario, la más nueva primero. */
+    @GetMapping("/mias")
+    @PreAuthorize("hasRole('ROLE_CLIENTE')")
+    public ResponseEntity<List<ReservationResponse>> misReservas(Authentication authentication) {
+        return ResponseEntity.ok(bookingService.misReservas(usuario(authentication)));
+    }
+
+    /** Vista previa de cancelar la reserva entera: cuánto se devuelve por cada ítem. */
+    @GetMapping("/{id}/cancelacion")
+    @PreAuthorize("hasRole('ROLE_CLIENTE')")
+    public ResponseEntity<CancelacionResponse> vistaPreviaCancelacion(@PathVariable Long id, Authentication authentication) {
+        return ResponseEntity.ok(cancelacionService.vistaPrevia(id, usuario(authentication)));
+    }
+
+    /** Cancela una reserva confirmada y pide el reembolso. Idempotente. 409 si no está confirmada o ya empezó. */
+    @PostMapping("/{id}/cancelacion")
+    @PreAuthorize("hasRole('ROLE_CLIENTE')")
+    public ResponseEntity<CancelacionResponse> cancelar(@PathVariable Long id, Authentication authentication) {
+        return ResponseEntity.ok(cancelacionService.cancelar(id, usuario(authentication)));
     }
 
     @GetMapping("/{id}")

@@ -35,13 +35,15 @@ public class KoiConversationSession {
     private UUID id;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 50)
     private ConversationStage stage = ConversationStage.NEW;
 
     @Enumerated(EnumType.STRING)
+    @Column(length = 50)
     private UserIntent intent = UserIntent.UNKNOWN;
 
     @Enumerated(EnumType.STRING)
+    @Column(length = 50)
     private MissingInfoField awaitingField;
 
     private BigDecimal budget;

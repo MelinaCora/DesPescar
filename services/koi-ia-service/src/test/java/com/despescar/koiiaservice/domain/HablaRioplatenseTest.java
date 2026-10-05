@@ -104,4 +104,51 @@ class HablaRioplatenseTest {
     void noConfundeUnPedidoConcretoConExplorar(String texto) {
         assertFalse(HablaRioplatense.quiereExplorar(texto), texto);
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"gracias", "Muchas gracias!", "mil gracias", "genial gracias", "te agradezco",
+            "gracias koi 🐟", "buenísimo, gracias"})
+    void detectaUnAgradecimiento(String texto) {
+        assertEquals(Optional.of(HablaRioplatense.Cortesia.AGRADECE), HablaRioplatense.cortesia(texto), texto);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"buenísimo", "joya", "dale", "ok", "listo", "Perfecto!", "dale, genial"})
+    void detectaUnaAprobacion(String texto) {
+        assertEquals(Optional.of(HablaRioplatense.Cortesia.ASIENTE), HablaRioplatense.cortesia(texto), texto);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"chau", "nos vemos", "hasta luego", "adiós", "gracias, chau!"})
+    void detectaUnaDespedida(String texto) {
+        assertEquals(Optional.of(HablaRioplatense.Cortesia.DESPIDE), HablaRioplatense.cortesia(texto), texto);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"hola", "buenas", "che koi", "Hola Koi!"})
+    void detectaUnSaludoSolo(String texto) {
+        assertEquals(Optional.of(HablaRioplatense.Cortesia.SALUDA), HablaRioplatense.cortesia(texto), texto);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"gracias, pero somos 3", "dale, con 2 palos", "ok, a Bariloche", "listo, el 19 de noviembre",
+            "gracias 3", "dale, ofreceme algo", "hola, quiero ir a Mendoza", "no gracias, mejor otro destino",
+            "perfecto, para un finde", "", "3"})
+    void siElMensajeTraeAlgoMasNoEsCortesia(String texto) {
+        assertTrue(HablaRioplatense.cortesia(texto).isEmpty(), texto);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"mostrame de nuevo las opciones", "¿cuáles eran?", "las opciones", "repetime",
+            "volvé a mostrar", "pasame otra vez las opciones", "a ver de nuevo"})
+    void detectaCuandoPideVerLasOpcionesDeNuevo(String texto) {
+        assertTrue(HablaRioplatense.quiereVerDeNuevo(texto), texto);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"gracias", "ofreceme algo", "mostrame opciones para 3", "las opciones para un finde",
+            "mostrame de nuevo pero con 3 palos", "quiero ir a Bariloche", "busca de nuevo con otras fechas"})
+    void noConfundeOtroPedidoConVerDeNuevo(String texto) {
+        assertFalse(HablaRioplatense.quiereVerDeNuevo(texto), texto);
+    }
 }

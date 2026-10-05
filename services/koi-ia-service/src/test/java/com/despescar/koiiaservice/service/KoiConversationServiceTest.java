@@ -253,7 +253,7 @@ class KoiConversationServiceTest {
         sesionCompleta(UserIntent.COMBO, ConversationStage.RECOMMENDING);
         modelo.respuesta = "{\"comentario\":\"¡Genial!\",\"presupuesto\":1500000}";
 
-        KoiConversationResponse r = service.handleMessage(sessionId, request("dale"), null);
+        KoiConversationResponse r = service.handleMessage(sessionId, request("me gusta"), null);
 
         assertEquals("¡Genial! " + KoiConversationService.SEGUIMOS, r.getReply());
         assertTrue(r.getRecommendations().isEmpty());
@@ -891,27 +891,98 @@ class KoiConversationServiceTest {
         assertEquals(2, pedido.noches());
     }
 
-    @Test
-    void siNoVuelveABuscarReenviaLasOpcionesDelUltimoMensajeDeKoi() {
+    /** Sesión explorando con 2 palos cuyo último mensaje de KOI trae dos opciones. */
+    private void sesionConOpcionesMostradas(KoiConversationMessage... masNuevos) {
         session.setOpenDestination(true);
         session.setStage(ConversationStage.RECOMMENDING);
         session.setBudget(new BigDecimal("2000000.00"));
         KoiConversationMessage conOpciones = mensaje(MessageRole.KOI, "Te armé 2 opciones.");
         conOpciones.setOpcionesJson(new KoiOpcionesJson().escribir(opcionesExploradas()));
-        when(messageRepository.findTop10BySessionIdOrderByCreatedAtDescIdDesc(sessionId))
-                .thenReturn(List.of(conOpciones, mensaje(MessageRole.USER, "tengo 2 palos")));
-        modelo.respuesta = "{\"comentario\":\"¡Genial!\"}";
+        List<KoiConversationMessage> nuevosPrimero = new ArrayList<>(List.of(masNuevos));
+        nuevosPrimero.add(conOpciones);
+        nuevosPrimero.add(mensaje(MessageRole.USER, "tengo 2 palos"));
+        when(messageRepository.findTop10BySessionIdOrderByCreatedAtDescIdDesc(sessionId)).thenReturn(nuevosPrimero);
+    }
 
-        KoiConversationResponse r = service.handleMessage(sessionId, request("dale"), null);
+    @Test
+    void graciasDespuesDeLasOpcionesRespondeAmableSinOpcionesNiLlamarAlModelo() {
+        sesionConOpcionesMostradas();
 
-        assertEquals("¡Genial! " + KoiConversationService.OPCIONES_DE_ANTES, r.getReply());
-        assertEquals(opcionesExploradas(), r.getRecommendations());
-        assertEquals(r.getRecommendations(), new KoiOpcionesJson().leer(ultimoDeKoi().getOpcionesJson()));
+        KoiConversationResponse r = service.handleMessage(sessionId, request("Muchas gracias!"), null);
+
+        assertTrue(KoiConversationService.DE_NADA.contains(r.getReply()), r.getReply());
+        assertTrue(r.getRecommendations().isEmpty());
+        assertNull(ultimoDeKoi().getOpcionesJson());
+        assertEquals(0, modelo.llamadas);
+        assertEquals(ConversationStage.RECOMMENDING, r.getStage());
+        assertEquals(new BigDecimal("2000000.00"), session.getBudget());
+        assertEquals(Boolean.TRUE, session.getOpenDestination());
         verify(explorador, never()).explorar(any());
     }
 
     @Test
-    void siElUltimoMensajeDeKoiNoTeniaOpcionesNoReenviaLasDeMasAtras() {
+    void chauDespideSinOpcionesNiLlamarAlModelo() {
+        sesionConOpcionesMostradas();
+
+        KoiConversationResponse r = service.handleMessage(sessionId, request("chau"), null);
+
+        assertTrue(KoiConversationService.DESPEDIDAS.contains(r.getReply()), r.getReply());
+        assertTrue(r.getRecommendations().isEmpty());
+        assertEquals(0, modelo.llamadas);
+    }
+
+    @Test
+    void unaCortesiaConDatosPendientesRetomaLaPreguntaSinLlamarAlModelo() {
+        KoiConversationResponse r = service.handleMessage(sessionId, request("ok"), null);
+
+        assertTrue(r.getReply().startsWith("¡Genial! ¿"), r.getReply());
+        assertTrue(r.isNeedsMoreInfo());
+        assertEquals(0, modelo.llamadas);
+        assertEquals(ConversationStage.COLLECTING_INFO, r.getStage());
+    }
+
+    @Test
+    void graciasConUnDatoNoEsCortesia() {
+        sesionConOpcionesMostradas();
+        modelo.respuesta = "{\"comentario\":\"¡Dale!\",\"viajeros\":3}";
+        when(explorador.explorar(any())).thenReturn(opcionesExploradas());
+
+        KoiConversationResponse r = service.handleMessage(sessionId, request("gracias, pero somos 3"), null);
+
+        assertEquals(1, modelo.llamadas);
+        assertEquals(3, session.getTravelers());
+        assertEquals(3, pedidoExplorado().viajeros());
+        assertEquals(2, r.getRecommendations().size());
+    }
+
+    @Test
+    void siPideVerDeNuevoReenviaLasOpcionesAunqueHayaUnaCortesiaEnElMedio() {
+        sesionConOpcionesMostradas(mensaje(MessageRole.KOI, "¡De nada!"), mensaje(MessageRole.USER, "gracias"));
+
+        KoiConversationResponse r =
+                service.handleMessage(sessionId, request("mostrame de nuevo las opciones"), null);
+
+        assertEquals(KoiConversationService.OPCIONES_DE_ANTES, r.getReply());
+        assertEquals(opcionesExploradas(), r.getRecommendations());
+        assertEquals(r.getRecommendations(), new KoiOpcionesJson().leer(ultimoDeKoi().getOpcionesJson()));
+        assertEquals(0, modelo.llamadas);
+        verify(explorador, never()).explorar(any());
+    }
+
+    @Test
+    void siNoVuelveABuscarNiSeLasPidenNoReenviaLasOpciones() {
+        sesionConOpcionesMostradas();
+        modelo.respuesta = "{\"comentario\":\"¡Son lindos destinos!\"}";
+
+        KoiConversationResponse r = service.handleMessage(sessionId, request("qué lindo se ve todo"), null);
+
+        assertEquals("¡Son lindos destinos! " + KoiConversationService.SEGUIMOS_EXPLORANDO, r.getReply());
+        assertTrue(r.getRecommendations().isEmpty());
+        verify(explorador, never()).explorar(any());
+    }
+
+    @Test
+    void siPideVerDeNuevoYElUltimoMensajeDeKoiNoTeniaOpcionesBuscaOtraVezEnLugarDeReenviarLasDeMasAtras() {
         session.setOpenDestination(true);
         session.setStage(ConversationStage.RECOMMENDING);
         session.setBudget(new BigDecimal("2000000.00"));
@@ -920,11 +991,13 @@ class KoiConversationServiceTest {
         when(messageRepository.findTop10BySessionIdOrderByCreatedAtDescIdDesc(sessionId))
                 .thenReturn(List.of(mensaje(MessageRole.KOI, "No encontré nada."), mensaje(MessageRole.USER, "x"),
                         conOpciones));
-        modelo.respuesta = "{\"comentario\":\"¡Genial!\"}";
+        modelo.respuesta = "{\"comentario\":\"¡Dale!\"}";
+        when(explorador.explorar(any())).thenReturn(opcionesExploradas().subList(0, 1));
 
-        KoiConversationResponse r = service.handleMessage(sessionId, request("dale"), null);
+        KoiConversationResponse r =
+                service.handleMessage(sessionId, request("mostrame de nuevo las opciones"), null);
 
-        assertEquals("¡Genial! " + KoiConversationService.SEGUIMOS_EXPLORANDO, r.getReply());
-        assertTrue(r.getRecommendations().isEmpty());
+        verify(explorador).explorar(any());
+        assertEquals(1, r.getRecommendations().size());
     }
 }

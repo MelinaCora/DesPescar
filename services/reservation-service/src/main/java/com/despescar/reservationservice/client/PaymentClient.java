@@ -2,6 +2,9 @@ package com.despescar.reservationservice.client;
 
 import com.despescar.reservationservice.dto.pagos.ReembolsoGrupoRequest;
 import com.despescar.reservationservice.dto.pagos.ReembolsoGrupoResponse;
+import com.despescar.reservationservice.dto.pagos.ReembolsoReservaRequest;
+import com.despescar.reservationservice.dto.pagos.ReembolsoReservaResponse;
+import java.math.BigDecimal;
 import com.despescar.reservationservice.exception.BookingException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -52,12 +55,27 @@ public class PaymentClient {
      * deja la marca de reembolsos pendientes y reintenta.
      */
     public ReembolsoGrupoResponse reembolsarGrupo(Long reservaId, String motivo) {
+        return pedir("/api/payments/internal/grupos/{reservaId}/reembolsos", new ReembolsoGrupoRequest(motivo),
+                ReembolsoGrupoResponse.class, reservaId);
+    }
+
+    /**
+     * Pide que se reembolse ese monto de la reserva que su dueño canceló, repartido entre sus pagos
+     * aprobados. Idempotente del lado de payment-service. Cualquier falla lanza BookingException: el
+     * que llama deja la marca de reembolso pendiente y reintenta.
+     */
+    public ReembolsoReservaResponse reembolsarReserva(Long reservaId, BigDecimal monto, String motivo) {
+        return pedir("/api/payments/internal/reservas/{reservaId}/reembolso", new ReembolsoReservaRequest(monto, motivo),
+                ReembolsoReservaResponse.class, reservaId);
+    }
+
+    private <T> T pedir(String ruta, Object cuerpo, Class<T> tipo, Long reservaId) {
         try {
-            ResponseEntity<ReembolsoGrupoResponse> respuesta = restTemplate.exchange(
-                    paymentServiceUrl + "/api/payments/internal/grupos/{reservaId}/reembolsos",
+            ResponseEntity<T> respuesta = restTemplate.exchange(
+                    paymentServiceUrl + ruta,
                     HttpMethod.POST,
-                    new HttpEntity<>(new ReembolsoGrupoRequest(motivo), headers()),
-                    ReembolsoGrupoResponse.class,
+                    new HttpEntity<>(cuerpo, headers()),
+                    tipo,
                     reservaId);
             if (respuesta.getBody() == null) {
                 throw new BookingException("PAYMENT_SERVICE_EMPTY_RESPONSE",

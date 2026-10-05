@@ -1,6 +1,7 @@
 package com.despescar.koiiaservice.service;
 
 import com.despescar.koiiaservice.client.dto.AirportResponse;
+import com.despescar.koiiaservice.domain.DatosViaje;
 import com.despescar.koiiaservice.dto.response.KoiRecommendationResponse;
 import com.despescar.koiiaservice.enums.TipoOpcion;
 import com.despescar.koiiaservice.exception.KoiCatalogUnavailableException;
@@ -9,12 +10,14 @@ import com.despescar.koiiaservice.recomendador.FechasFlexibles;
 import com.despescar.koiiaservice.recomendador.HotelCandidato;
 import com.despescar.koiiaservice.recomendador.PedidoRecomendacion;
 import com.despescar.koiiaservice.recomendador.Recomendador;
-import com.despescar.koiiaservice.recomendador.VueloProgramado;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -44,19 +47,17 @@ public class KoiExplorador {
     public List<KoiRecommendationResponse> explorar(PedidoExploracion pedido) {
         List<String> destinos = catalogo.destinos();
         List<AirportResponse> aeropuertos = catalogo.aeropuertos();
-        List<VueloProgramado> programados = catalogo.vuelosProgramados();
-        List<KoiRecommendationResponse> opciones = buscar(pedido, destinos, aeropuertos, programados);
+        List<KoiRecommendationResponse> opciones = buscar(pedido, destinos, aeropuertos);
         if (opciones.isEmpty() && (pedido.fechaIda() != null || pedido.mesIda() != null)) {
             PedidoExploracion sinFechas = new PedidoExploracion(pedido.presupuesto(), pedido.viajeros(),
                     pedido.origen(), null, null, null, pedido.hoy());
-            return buscar(sinFechas, destinos, aeropuertos, programados);
+            return buscar(sinFechas, destinos, aeropuertos);
         }
         return opciones;
     }
 
     private List<KoiRecommendationResponse> buscar(PedidoExploracion pedido, List<String> destinos,
-                                                   List<AirportResponse> aeropuertos,
-                                                   List<VueloProgramado> programados) {
+                                                   List<AirportResponse> aeropuertos) {
         List<String> origenes = AeropuertosPorLugar.resolver(aeropuertos, pedido.origen());
         LocalDate desde = desde(pedido);
         LocalDate hasta = hasta(pedido, desde);
@@ -74,8 +75,15 @@ public class KoiExplorador {
             if (codigos.isEmpty() || codigos.stream().anyMatch(origenes::contains)) {
                 continue;
             }
-            Optional<FechasFlexibles.Estadia> estadia =
-                    FechasFlexibles.elegir(programados, origenes, codigos, desde, hasta, noches);
+            Optional<FechasFlexibles.Estadia> estadia;
+            try {
+                estadia = estadia(origenes, codigos, desde, hasta, noches);
+            } catch (RuntimeException ex) {
+                intentos++;
+                fallas++;
+                log.warn("KOI saltea el destino {} al explorar: {}", destino, ex.toString());
+                continue;
+            }
             if (estadia.isEmpty()) {
                 continue;
             }
@@ -107,6 +115,33 @@ public class KoiExplorador {
                 .sorted(Comparator.comparing(KoiRecommendationResponse::excedeEn))
                 .limit(Recomendador.MAX_CERCANAS)
                 .toList();
+    }
+
+    /**
+     * Fechas reales para un destino: pregunta al catálogo qué días hay vuelo de ida en la ventana
+     * y, solo si hay alguno, qué días hay vuelta cerca de esas idas.
+     */
+    private Optional<FechasFlexibles.Estadia> estadia(List<String> origenes, List<String> codigos, LocalDate desde,
+                                                      LocalDate hasta, int noches) {
+        TreeSet<LocalDate> idas = new TreeSet<>();
+        for (String origen : origenes) {
+            for (String codigo : codigos) {
+                idas.addAll(catalogo.fechasConVuelo(origen, codigo, desde, hasta));
+            }
+        }
+        if (idas.isEmpty()) {
+            return Optional.empty();
+        }
+        LocalDate primeraVuelta = idas.first().plusDays(1);
+        LocalDate ultimaVuelta = idas.last().plusDays(
+                Math.min(noches + FechasFlexibles.MARGEN_DE_NOCHES, DatosViaje.MAX_NOCHES));
+        Set<LocalDate> vueltas = new HashSet<>();
+        for (String codigo : codigos) {
+            for (String origen : origenes) {
+                vueltas.addAll(catalogo.fechasConVuelo(codigo, origen, primeraVuelta, ultimaVuelta));
+            }
+        }
+        return FechasFlexibles.elegir(idas, vueltas, noches);
     }
 
     private List<KoiRecommendationResponse> combos(PedidoExploracion pedido, String destino,

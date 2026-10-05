@@ -58,7 +58,63 @@ public final class HablaRioplatense {
                     + "|\\bque\\s+me\\s+(recomend|propon|ofrec|suger)|\\b(opciones|ideas)\\s+para\\b"
                     + "|\\bque\\s+(hay|puedo|me\\s+da|me\\s+alcanza)\\b|\\brecomend\\w*\\s+(algo|alg[uú]n)\\b");
 
+    /** Un mensaje que es solo cortesía: no pide nada ni trae datos del viaje. */
+    public enum Cortesia { AGRADECE, ASIENTE, DESPIDE, SALUDA }
+
+    private static final String GRACIAS = "gracias|te agradezco|agradecid[oa]|se agradece";
+    private static final String DE_ACUERDO =
+            "genial|buenisimo|joya|dale|ok|okey|oka|listo|perfecto|barbaro|excelente|de una";
+    private static final String CHAU = "chau|chao|adios|nos vemos|hasta luego|hasta pronto|hasta la proxima";
+    private static final String HOLA = "hola|holis|buenas(?: tardes| noches)?|buen dia|buenos dias";
+    private static final String RELLENO = "koi|che|muchas|muchisimas|mil|muy|por todo|totales";
+    private static final String FRASE_DE_CORTESIA =
+            "(?:" + GRACIAS + "|" + DE_ACUERDO + "|" + CHAU + "|" + HOLA + "|" + RELLENO + ")";
+    private static final Pattern SOLO_CORTESIA =
+            Pattern.compile(FRASE_DE_CORTESIA + "(?: " + FRASE_DE_CORTESIA + ")*");
+    private static final Pattern AGRADECE = Pattern.compile("\\b(?:" + GRACIAS + ")\\b");
+    private static final Pattern ASIENTE = Pattern.compile("\\b(?:" + DE_ACUERDO + ")\\b");
+    private static final Pattern DESPIDE = Pattern.compile("\\b(?:" + CHAU + ")\\b");
+    private static final int MAX_PALABRAS_CORTESIA = 6;
+
+    private static final String OTRA_VEZ = "(?:de nuevo|otra vez|devuelta|de vuelta)";
+    private static final Pattern VER_DE_NUEVO = Pattern.compile(
+            "\\bcuales eran\\b|\\brepeti\\w*|\\bvolve\\w* a (?:mostrar|pasar|mandar|ver|decir)"
+                    + "|\\b(?:mostra\\w*|pasa(?:me|melas)?|manda\\w*|deci(?:me|melas)?|ver(?:las)?|veo)\\b.*\\b"
+                    + OTRA_VEZ + "\\b|\\b" + OTRA_VEZ + "\\b.*\\bopciones\\b"
+                    + "|^(?:a ver )?(?:las|esas|mis) opciones(?: de (?:antes|recien))?\\W*$");
+    private static final int MAX_PALABRAS_VER_DE_NUEVO = 8;
+
     private HablaRioplatense() {
+    }
+
+    /**
+     * La cortesía de un mensaje corto que no dice nada más ("muchas gracias", "dale", "chau",
+     * "hola koi"). Si trae cualquier otra palabra o un número ("gracias, pero somos 3") no lo es.
+     */
+    public static Optional<Cortesia> cortesia(String texto) {
+        String t = TextoBusqueda.normalizar(texto);
+        if (t.matches(".*\\d.*")) {
+            return Optional.empty();
+        }
+        t = t.replaceAll("[^a-z]+", " ").trim();
+        if (t.isEmpty() || t.split(" ").length > MAX_PALABRAS_CORTESIA || !SOLO_CORTESIA.matcher(t).matches()) {
+            return Optional.empty();
+        }
+        if (DESPIDE.matcher(t).find()) {
+            return Optional.of(Cortesia.DESPIDE);
+        }
+        if (AGRADECE.matcher(t).find()) {
+            return Optional.of(Cortesia.AGRADECE);
+        }
+        return Optional.of(ASIENTE.matcher(t).find() ? Cortesia.ASIENTE : Cortesia.SALUDA);
+    }
+
+    /** Pide ver otra vez lo que ya se le mostró ("mostrame de nuevo", "cuáles eran"), sin cambiar nada. */
+    public static boolean quiereVerDeNuevo(String texto) {
+        String t = TextoBusqueda.normalizar(texto);
+        return VER_DE_NUEVO.matcher(t).find() && !t.matches(".*\\d.*")
+                && t.split(" ").length <= MAX_PALABRAS_VER_DE_NUEVO && !quiereExplorar(texto)
+                && presupuesto(texto).isEmpty() && viajeros(texto).isEmpty() && !FINDE.matcher(t).find();
     }
 
     /** El presupuesto si el texto lo dice en criollo o en número completo; vacío si no. */
