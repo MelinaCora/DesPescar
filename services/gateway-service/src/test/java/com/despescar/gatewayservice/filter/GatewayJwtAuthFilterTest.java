@@ -10,6 +10,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
@@ -197,5 +199,57 @@ class GatewayJwtAuthFilterTest {
 
         assertThat(recibido.get().getHeaders().get("X-Authenticated-User")).containsExactly("cliente@mail.com");
         assertThat(recibido.get().getHeaders().get("X-Authenticated-Role")).containsExactly("USER");
+    }
+
+    @Test
+    void shouldAlsoDropTheInternalServiceTokenSentByTheClient() {
+        GatewayJwtAuthFilter filter = new GatewayJwtAuthFilter(mock(GatewayJwtService.class));
+        AtomicReference<ServerHttpRequest> recibido = new AtomicReference<>();
+        GatewayFilterChain chain = exchange -> {
+            recibido.set(exchange.getRequest());
+            return Mono.empty();
+        };
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/hotels/destinos")
+                .header("X-Internal-Service-Token", "secreto").build());
+
+        filter.filter(exchange, chain).block();
+
+        assertThat(recibido.get()).isNotNull();
+        assertThat(recibido.get().getHeaders().containsKey("X-Internal-Service-Token")).isFalse();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "OPTIONS, /api/bookings/carrito, true",
+            "GET, /api/hotels/destinos, true",
+            "POST, /api/koi/sessions, true",
+            "GET, /api/bookings/internal/5, false",
+            "POST, /internal/retenciones, false"})
+    void identityHeadersAreDroppedRegardlessOfCase(String method, String path, boolean forwarded) {
+        GatewayJwtService jwtService = mock(GatewayJwtService.class);
+        GatewayJwtAuthFilter filter = new GatewayJwtAuthFilter(jwtService);
+        AtomicReference<ServerHttpRequest> recibido = new AtomicReference<>();
+        GatewayFilterChain chain = exchange -> {
+            recibido.set(exchange.getRequest());
+            return Mono.empty();
+        };
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
+                .method(org.springframework.http.HttpMethod.valueOf(method), path)
+                .header("x-authenticated-user", "admin@despescar.com")
+                .header("X-AUTHENTICATED-ROLE", "SUPER_ADMIN")
+                .header("x-internal-service-token", "secreto")
+                .build());
+
+        filter.filter(exchange, chain).block();
+
+        if (!forwarded) {
+            assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+            assertThat(recibido.get()).isNull();
+            return;
+        }
+        assertThat(recibido.get()).isNotNull();
+        assertThat(recibido.get().getHeaders().containsKey("X-Authenticated-User")).isFalse();
+        assertThat(recibido.get().getHeaders().containsKey("X-Authenticated-Role")).isFalse();
+        assertThat(recibido.get().getHeaders().containsKey("X-Internal-Service-Token")).isFalse();
     }
 }

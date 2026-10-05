@@ -6,11 +6,6 @@ spring:
       httpclient:
         connect-timeout: 3000
         response-timeout: 5s
-      default-filters:
-        - name: CircuitBreaker
-          args:
-            name: gatewayCircuitBreaker
-            fallbackUri: forward:/fallback/unavailable
       globalcors:
         add-to-simple-url-handler-mapping: true
         cors-configurations:
@@ -32,53 +27,85 @@ spring:
             - Path=/api/auth/**
           filters:
             - RewritePath=/api/auth/?(?<segment>.*), /auth/$\{segment}
-
+            - name: CircuitBreaker
+              args:
+                name: gatewayCircuitBreaker
+                fallbackUri: forward:/fallback/unavailable
         - id: identity-users
           uri: http://localhost:8080
           predicates:
             - Path=/api/users/**
           filters:
             - RewritePath=/api/users/?(?<segment>.*), /users/$\{segment}
-
+            - name: CircuitBreaker
+              args:
+                name: gatewayCircuitBreaker
+                fallbackUri: forward:/fallback/unavailable
         - id: flights
           uri: http://localhost:8081
           predicates:
             - Path=/api/flights/**,/api/airlines/**,/api/airports/**,/api/fares/**
-
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: gatewayCircuitBreaker
+                fallbackUri: forward:/fallback/unavailable
         - id: hotels-direct
           uri: http://localhost:8083
           predicates:
             - Path=/hoteles/**
-
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: gatewayCircuitBreaker
+                fallbackUri: forward:/fallback/unavailable
         - id: hotels-api
           uri: http://localhost:8083
           predicates:
             - Path=/api/hotels/**
           filters:
             - RewritePath=/api/hotels(?<segment>/?.*), /hoteles$\{segment}
-
+            - name: CircuitBreaker
+              args:
+                name: gatewayCircuitBreaker
+                fallbackUri: forward:/fallback/unavailable
         - id: packages
           uri: http://localhost:8086
           predicates:
             - Path=/api/packages/**
-
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: gatewayCircuitBreaker
+                fallbackUri: forward:/fallback/unavailable
         - id: reservations
           uri: http://localhost:8085
           predicates:
             - Path=/api/bookings/**
-
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: gatewayCircuitBreaker
+                fallbackUri: forward:/fallback/unavailable
         - id: extra-baggage
           uri: http://localhost:8085
           predicates:
             - Path=/api/extra-baggage/**
           filters:
             - RewritePath=/api/extra-baggage/?(?<segment>.*), /extra-baggage/$\{segment}
-
+            - name: CircuitBreaker
+              args:
+                name: gatewayCircuitBreaker
+                fallbackUri: forward:/fallback/unavailable
         - id: payments
           uri: http://localhost:8084
           predicates:
             - Path=/api/payments/**
-
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: gatewayCircuitBreaker
+                fallbackUri: forward:/fallback/unavailable
         - id: koi-ia
           uri: http://localhost:8088
           predicates:
@@ -86,6 +113,11 @@ spring:
           metadata:
             response-timeout: 30000
             connect-timeout: 3000
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: koiCircuitBreaker
+                fallbackUri: forward:/fallback/unavailable
 
 server:
   port: 8087
@@ -113,13 +145,26 @@ resilience4j:
         failureRateThreshold: 50
         waitDurationInOpenState: 20s
         permittedNumberOfCallsInHalfOpenState: 5
+      koiCircuitBreaker:
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 20s
+        permittedNumberOfCallsInHalfOpenState: 5
   timelimiter:
     instances:
+      koiCircuitBreaker:
+        timeoutDuration: 31s
+        cancelRunningFuture: true
       gatewayCircuitBreaker:
-        timeoutDuration: 30s
+        timeoutDuration: 5s
         cancelRunningFuture: true
 
 gateway:
   rate-limit:
     requests-per-minute: 120
     koi-messages-per-minute: 10
+    # IPs de proxies/balanceadores (separadas por coma) cuyo X-Forwarded-For se acepta; vacio = nunca
+    trusted-proxies: ${GATEWAY_TRUSTED_PROXIES:}

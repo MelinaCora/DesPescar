@@ -24,6 +24,8 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
     private static final String BEARER_PREFIX = "Bearer ";
     static final String USER_HEADER = "X-Authenticated-User";
     static final String ROLE_HEADER = "X-Authenticated-Role";
+    // Token compartido entre servicios: nunca debe venir de afuera
+    static final String INTERNAL_TOKEN_HEADER = "X-Internal-Service-Token";
     private static final Set<String> HOTEL_ROLES = Set.of("SUPER_ADMIN", "HOTEL_ADMIN");
     private static final Set<String> AIRLINE_ROLES = Set.of("SUPER_ADMIN", "AIRLINE_ADMIN");
     private static final Set<String> SUPER_ADMIN_ROLE = Set.of("SUPER_ADMIN");
@@ -114,13 +116,15 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
 
     private static ServerWebExchange sinIdentidadDelCliente(ServerWebExchange exchange) {
         HttpHeaders headers = exchange.getRequest().getHeaders();
-        if (!headers.containsKey(USER_HEADER) && !headers.containsKey(ROLE_HEADER)) {
+        if (!headers.containsKey(USER_HEADER) && !headers.containsKey(ROLE_HEADER)
+                && !headers.containsKey(INTERNAL_TOKEN_HEADER)) {
             return exchange;
         }
         ServerHttpRequest limpio = exchange.getRequest().mutate()
                 .headers(h -> {
                     h.remove(USER_HEADER);
                     h.remove(ROLE_HEADER);
+                    h.remove(INTERNAL_TOKEN_HEADER);
                 })
                 .build();
         return exchange.mutate().request(limpio).build();

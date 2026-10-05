@@ -17,21 +17,30 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
-import java.util.Objects;
+import java.net.InetSocketAddress;
+import java.util.Arrays;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Component
 public class GatewayRateLimitFilter implements GlobalFilter, Ordered {
 
     private final int requestsPerMinute;
     private final int koiMessagesPerMinute;
+    private final Set<String> trustedProxies;
     private final Cache<String, Bucket> buckets;
     private final Cache<String, Bucket> koiBuckets;
 
     public GatewayRateLimitFilter(
             @Value("${gateway.rate-limit.requests-per-minute:120}") int requestsPerMinute,
-            @Value("${gateway.rate-limit.koi-messages-per-minute:10}") int koiMessagesPerMinute) {
+            @Value("${gateway.rate-limit.koi-messages-per-minute:10}") int koiMessagesPerMinute,
+            @Value("${gateway.rate-limit.trusted-proxies:}") String trustedProxies) {
         this.requestsPerMinute = requestsPerMinute;
         this.koiMessagesPerMinute = koiMessagesPerMinute;
+        this.trustedProxies = Arrays.stream(trustedProxies.split(","))
+                .map(String::trim)
+                .filter(p -> !p.isEmpty())
+                .collect(Collectors.toUnmodifiableSet());
         this.buckets = Caffeine.newBuilder()
                 .maximumSize(10_000)
                 .expireAfterAccess(Duration.ofMinutes(30))
@@ -52,7 +61,7 @@ public class GatewayRateLimitFilter implements GlobalFilter, Ordered {
         String key = resolveClientIp(exchange);
 
         // Cada POST a KOI es una llamada al modelo de lenguaje: balde propio, más chico (spec 3.6)
-        if (method == HttpMethod.POST && exchange.getRequest().getPath().value().startsWith("/api/koi/")) {
+        if (method == HttpMethod.POST && isKoiPath(exchange.getRequest().getPath().value())) {
             Bucket koiBucket = koiBuckets.get(key, k -> newBucket(koiMessagesPerMinute));
             if (!koiBucket.tryConsume(1)) {
                 exchange.getResponse().getHeaders().set("Retry-After", "60");
@@ -93,15 +102,33 @@ public class GatewayRateLimitFilter implements GlobalFilter, Ordered {
         return Bucket.builder().addLimit(limit).build();
     }
 
+    private static boolean isKoiPath(String path) {
+        return path.equals("/api/koi") || path.startsWith("/api/koi/");
+    }
+
+    // X-Forwarded-For lo controla el cliente: solo se mira si la conexion viene de un proxy de confianza,
+    // y entonces se toma la IP mas a la derecha que no sea otro proxy de confianza.
     private String resolveClientIp(ServerWebExchange exchange) {
-        String xForwardedFor = exchange.getRequest().getHeaders().getFirst("X-Forwarded-For");
-        if (xForwardedFor != null && !xForwardedFor.isBlank()) {
-            return xForwardedFor.split(",")[0].trim();
-        }
-        if (exchange.getRequest().getRemoteAddress() == null || exchange.getRequest().getRemoteAddress().getAddress() == null) {
+        InetSocketAddress remote = exchange.getRequest().getRemoteAddress();
+        if (remote == null || remote.getAddress() == null) {
             return "unknown";
         }
-        return Objects.requireNonNull(exchange.getRequest().getRemoteAddress().getAddress()).getHostAddress();
+        String remoteIp = remote.getAddress().getHostAddress();
+        if (!trustedProxies.contains(remoteIp)) {
+            return remoteIp;
+        }
+        String xForwardedFor = exchange.getRequest().getHeaders().getFirst("X-Forwarded-For");
+        if (xForwardedFor == null || xForwardedFor.isBlank()) {
+            return remoteIp;
+        }
+        String[] chain = xForwardedFor.split(",");
+        for (int i = chain.length - 1; i >= 0; i--) {
+            String ip = chain[i].trim();
+            if (!ip.isEmpty() && !trustedProxies.contains(ip)) {
+                return ip;
+            }
+        }
+        return remoteIp;
     }
 
     private boolean isBypassedPath(ServerWebExchange exchange) {
