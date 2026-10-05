@@ -129,8 +129,6 @@ public class FlightService {
 
     private DetailedFlightResponseDto mapToDetailedFlightDto(Flight flight, String origin, String destination) {
         BigDecimal basePrice = flight.getPrice() != null ? flight.getPrice() : BigDecimal.ZERO;
-        BigDecimal taxes = new BigDecimal("15000.0");
-        BigDecimal finalPrice = basePrice.add(taxes);
 
         List<FareResponse> fareDtos = flight.getFares().stream().map(fare -> FareResponse.builder()
                 .id(fare.getId())
@@ -152,8 +150,10 @@ public class FlightService {
                 .build()).toList();
 
         FareResponse baseFare = fareDtos.stream()
-                .min(Comparator.comparing(f -> f.getPrice().getTransparentFinalPrice()))
+                .min(Comparator.comparing(FlightService::precioDeTarifa))
                 .orElse(null);
+        // Precio final por pasajero con la tarifa más barata: el mismo que cobra el carrito.
+        BigDecimal finalPrice = basePrice.add(baseFare != null ? precioDeTarifa(baseFare) : BigDecimal.ZERO);
 
         return DetailedFlightResponseDto.builder()
                 .id(flight.getId())
@@ -180,11 +180,17 @@ public class FlightService {
                 .price(PriceDto.builder()
                         .currency("ARS")
                         .baseFare(basePrice)
-                        .taxesAndFees(taxes)
+                        .taxesAndFees(BigDecimal.ZERO)
                         .transparentFinalPrice(finalPrice)
                         .build())
                 .fares(fareDtos)
                 .build();
+    }
+
+    private static BigDecimal precioDeTarifa(FareResponse fare) {
+        return fare.getPrice() != null && fare.getPrice().getTransparentFinalPrice() != null
+                ? fare.getPrice().getTransparentFinalPrice()
+                : BigDecimal.ZERO;
     }
 
     /**
