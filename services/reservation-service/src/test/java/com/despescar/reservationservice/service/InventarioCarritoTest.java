@@ -42,6 +42,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @ExtendWith(MockitoExtension.class)
 class InventarioCarritoTest {
@@ -239,5 +241,164 @@ class InventarioCarritoTest {
         inventario.liberarAsientos(reserva);
         inventario.alinearBloqueos(reserva);
         verify(seatRepository, never()).findByFlightIdAndNumberSeatForUpdate(any(), anyString());
+    }
+
+    @Test
+    void siElRescateFallaPorFaltaDeLugarDevuelveFalse() {
+        UUID vieja = UUID.randomUUID();
+        estadia(vieja);
+        when(hotelClient.confirmarRetencion(vieja, "Ana Pérez"))
+                .thenThrow(new BookingException("RETENCION_LIBERADA", "liberada", HttpStatus.CONFLICT));
+        when(hotelClient.crearRetencion(any()))
+                .thenThrow(new BookingException("SIN_DISPONIBILIDAD_HOTEL", "Sin lugar", HttpStatus.CONFLICT));
+
+        assertFalse(inventario.confirmarEstadias(reserva));
+    }
+
+    @Test
+    void siFallaConfirmarLaRetencionNuevaSeLibera() {
+        UUID vieja = UUID.randomUUID();
+        UUID nueva = UUID.randomUUID();
+        estadia(vieja);
+        when(hotelClient.confirmarRetencion(vieja, "Ana Pérez"))
+                .thenThrow(new BookingException("RETENCION_LIBERADA", "liberada", HttpStatus.CONFLICT));
+        RetencionHotelResponse creada = new RetencionHotelResponse();
+        creada.setRetencionId(nueva);
+        when(hotelClient.crearRetencion(any())).thenReturn(creada);
+        when(hotelClient.confirmarRetencion(nueva, "Ana Pérez"))
+                .thenThrow(new BookingException("SIN_DISPONIBILIDAD_HOTEL", "Sin lugar", HttpStatus.CONFLICT));
+
+        assertFalse(inventario.confirmarEstadias(reserva));
+
+        verify(hotelClient).liberarRetencion(nueva);
+    }
+
+    @Test
+    void siFallaConfirmarLaRetencionNuevaPorComunicacionSeLiberaYPropaga() {
+        UUID vieja = UUID.randomUUID();
+        UUID nueva = UUID.randomUUID();
+        estadia(vieja);
+        when(hotelClient.confirmarRetencion(vieja, "Ana Pérez"))
+                .thenThrow(new BookingException("RETENCION_LIBERADA", "liberada", HttpStatus.CONFLICT));
+        RetencionHotelResponse creada = new RetencionHotelResponse();
+        creada.setRetencionId(nueva);
+        when(hotelClient.crearRetencion(any())).thenReturn(creada);
+        when(hotelClient.confirmarRetencion(nueva, "Ana Pérez"))
+                .thenThrow(new BookingException("HOTEL_SERVICE_TIMEOUT", "timeout", HttpStatus.GATEWAY_TIMEOUT));
+
+        assertThrows(BookingException.class, () -> inventario.confirmarEstadias(reserva));
+
+        verify(hotelClient).liberarRetencion(nueva);
+    }
+
+    @Test
+    void unErrorDeComunicacionTrasUnaEstadiaConfirmadaLaLiberaYPropaga() {
+        UUID primera = UUID.randomUUID();
+        UUID segunda = UUID.randomUUID();
+        estadia(primera);
+        estadia(segunda);
+        when(hotelClient.confirmarRetencion(primera, "Ana Pérez")).thenReturn(new RetencionHotelResponse());
+        when(hotelClient.confirmarRetencion(segunda, "Ana Pérez"))
+                .thenThrow(new BookingException("HOTEL_SERVICE_UNAVAILABLE", "caido", HttpStatus.SERVICE_UNAVAILABLE));
+
+        assertThrows(BookingException.class, () -> inventario.confirmarEstadias(reserva));
+
+        verify(hotelClient).liberarRetencion(primera);
+        verify(hotelClient, never()).liberarRetencion(segunda);
+    }
+
+    @Test
+    void liberarRetencionAtrapaCualquierErrorInesperado() {
+        UUID id = UUID.randomUUID();
+        doThrow(new IllegalStateException("boom")).when(hotelClient).liberarRetencion(id);
+
+        inventario.liberarRetencion(id);
+
+        verify(hotelClient).liberarRetencion(id);
+    }
+
+    @Test
+    void alinearBloqueosGuardaElAsientoModificado() {
+        Seat mio = new Seat();
+        mio.setFlightId(VUELO);
+        mio.setNumberSeat("1A");
+        mio.setStatusSeat("RESERVADO_TEMPORAL");
+        mio.setBlockedByUserId(7L);
+        mio.setBloqueadoHasta(LIMITE.minusMinutes(5));
+        when(seatRepository.findByFlightId(VUELO)).thenReturn(List.of(mio));
+
+        inventario.alinearBloqueos(reserva);
+
+        verify(seatRepository).save(mio);
+    }
+
+    @Test
+    void confirmarUnAsientoYaOcupadoPorElCreadorEsIdempotente() {
+        Seat a = asiento("1A", "OCUPADO", 7L);
+
+        assertTrue(inventario.confirmarAsientos(reserva));
+        assertTrue(inventario.confirmarAsientos(reserva));
+
+        assertEquals("OCUPADO", a.getStatusSeat());
+        assertEquals(7L, a.getBlockedByUserId());
+    }
+
+    @Test
+    void liberarAsientosNoGuardaLosQueYaEstanDisponibles() {
+        asiento("1A", "DISPONIBLE", 7L);
+
+        inventario.liberarAsientos(reserva);
+
+        verify(seatRepository, never()).save(any());
+    }
+
+    @Test
+    void losAsientosSeBloqueanEnOrdenPorNumero() {
+        asiento("2A", "DISPONIBLE", null);
+        asiento("1B", "DISPONIBLE", null);
+        asiento("1A", "DISPONIBLE", null);
+
+        inventario.confirmarAsientos(reserva);
+        inventario.liberarAsientos(reserva);
+
+        org.mockito.InOrder orden = org.mockito.Mockito.inOrder(seatRepository);
+        for (int vez = 0; vez < 2; vez++) {
+            orden.verify(seatRepository).findByFlightIdAndNumberSeatForUpdate(VUELO, "1A");
+            orden.verify(seatRepository).findByFlightIdAndNumberSeatForUpdate(VUELO, "1B");
+            orden.verify(seatRepository).findByFlightIdAndNumberSeatForUpdate(VUELO, "2A");
+        }
+    }
+
+    @Test
+    void sinTransaccionElAvisoSaleAlInstante() {
+        asiento("1A", "DISPONIBLE", null);
+
+        inventario.confirmarAsientos(reserva);
+
+        verify(messagingTemplate).convertAndSend(eq("/topic/flight/" + VUELO), any(Object.class));
+    }
+
+    @Test
+    void conTransaccionElAvisoEsperaAlCommit() {
+        asiento("1A", "DISPONIBLE", null);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            inventario.confirmarAsientos(reserva);
+            verify(messagingTemplate, never()).convertAndSend(anyString(), any(Object.class));
+
+            TransactionSynchronizationManager.getSynchronizations().forEach(TransactionSynchronization::afterCommit);
+
+            verify(messagingTemplate).convertAndSend(eq("/topic/flight/" + VUELO), any(Object.class));
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void conCreadorNuloNoHayExcepcion() {
+        reserva.setCreadorId(null);
+        asiento("1A", "DISPONIBLE", null);
+        inventario.liberarAsientos(reserva);
+        assertTrue(inventario.confirmarAsientos(reserva));
     }
 }

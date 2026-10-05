@@ -15,14 +15,27 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Comparator;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-/** Lo que el carrito toma y devuelve: asientos (en este servicio) y retenciones (en hotel-service). */
+/**
+ * Lo que el carrito toma y devuelve: asientos (en este servicio) y retenciones (en hotel-service).
+ *
+ * <p>Orden de llamada obligatorio al pagar: primero {@link #confirmarEstadias}, fuera de los locks de
+ * asientos (es una llamada de red); despues {@link #confirmarAsientos} en una transaccion corta; si los
+ * asientos fallan, compensar con {@link #liberarRetenciones}. Los metodos de asientos exigen una
+ * transaccion en curso y avisan por WebSocket recien al confirmarse.
+ */
 @Component
 @Slf4j
 public class InventarioCarrito {
@@ -54,12 +67,13 @@ public class InventarioCarrito {
     }
 
     /** Los asientos que el creador tiene retenidos en el vuelo de ida vencen con el carrito (D9). */
+    @Transactional(propagation = Propagation.MANDATORY)
     public void alinearBloqueos(Reservation carrito) {
         if (!CarritoCalculo.tieneVuelo(carrito)) {
             return;
         }
         for (Seat seat : seatRepository.findByFlightId(carrito.getFlightIds().get(0))) {
-            if (RESERVADO_TEMPORAL.equals(seat.getStatusSeat()) && carrito.getCreadorId().equals(seat.getBlockedByUserId())) {
+            if (RESERVADO_TEMPORAL.equals(seat.getStatusSeat()) && Objects.equals(carrito.getCreadorId(), seat.getBlockedByUserId())) {
                 seat.setBloqueadoHasta(carrito.getLimiteTiempo());
                 seatRepository.save(seat);
             }
@@ -70,13 +84,14 @@ public class InventarioCarrito {
      * Ocupa los asientos de ida de los pasajeros. Todo o nada: si alguno ya no se puede tomar,
      * no cambia ninguno y devuelve false.
      */
+    @Transactional(propagation = Propagation.MANDATORY)
     public boolean confirmarAsientos(Reservation reserva) {
         if (!CarritoCalculo.tieneVuelo(reserva) || reserva.getDetalles().isEmpty()) {
             return true;
         }
         UUID vueloIda = reserva.getFlightIds().get(0);
         List<Seat> asientos = new ArrayList<>();
-        for (ReservationDetail detalle : reserva.getDetalles()) {
+        for (ReservationDetail detalle : detallesOrdenados(reserva)) {
             Optional<Seat> asiento = seatRepository.findByFlightIdAndNumberSeatForUpdate(vueloIda, detalle.getOutboundSeatNumber());
             if (asiento.isEmpty() || !sePuedeOcupar(asiento.get(), reserva.getCreadorId())) {
                 return false;
@@ -94,14 +109,15 @@ public class InventarioCarrito {
     }
 
     /** Devuelve a DISPONIBLE los asientos de los pasajeros que tiene tomados el creador. */
+    @Transactional(propagation = Propagation.MANDATORY)
     public void liberarAsientos(Reservation reserva) {
         if (!CarritoCalculo.tieneVuelo(reserva)) {
             return;
         }
         UUID vueloIda = reserva.getFlightIds().get(0);
-        for (ReservationDetail detalle : reserva.getDetalles()) {
+        for (ReservationDetail detalle : detallesOrdenados(reserva)) {
             seatRepository.findByFlightIdAndNumberSeatForUpdate(vueloIda, detalle.getOutboundSeatNumber())
-                    .filter(s -> reserva.getCreadorId().equals(s.getBlockedByUserId()))
+                    .filter(s -> Objects.equals(reserva.getCreadorId(), s.getBlockedByUserId()))
                     .filter(s -> !DISPONIBLE.equals(s.getStatusSeat()))
                     .ifPresent(s -> {
                         s.setStatusSeat(DISPONIBLE);
@@ -126,6 +142,7 @@ public class InventarioCarrito {
                 tomadas.add(estadia.getRetencionId());
             } catch (BookingException ex) {
                 if (!FALTA_DE_LUGAR.contains(ex.getCodigo())) {
+                    tomadas.forEach(this::liberarRetencion);
                     throw ex;
                 }
                 log.warn("La estadía {} de la reserva {} ya no tiene lugar: {}", estadia.getId(), reserva.getId(), ex.getMessage());
@@ -147,8 +164,13 @@ public class InventarioCarrito {
                     reserva.getId(), reserva.getCreadorId(), estadia.getHotelId(), estadia.getTipoHabitacionId(),
                     estadia.getCheckIn(), estadia.getCheckOut(), estadia.getCantidadHabitaciones(),
                     estadia.getHuespedes(), Instant.now(clock).plus(RETENCION_DE_RESCATE)));
+            try {
+                hotelClient.confirmarRetencion(nueva.getRetencionId(), estadia.getTitularNombre());
+            } catch (RuntimeException e) {
+                liberarRetencion(nueva.getRetencionId());
+                throw e;
+            }
             estadia.setRetencionId(nueva.getRetencionId());
-            hotelClient.confirmarRetencion(nueva.getRetencionId(), estadia.getTitularNombre());
         }
     }
 
@@ -161,7 +183,7 @@ public class InventarioCarrito {
     public void liberarRetencion(UUID retencionId) {
         try {
             hotelClient.liberarRetencion(retencionId);
-        } catch (BookingException ex) {
+        } catch (RuntimeException ex) {
             log.warn("No se pudo liberar la retención {}: {}", retencionId, ex.getMessage());
         }
     }
@@ -171,15 +193,34 @@ public class InventarioCarrito {
             return true;
         }
         return (RESERVADO_TEMPORAL.equals(seat.getStatusSeat()) || OCUPADO.equals(seat.getStatusSeat()))
-                && creador.equals(seat.getBlockedByUserId());
+                && Objects.equals(creador, seat.getBlockedByUserId());
     }
 
+    private static List<ReservationDetail> detallesOrdenados(Reservation reserva) {
+        List<ReservationDetail> orden = new ArrayList<>(reserva.getDetalles());
+        orden.sort(Comparator.comparing(ReservationDetail::getOutboundSeatNumber,
+                Comparator.nullsLast(Comparator.naturalOrder())));
+        return orden;
+    }
+
+    /** Avisa recien cuando la transaccion confirma; sin transaccion activa, al instante. */
     private void avisar(Seat seat) {
-        messagingTemplate.convertAndSend("/topic/flight/" + seat.getFlightId(), SeatResponse.builder()
+        SeatResponse aviso = SeatResponse.builder()
                 .seatNumber(seat.getNumberSeat())
                 .seatUuid(seat.getSeatUuid())
                 .seatStatus(seat.getStatusSeat())
                 .blockedByUserId(seat.getBlockedByUserId())
-                .build());
+                .build();
+        String destino = "/topic/flight/" + seat.getFlightId();
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    messagingTemplate.convertAndSend(destino, aviso);
+                }
+            });
+        } else {
+            messagingTemplate.convertAndSend(destino, aviso);
+        }
     }
 }
