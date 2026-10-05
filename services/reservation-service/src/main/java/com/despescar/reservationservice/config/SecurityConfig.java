@@ -3,6 +3,7 @@ package com.despescar.reservationservice.config;
 import com.despescar.common.security.InternalServiceAuthenticationFilter;
 import com.despescar.common.security.JwtService;
 import com.despescar.common.security.UserIdJwtAuthenticationFilter;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import com.despescar.reservationservice.exception.ErrorResponse;
@@ -40,11 +41,7 @@ public class SecurityConfig {
 
         // Rutas internas: solo payment-service, con X-Internal-Service-Token (401 sin el token correcto)
         InternalServiceAuthenticationFilter paymentSyncFilter = new InternalServiceAuthenticationFilter(
-                paymentSyncToken, "payment-service", "ROLE_SERVICE_PAYMENT",
-                request -> (HttpMethod.POST.matches(request.getMethod())
-                        && request.getRequestURI().matches("^/api/bookings/internal/[^/]+/payment-confirmed$"))
-                        || (HttpMethod.GET.matches(request.getMethod())
-                        && request.getRequestURI().matches("^/api/bookings/internal/[^/]+$")));
+                paymentSyncToken, "payment-service", "ROLE_SERVICE_PAYMENT", SecurityConfig::rutaDePaymentService);
 
         http
             .cors(cors -> cors.disable())
@@ -63,12 +60,31 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/bookings/flights/*/seat-map").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/bookings/internal/*").hasRole("SERVICE_PAYMENT")
                 .requestMatchers(HttpMethod.POST, "/api/bookings/internal/*/payment-confirmed").hasRole("SERVICE_PAYMENT")
+                .requestMatchers(HttpMethod.GET, "/api/bookings/internal/*/partes/*").hasRole("SERVICE_PAYMENT")
+                .requestMatchers(HttpMethod.POST, "/api/bookings/internal/*/partes/*/pago-confirmado").hasRole("SERVICE_PAYMENT")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(paymentSyncFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(new UserIdJwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
+    }
+
+    /**
+     * Lo que payment-service llama con su token (C3 y CB3): la reserva, payment-confirmed y, en los
+     * pagos en grupo, cada parte y su pago-confirmado. Cualquier otra ruta sigue con el JWT.
+     */
+    static boolean rutaDePaymentService(HttpServletRequest request) {
+        String ruta = request.getRequestURI();
+        if (HttpMethod.GET.matches(request.getMethod())) {
+            return ruta.matches("^/api/bookings/internal/[^/]+$")
+                    || ruta.matches("^/api/bookings/internal/[^/]+/partes/[^/]+$");
+        }
+        if (HttpMethod.POST.matches(request.getMethod())) {
+            return ruta.matches("^/api/bookings/internal/[^/]+/payment-confirmed$")
+                    || ruta.matches("^/api/bookings/internal/[^/]+/partes/[^/]+/pago-confirmado$");
+        }
+        return false;
     }
 
     private static void escribirError(HttpServletResponse response, ObjectMapper json, Clock clock, int status,
