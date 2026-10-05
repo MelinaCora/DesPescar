@@ -144,7 +144,9 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
     // No deben alcanzarse desde el exterior: solo las protege un token compartido.
     // Cualquier segmento /internal queda cerrado, aunque hoy no haya una ruta del gateway que lo alcance.
     // Tambien el ajuste de inventario (asientos y habitaciones) que reservation-service hace directo.
-    private boolean isInternalOnlyPath(HttpMethod method, String path) {
+    // Se normaliza antes de comparar: sin parametros de matriz (;x) en cada segmento y en minusculas.
+    private boolean isInternalOnlyPath(HttpMethod method, String rawPath) {
+        String path = normalizeSegments(rawPath);
         if (path.contains("/internal/") || path.endsWith("/internal")) {
             return true;
         }
@@ -152,6 +154,16 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
                 && (path.matches("/api/flights/number/[^/]+/seats")
                 || path.matches("/api/hotels/[^/]+/rooms")
                 || path.matches("/hoteles/[^/]+/rooms"));
+    }
+
+    private static String normalizeSegments(String path) {
+        String[] segmentos = path.split("/", -1);
+        for (int i = 0; i < segmentos.length; i++) {
+            int matriz = segmentos[i].indexOf(';');
+            String limpio = matriz >= 0 ? segmentos[i].substring(0, matriz) : segmentos[i];
+            segmentos[i] = limpio.toLowerCase(java.util.Locale.ROOT);
+        }
+        return String.join("/", segmentos);
     }
 
     // Consulta de vuelos sin sesion; mismas rutas que flightservice deja en permitAll.

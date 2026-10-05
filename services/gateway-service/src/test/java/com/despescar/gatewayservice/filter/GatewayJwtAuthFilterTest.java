@@ -128,7 +128,11 @@ class GatewayJwtAuthFilterTest {
                 MockServerHttpRequest.get("/api/bookings/internal/5").build(),
                 MockServerHttpRequest.post("/hoteles/internal/retenciones")
                         .header("Authorization", "Bearer cualquiera").build(),
-                MockServerHttpRequest.get("/api/payments/internal").build())) {
+                MockServerHttpRequest.get("/api/payments/internal").build(),
+                MockServerHttpRequest.get("/api/bookings/internal;x/1").build(),
+                MockServerHttpRequest.get("/api/bookings/INTERNAL;a=b/1").build(),
+                MockServerHttpRequest.get("/api/payments/internal;x").build(),
+                MockServerHttpRequest.get("/api;v=1/bookings/internal/5").build())) {
             ServerWebExchange exchange = MockServerWebExchange.from(request);
 
             filter.filter(exchange, chain).block();
