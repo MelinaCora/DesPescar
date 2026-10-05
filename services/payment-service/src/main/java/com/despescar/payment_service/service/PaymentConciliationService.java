@@ -20,8 +20,9 @@ import lombok.RequiredArgsConstructor;
 
 /**
  * Conciliacion desde /pago/resultado (D16): con el payment_id que Mercado Pago agrega a la
- * back_url se consulta el pago y se aplica su estado, igual que el webhook, sin depender de que
- * el webhook llegue (en local no hay URL publica).
+ * back_url (Checkout Pro) o con el id de la orden (Checkout API via Orders) se consulta el cobro y
+ * se aplica su estado, igual que el webhook, sin depender de que el webhook llegue (en local no
+ * hay URL publica).
  */
 @Service
 @RequiredArgsConstructor
@@ -34,7 +35,8 @@ public class PaymentConciliationService {
 
     @Transactional
     public PaymentResponse conciliar(UUID paymentId, String mpPaymentId, Long authenticatedUserId) {
-        if (paymentGatewayService.provider() != PaymentProvider.MERCADO_PAGO) {
+        PaymentProvider activo = paymentGatewayService.provider();
+        if (activo != PaymentProvider.MERCADO_PAGO && activo != PaymentProvider.MERCADO_PAGO_ORDERS) {
             throw new OperacionNoDisponibleException("La conciliacion solo existe con Mercado Pago.");
         }
 
@@ -43,7 +45,7 @@ public class PaymentConciliationService {
         if (!authenticatedUserId.equals(payment.getUserId())) {
             throw new AccessDeniedException("No tienes acceso a este pago.");
         }
-        if (payment.getProvider() != PaymentProvider.MERCADO_PAGO) {
+        if (payment.getProvider() != activo) {
             throw new OperacionNoDisponibleException("Este pago no se creo con Mercado Pago.");
         }
 

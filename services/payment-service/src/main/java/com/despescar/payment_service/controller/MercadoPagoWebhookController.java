@@ -33,10 +33,14 @@ public class MercadoPagoWebhookController {
         String type = queryType != null ? queryType : request != null ? request.getType() : null;
 
         mercadoPagoWebhookSignatureValidator.validate(signatureHeader, requestIdHeader, queryDataId);
-        mercadoPagoWebhookService.processPaymentNotification(
-                dataId,
-                type
-        );
+        if ("order".equalsIgnoreCase(type)) {
+            mercadoPagoWebhookService.processOrderNotification(dataId);
+        } else {
+            mercadoPagoWebhookService.processPaymentNotification(
+                    dataId,
+                    type
+            );
+        }
 
         return ResponseEntity.ok().build();
     }

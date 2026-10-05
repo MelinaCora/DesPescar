@@ -263,4 +263,29 @@ class PaymentEndpointsTest {
                 .andExpect(jsonPath("$.status").value(403));
         Mockito.verify(gateway, Mockito.never()).refund(Mockito.any(), Mockito.any());
     }
+
+    @Test
+    void configInformaElProveedorActivoSinPublicKeyFueraDeOrders() throws Exception {
+        Mockito.when(gateway.provider()).thenReturn(PaymentProvider.MOCK);
+
+        mockMvc.perform(get("/api/payments/config"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.provider").value("MOCK"))
+                .andExpect(jsonPath("$.publicKey").doesNotExist());
+    }
+
+    @Test
+    void cobrarConOrdenSinElProveedorDeOrdenesResponde404YValidaElCuerpo() throws Exception {
+        Mockito.when(gateway.provider()).thenReturn(PaymentProvider.MOCK);
+        Payment pago = pago(7L, PaymentProvider.MOCK, PaymentStatus.PENDING);
+
+        mockMvc.perform(post("/api/payments/{id}/orden", pago.getId())
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"token\":\"abc123\",\"paymentMethodId\":\"master\",\"installments\":1}"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/payments/{id}/orden", pago.getId())
+                        .contentType(APPLICATION_JSON).content("{\"paymentMethodId\":\"master\"}"))
+                .andExpect(status().isBadRequest());
+        Mockito.verifyNoInteractions(reservationClient);
+    }
 }
