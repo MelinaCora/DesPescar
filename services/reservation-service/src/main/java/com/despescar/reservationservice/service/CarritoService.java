@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -92,7 +93,7 @@ public class CarritoService {
         }
         try {
             return transacciones.execute(estado -> {
-                Reservation actual = bookingRepository.findById(carritoId).orElseThrow(() -> new BookingException(
+                Reservation actual = bookingRepository.findByIdForUpdate(carritoId).orElseThrow(() -> new BookingException(
                         "CARRITO_NO_ENCONTRADO", "El carrito ya no existe.", HttpStatus.NOT_FOUND));
                 soporte.verificarModificable(actual);
                 if (!CarritoCalculo.MONEDA.equalsIgnoreCase(retencion.getMoneda())) {
@@ -149,7 +150,9 @@ public class CarritoService {
     /** Un titular por cada estadía activa; con los datos completos el carrito pasa a PENDIENTE_PAGO. */
     @Transactional
     public ReservationResponse cargarTitulares(Long reservaId, List<TitularRequest> titulares, Long usuarioId) {
-        Reservation reserva = soporte.reservaDelUsuario(reservaId, usuarioId);
+        // Bloqueada: los titulares solo cambian filas de estadías (sin tocar la versión de la reserva),
+        // así que sin el bloqueo una copia vieja podría pisar una reserva recién confirmada
+        Reservation reserva = soporte.reservaDelUsuarioBloqueada(reservaId, usuarioId);
         validar(titulares);
         soporte.verificarModificable(reserva);
 
@@ -175,10 +178,11 @@ public class CarritoService {
     }
 
     /**
-     * Abandona un carrito sin pagar (D12): libera retenciones (remoto, primero) y asientos. Sobre una
-     * reserva pagada responde 409: se cancela por ítem (E4). La reserva se lee bloqueada antes de soltar
-     * nada: una confirmación de pago en curso o confirma antes (y esto responde 409) o ve la CANCELADA;
-     * nunca queda una reserva pagada con sus retenciones liberadas.
+     * Abandona un carrito sin pagar (D12). Sobre una reserva pagada responde 409: se cancela por ítem
+     * (E4). En la transacción, con la reserva bloqueada, se sueltan los asientos y se marca CANCELADA;
+     * las retenciones se liberan después del commit (HTTP, mejor esfuerzo), sin conexión ni locks
+     * abiertos. Una confirmación de pago en curso o confirma antes (y esto responde 409) o ve la
+     * CANCELADA y reembolsa: nunca queda una reserva pagada con sus retenciones liberadas.
      */
     @Transactional
     public void abandonar(Long reservaId, Long usuarioId) {
@@ -190,17 +194,19 @@ public class CarritoService {
         if (reserva.getEstado() == ReservationStatus.CANCELADA || reserva.getEstado() == ReservationStatus.EXPIRADA) {
             throw new BookingException("RESERVA_CERRADA", "La reserva ya está cerrada.", HttpStatus.CONFLICT);
         }
-        inventario.liberarRetenciones(reserva);
         inventario.liberarAsientos(reserva);
         reserva.getDetalles().forEach(d -> d.setPaymentStatus(PaymentStatus.CANCELADO));
         reserva.setEstado(ReservationStatus.CANCELADA);
         reserva.setMotivoCancelacion(MOTIVO_ABANDONADA);
         bookingRepository.save(reserva);
+        // Los ids se toman ahora: después del commit la entidad ya no tiene sesión
+        List<UUID> retenciones = CarritoCalculo.estadiasActivas(reserva).stream().map(EstadiaHotel::getRetencionId).toList();
+        despuesDelCommit(() -> retenciones.forEach(inventario::liberarRetencion));
         log.info("El usuario {} abandonó el carrito {}", usuarioId, reservaId);
     }
 
     private Reservation carritoAbierto(Long usuarioId) {
-        Reservation carrito = soporte.carritoAbierto(usuarioId).orElseThrow(() -> new BookingException(
+        Reservation carrito = soporte.carritoAbiertoBloqueado(usuarioId).orElseThrow(() -> new BookingException(
                 "CARRITO_NO_ENCONTRADO", "No tenés un carrito activo.", HttpStatus.NOT_FOUND));
         soporte.verificarModificable(carrito); // vencido: 410 CARRITO_EXPIRADO
         return carrito;

@@ -27,6 +27,14 @@ public interface BookingRepository extends JpaRepository<Reservation, Long> {
                                                           LocalDateTime limite);
 
     /**
+     * Ids de los carritos abiertos del usuario, el más nuevo primero. Solo el id: así la entidad se lee
+     * recién con {@link #findByIdForUpdate}, bloqueada y fresca, y no una copia anterior al bloqueo.
+     */
+    @Query("SELECT r.id FROM Reservation r WHERE r.creadorId = :creadorId AND r.estado IN :estados ORDER BY r.id DESC")
+    List<Long> findIdsCarritoAbierto(@Param("creadorId") Long creadorId,
+                                     @Param("estados") Collection<ReservationStatus> estados);
+
+    /**
      * La reserva con su fila bloqueada (FOR UPDATE) hasta el fin de la transacción. La usan la
      * confirmación del pago, el vencimiento y el abandono, para que ninguno pise al otro.
      */

@@ -94,7 +94,26 @@ class CarritoServiceTest {
     }
 
     private void conCarritoActivo(Reservation activo) {
-        when(bookingRepository.findFirstByCreadorIdAndEstadoInOrderByIdDesc(eq(7L), any())).thenReturn(Optional.ofNullable(activo));
+        lenient().when(bookingRepository.findFirstByCreadorIdAndEstadoInOrderByIdDesc(eq(7L), any())).thenReturn(Optional.ofNullable(activo));
+        lenient().when(bookingRepository.findIdsCarritoAbierto(eq(7L), any()))
+                .thenReturn(activo == null ? List.of() : List.of(activo.getId()));
+    }
+
+    /** La misma reserva 12 tal como quedó en la base después de que otro pedido la confirmara. */
+    private Reservation confirmadaEnLaBase() {
+        Reservation c = Reservation.builder().id(12L).creadorId(7L).cantidadPasajeros(0)
+                .tipoPago(PaymentType.SINGLE_PAYMENT).estado(ReservationStatus.CONFIRMADA)
+                .limiteTiempo(AHORA.plusMinutes(10)).build();
+        EstadiaHotel e = new EstadiaHotel();
+        e.setId(3L);
+        e.setReservation(c);
+        e.setRetencionId(UUID.randomUUID());
+        e.setPrecioTotal(new BigDecimal("580000.00"));
+        e.setTitularNombre("Ana Pérez");
+        e.setEstadoPago(PaymentStatus.PAGADO);
+        c.getEstadias().add(e);
+        when(bookingRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(c));
+        return c;
     }
 
     private static AgregarEstadiaRequest pedido() {
@@ -164,7 +183,7 @@ class CarritoServiceTest {
             creado.set(r);
             return r;
         });
-        when(bookingRepository.findById(40L)).thenAnswer(inv -> Optional.of(creado.get()));
+        when(bookingRepository.findByIdForUpdate(40L)).thenAnswer(inv -> Optional.of(creado.get()));
         UUID ret = UUID.randomUUID();
         when(hotelClient.crearRetencion(any())).thenReturn(retencion(ret, "ARS"));
 
@@ -348,14 +367,16 @@ class CarritoServiceTest {
     @Test
     void abandonarLiberaRetencionesYAsientos() {
         conVueloYPasajeros();
-        estadia(3L, "Ana Pérez");
+        EstadiaHotel e = estadia(3L, "Ana Pérez");
 
         service.abandonar(12L, 7L);
 
-        // Primero lo remoto (hotel-service) y después los asientos: los FOR UPDATE no cruzan llamadas HTTP
-        org.mockito.InOrder orden = org.mockito.Mockito.inOrder(inventario);
-        orden.verify(inventario).liberarRetenciones(carrito);
+        // En la transacción: asientos y estado; lo remoto (hotel-service) recién después del commit, sin
+        // conexión ni locks abiertos
+        org.mockito.InOrder orden = org.mockito.Mockito.inOrder(inventario, bookingRepository);
         orden.verify(inventario).liberarAsientos(carrito);
+        orden.verify(bookingRepository).save(carrito);
+        orden.verify(inventario).liberarRetencion(e.getRetencionId());
         assertEquals(ReservationStatus.CANCELADA, carrito.getEstado());
         assertEquals("ABANDONADA", carrito.getMotivoCancelacion());
         assertEquals(PaymentStatus.CANCELADO, carrito.getDetalles().get(0).getPaymentStatus());
@@ -363,7 +384,7 @@ class CarritoServiceTest {
 
     @Test
     void abandonarBloqueaLaReservaAntesDeSoltarLasRetenciones() {
-        estadia(3L, "Ana Pérez");
+        EstadiaHotel e = estadia(3L, "Ana Pérez");
 
         service.abandonar(12L, 7L);
 
@@ -371,7 +392,8 @@ class CarritoServiceTest {
         // las retenciones ya liberadas: o confirma antes (y esto responde 409) o ve la CANCELADA
         org.mockito.InOrder orden = org.mockito.Mockito.inOrder(bookingRepository, inventario);
         orden.verify(bookingRepository).findByIdForUpdate(12L);
-        orden.verify(inventario).liberarRetenciones(carrito);
+        orden.verify(inventario).liberarAsientos(carrito);
+        orden.verify(inventario).liberarRetencion(e.getRetencionId());
         verify(bookingRepository, never()).findById(12L);
     }
 
@@ -383,7 +405,8 @@ class CarritoServiceTest {
 
         assertEquals("USAR_CANCELACION_POR_ITEM", ex.getCodigo());
         assertEquals(HttpStatus.CONFLICT, ex.getStatus());
-        verify(inventario, never()).liberarRetenciones(any());
+        verify(inventario, never()).liberarRetencion(any());
+        verify(inventario, never()).liberarAsientos(any());
     }
 
     @Test
@@ -398,7 +421,8 @@ class CarritoServiceTest {
         BookingException ex = assertThrows(BookingException.class, () -> service.abandonar(12L, 9L));
 
         assertEquals(HttpStatus.FORBIDDEN, ex.getStatus());
-        verify(inventario, never()).liberarRetenciones(any());
+        verify(inventario, never()).liberarRetencion(any());
+        verify(inventario, never()).liberarAsientos(any());
     }
 
     @Test
@@ -625,5 +649,76 @@ class CarritoServiceTest {
 
         assertEquals(12L, r.getIdCarrito());
         assertEquals(1, carrito.getEstadias().size());
+    }
+
+    @Test
+    void titularesSobreUnaReservaYaConfirmadaResponden409SinTocarLasEstadias() {
+        estadia(3L, null);
+        Reservation enLaBase = confirmadaEnLaBase();
+
+        BookingException ex = assertThrows(BookingException.class, () -> service.cargarTitulares(12L,
+                List.of(new TitularRequest(3L, "Otro Nombre", "40111222", "1155555555")), 7L));
+
+        assertEquals("ESTADO_INVALIDO", ex.getCodigo());
+        assertEquals(HttpStatus.CONFLICT, ex.getStatus());
+        assertEquals("Ana Pérez", enLaBase.getEstadias().get(0).getTitularNombre());
+        assertEquals(PaymentStatus.PAGADO, enLaBase.getEstadias().get(0).getEstadoPago());
+        assertNull(carrito.getEstadias().get(0).getTitularNombre());
+        verify(bookingRepository, never()).save(any());
+    }
+
+    @Test
+    void quitarUnaEstadiaReleeLaReservaBloqueada() {
+        estadia(3L, null);
+        conCarritoActivo(carrito);
+        Reservation enLaBase = confirmadaEnLaBase();
+
+        BookingException ex = assertThrows(BookingException.class, () -> service.quitarEstadia(3L, 7L));
+
+        assertEquals("ESTADO_INVALIDO", ex.getCodigo());
+        assertEquals(1, enLaBase.getEstadias().size());
+        verify(inventario, never()).liberarRetencion(any());
+    }
+
+    @Test
+    void quitarElVueloReleeLaReservaBloqueada() {
+        conVueloYPasajeros();
+        conCarritoActivo(carrito);
+        confirmadaEnLaBase();
+
+        assertEquals("ESTADO_INVALIDO", assertThrows(BookingException.class, () -> service.quitarVuelo(7L)).getCodigo());
+
+        verify(inventario, never()).liberarAsientos(any());
+    }
+
+    @Test
+    void agregarUnaEstadiaGuardaSobreLaReservaBloqueada() {
+        conCarritoActivo(carrito);
+        UUID ret = UUID.randomUUID();
+        when(hotelClient.crearRetencion(any())).thenReturn(retencion(ret, "ARS"));
+        Reservation enLaBase = confirmadaEnLaBase();
+
+        assertEquals("ESTADO_INVALIDO", assertThrows(BookingException.class,
+                () -> service.agregarEstadia(pedido(), 7L)).getCodigo());
+
+        assertEquals(1, enLaBase.getEstadias().size());
+        verify(inventario).liberarRetencion(ret);
+    }
+
+    @Test
+    void abandonarLiberaLasRetencionesRecienDespuesDelCommit() {
+        EstadiaHotel e = estadia(3L, "Ana Pérez");
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.abandonar(12L, 7L);
+            verify(inventario, never()).liberarRetencion(any());
+
+            org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
+
+            verify(inventario).liberarRetencion(e.getRetencionId());
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 }

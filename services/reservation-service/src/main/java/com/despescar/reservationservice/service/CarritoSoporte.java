@@ -9,6 +9,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -54,6 +55,18 @@ public class CarritoSoporte {
     /** El carrito abierto del usuario aunque ya haya vencido (lo cierra el scheduler). */
     public Optional<Reservation> carritoAbierto(Long usuarioId) {
         return bookingRepository.findFirstByCreadorIdAndEstadoInOrderByIdDesc(usuarioId, ABIERTOS);
+    }
+
+    /**
+     * El carrito abierto del usuario, leído con la fila bloqueada hasta el fin de la transacción.
+     * Primero se busca solo el id: la entidad se carga recién bloqueada, así no queda una copia
+     * anterior al bloqueo en el contexto de persistencia. Todo cambio del carrito empieza por acá
+     * (reserva y después asientos, el mismo orden que la confirmación del pago).
+     */
+    public Optional<Reservation> carritoAbiertoBloqueado(Long usuarioId) {
+        return bookingRepository.findIdsCarritoAbierto(usuarioId, ABIERTOS).stream().findFirst()
+                .flatMap(bookingRepository::findByIdForUpdate)
+                .filter(r -> Objects.equals(usuarioId, r.getCreadorId()));
     }
 
     /**

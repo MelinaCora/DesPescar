@@ -8,6 +8,7 @@ import com.despescar.reservationservice.entity.EstadiaHotel;
 import com.despescar.reservationservice.entity.Reservation;
 import com.despescar.reservationservice.entity.ReservationDetail;
 import com.despescar.reservationservice.entity.Seat;
+import com.despescar.reservationservice.enums.ReservationStatus;
 import com.despescar.reservationservice.exception.BookingException;
 import com.despescar.reservationservice.repository.SeatRepository;
 import java.time.Clock;
@@ -66,15 +67,20 @@ public class InventarioCarrito {
         return carrito.getLimiteTiempo().atZone(clock.getZone()).toInstant();
     }
 
-    /** Los asientos que el creador tiene retenidos en el vuelo de ida vencen con el carrito (D9). */
+    /**
+     * Los asientos que el creador tiene retenidos en el vuelo de ida vencen con el carrito (D9) y
+     * quedan atados a él (reservaId). No toca los que ya son de otro carrito.
+     */
     @Transactional(propagation = Propagation.MANDATORY)
     public void alinearBloqueos(Reservation carrito) {
         if (!CarritoCalculo.tieneVuelo(carrito)) {
             return;
         }
         for (Seat seat : seatRepository.findByFlightId(carrito.getFlightIds().get(0))) {
-            if (RESERVADO_TEMPORAL.equals(seat.getStatusSeat()) && Objects.equals(carrito.getCreadorId(), seat.getBlockedByUserId())) {
+            if (RESERVADO_TEMPORAL.equals(seat.getStatusSeat()) && Objects.equals(carrito.getCreadorId(), seat.getBlockedByUserId())
+                    && (seat.getReservaId() == null || seat.getReservaId().equals(carrito.getId()))) {
                 seat.setBloqueadoHasta(carrito.getLimiteTiempo());
+                seat.setReservaId(carrito.getId());
                 seatRepository.save(seat);
             }
         }
@@ -93,7 +99,7 @@ public class InventarioCarrito {
         List<Seat> asientos = new ArrayList<>();
         for (ReservationDetail detalle : detallesOrdenados(reserva)) {
             Optional<Seat> asiento = seatRepository.findByFlightIdAndNumberSeatForUpdate(vueloIda, detalle.getOutboundSeatNumber());
-            if (asiento.isEmpty() || !sePuedeOcupar(asiento.get(), reserva.getCreadorId())) {
+            if (asiento.isEmpty() || !sePuedeOcupar(asiento.get(), reserva)) {
                 return false;
             }
             asientos.add(asiento.get());
@@ -102,13 +108,18 @@ public class InventarioCarrito {
             seat.setStatusSeat(OCUPADO);
             seat.setBlockedByUserId(reserva.getCreadorId());
             seat.setBloqueadoHasta(null);
+            seat.setReservaId(reserva.getId());
             seatRepository.save(seat);
             avisar(seat);
         }
         return true;
     }
 
-    /** Devuelve a DISPONIBLE los asientos de los pasajeros que tiene tomados el creador. */
+    /**
+     * Devuelve a DISPONIBLE los asientos de los pasajeros que son de esta reserva. Un asiento pagado
+     * (OCUPADO) solo se suelta si lo ocupó esta misma reserva; un bloqueo temporal, si es de esta
+     * reserva o del creador sin carrito. Nunca toca los de otro carrito del mismo usuario.
+     */
     @Transactional(propagation = Propagation.MANDATORY)
     public void liberarAsientos(Reservation reserva) {
         if (!CarritoCalculo.tieneVuelo(reserva)) {
@@ -119,20 +130,45 @@ public class InventarioCarrito {
             seatRepository.findByFlightIdAndNumberSeatForUpdate(vueloIda, detalle.getOutboundSeatNumber())
                     .filter(s -> Objects.equals(reserva.getCreadorId(), s.getBlockedByUserId()))
                     .filter(s -> !DISPONIBLE.equals(s.getStatusSeat()))
+                    .filter(s -> esDeLaReserva(s, reserva)
+                            || (s.getReservaId() == null && RESERVADO_TEMPORAL.equals(s.getStatusSeat())))
                     .ifPresent(s -> {
                         s.setStatusSeat(DISPONIBLE);
                         s.setBlockedByUserId(null);
                         s.setBloqueadoHasta(null);
+                        s.setReservaId(null);
                         seatRepository.save(s);
                         avisar(s);
+                    });
+        }
+        desatarElegidosSinPasajero(reserva, vueloIda);
+    }
+
+    /**
+     * Los asientos elegidos en el mapa quedan atados al carrito al entrar el vuelo aunque todavía no
+     * tengan pasajero. Cuando el carrito suelta el vuelo siguen bloqueados por el usuario hasta su
+     * vencimiento, pero ya sin carrito: si no, el carrito siguiente del usuario no podría usarlos.
+     */
+    private void desatarElegidosSinPasajero(Reservation reserva, UUID vueloIda) {
+        if (reserva.getId() == null) {
+            return;
+        }
+        for (UUID id : seatRepository.findIdsByFlightIdAndReservaId(vueloIda, reserva.getId())) {
+            seatRepository.findByIdForUpdate(id)
+                    .filter(s -> RESERVADO_TEMPORAL.equals(s.getStatusSeat()) && esDeLaReserva(s, reserva))
+                    .ifPresent(s -> {
+                        s.setReservaId(null);
+                        seatRepository.save(s);
                     });
         }
     }
 
     /**
      * Confirma las retenciones de las estadías activas con el titular. Si el scheduler ya las
-     * había liberado (pago tardío), retiene de nuevo y confirma. Si alguna no tiene lugar, libera
-     * lo confirmado en este intento y devuelve false. Los errores de comunicación se propagan.
+     * había liberado (pago tardío), retiene de nuevo y confirma. Si alguna no tiene lugar devuelve
+     * false; los errores de comunicación se propagan. En los dos casos se sueltan solo las retenciones
+     * creadas en este intento: las que ya tenía el carrito son suyas (otro intento pudo haberlas
+     * confirmado y commiteado) y las libera quien cierre la reserva.
      */
     public boolean confirmarEstadias(Reservation reserva) {
         return confirmarEstadias(reserva, false);
@@ -149,22 +185,24 @@ public class InventarioCarrito {
     }
 
     private boolean confirmarEstadias(Reservation reserva, boolean renovar) {
-        List<UUID> tomadas = new ArrayList<>();
+        List<UUID> nuevas = new ArrayList<>();
         for (EstadiaHotel estadia : CarritoCalculo.estadiasActivas(reserva)) {
+            UUID anterior = estadia.getRetencionId();
             try {
                 if (renovar) {
                     retenerYConfirmar(reserva, estadia);
                 } else {
                     confirmarUna(reserva, estadia);
                 }
-                tomadas.add(estadia.getRetencionId());
+                if (!Objects.equals(anterior, estadia.getRetencionId())) {
+                    nuevas.add(estadia.getRetencionId());
+                }
             } catch (BookingException ex) {
+                nuevas.forEach(this::liberarRetencion);
                 if (!FALTA_DE_LUGAR.contains(ex.getCodigo())) {
-                    tomadas.forEach(this::liberarRetencion);
                     throw ex;
                 }
                 log.warn("La estadía {} de la reserva {} ya no tiene lugar: {}", estadia.getId(), reserva.getId(), ex.getMessage());
-                tomadas.forEach(this::liberarRetencion);
                 return false;
             }
         }
@@ -211,12 +249,28 @@ public class InventarioCarrito {
         }
     }
 
-    private static boolean sePuedeOcupar(Seat seat, Long creador) {
+    /**
+     * Libre, o ya de esta reserva (reintento idempotente), o bloqueado por el creador desde el mapa sin
+     * carrito. Esto último no vale para una reserva EXPIRADA (pago tardío): el usuario puede tener ese
+     * bloqueo para otra compra.
+     */
+    private static boolean sePuedeOcupar(Seat seat, Reservation reserva) {
         if (DISPONIBLE.equals(seat.getStatusSeat())) {
             return true;
         }
-        return (RESERVADO_TEMPORAL.equals(seat.getStatusSeat()) || OCUPADO.equals(seat.getStatusSeat()))
-                && Objects.equals(creador, seat.getBlockedByUserId());
+        boolean delCreador = Objects.equals(reserva.getCreadorId(), seat.getBlockedByUserId());
+        if (!delCreador) {
+            return false;
+        }
+        if (esDeLaReserva(seat, reserva)) {
+            return RESERVADO_TEMPORAL.equals(seat.getStatusSeat()) || OCUPADO.equals(seat.getStatusSeat());
+        }
+        return RESERVADO_TEMPORAL.equals(seat.getStatusSeat()) && seat.getReservaId() == null
+                && reserva.getEstado() != ReservationStatus.EXPIRADA;
+    }
+
+    private static boolean esDeLaReserva(Seat seat, Reservation reserva) {
+        return seat.getReservaId() != null && seat.getReservaId().equals(reserva.getId());
     }
 
     private static List<ReservationDetail> detallesOrdenados(Reservation reserva) {

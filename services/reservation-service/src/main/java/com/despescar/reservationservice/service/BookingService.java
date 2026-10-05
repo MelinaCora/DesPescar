@@ -61,8 +61,9 @@ public class BookingService {
     /**
      * Suma la parte de vuelo al carrito activo del usuario o crea uno (D11). El precio por
      * pasajero se calcula acá con flight-service y queda congelado (D1). hotelId se ignora.
+     * La cotización (HTTP) va sin transacción; después el carrito se relee bloqueado (reserva y
+     * después asientos, el mismo orden que la confirmación del pago) y se revalida antes de guardar.
      */
-    @Transactional
     public BookingInitResponse initializeBooking(
             BookingInitRequest request,
             String authorizationHeader,
@@ -72,11 +73,10 @@ public class BookingService {
             throw new BookingException("PAGO_DIVIDIDO_NO_DISPONIBLE",
                     "El pago dividido todavía no está disponible.", HttpStatus.BAD_REQUEST);
         }
-        Optional<Reservation> activo = soporte.carritoActivo(authenticatedUserId);
-        if (activo.isPresent() && CarritoCalculo.tieneVuelo(activo.get())) {
-            throw new BookingException("CARRITO_YA_TIENE_VUELO",
-                    "Tu carrito ya tiene un vuelo. Quitalo para agregar otro.", HttpStatus.CONFLICT);
-        }
+        Optional<Long> activo = transaccion.execute(status -> soporte.carritoActivo(authenticatedUserId).map(r -> {
+            verificarSinVuelo(r);
+            return r.getId();
+        }));
         if (request.getPackageId() != null) {
             validarYObtenerPaquete(request.getPackageId(), authorizationHeader);
         }
@@ -84,26 +84,44 @@ public class BookingService {
         PrecioVuelo.Cotizacion cotizacion = precioVuelo.cotizar(
                 request.getFlightIds(), request.getBaggageIds(), request.getCantidadPasajeros());
 
-        Reservation carrito = activo.orElseGet(() -> soporte.crearCarrito(authenticatedUserId));
-        carrito.getFlightIds().clear();
-        carrito.getFlightIds().addAll(request.getFlightIds());
-        carrito.setBaggageIds(new ArrayList<>(request.getBaggageIds()));
-        carrito.setCantidadPasajeros(request.getCantidadPasajeros());
-        carrito.setPackageId(request.getPackageId());
-        carrito.setPrecioVueloPorPasajero(cotizacion.precioPorPasajero());
-        carrito.setTarifasVuelo(cotizacion.tarifas());
-        carrito.setSalidaVuelo(cotizacion.salida());
-        carrito.setEstado(CarritoCalculo.estadoAbierto(carrito));
+        Long carritoId = activo != null && activo.isPresent()
+                ? activo.get()
+                : soporte.crearCarrito(authenticatedUserId).getId();
+        return transaccion.execute(status -> {
+            Reservation carrito = bookingRepository.findByIdForUpdate(carritoId).orElseThrow(() -> new BookingException(
+                    "CARRITO_NO_ENCONTRADO", "El carrito ya no existe.", HttpStatus.NOT_FOUND));
+            if (!Objects.equals(carrito.getCreadorId(), authenticatedUserId)) {
+                throw new BookingException("ACCESO_DENEGADO", "No tenés acceso a esta reserva.", HttpStatus.FORBIDDEN);
+            }
+            soporte.verificarModificable(carrito);
+            verificarSinVuelo(carrito); // otro pedido pudo sumarle un vuelo mientras se cotizaba
+            carrito.getFlightIds().clear();
+            carrito.getFlightIds().addAll(request.getFlightIds());
+            carrito.setBaggageIds(new ArrayList<>(request.getBaggageIds()));
+            carrito.setCantidadPasajeros(request.getCantidadPasajeros());
+            carrito.setPackageId(request.getPackageId());
+            carrito.setPrecioVueloPorPasajero(cotizacion.precioPorPasajero());
+            carrito.setTarifasVuelo(cotizacion.tarifas());
+            carrito.setSalidaVuelo(cotizacion.salida());
+            carrito.setEstado(CarritoCalculo.estadoAbierto(carrito));
 
-        Reservation guardado = bookingRepository.save(carrito);
-        // Los asientos que el usuario eligió en el mapa vencen con el carrito (D9)
-        inventario.alinearBloqueos(guardado);
+            Reservation guardado = bookingRepository.save(carrito);
+            // Los asientos que el usuario eligió en el mapa vencen con el carrito (D9)
+            inventario.alinearBloqueos(guardado);
 
-        return BookingInitResponse.builder()
-                .bookingId(guardado.getId())
-                .status(guardado.getEstado().name())
-                .paymentType(guardado.getTipoPago())
-                .build();
+            return BookingInitResponse.builder()
+                    .bookingId(guardado.getId())
+                    .status(guardado.getEstado().name())
+                    .paymentType(guardado.getTipoPago())
+                    .build();
+        });
+    }
+
+    private static void verificarSinVuelo(Reservation carrito) {
+        if (CarritoCalculo.tieneVuelo(carrito)) {
+            throw new BookingException("CARRITO_YA_TIENE_VUELO",
+                    "Tu carrito ya tiene un vuelo. Quitalo para agregar otro.", HttpStatus.CONFLICT);
+        }
     }
 
     /**
@@ -158,7 +176,8 @@ public class BookingService {
                 throw ex;
             }
 
-            // 3. Lo remoto, ya fuera de la transacción
+            // 3. Lo remoto y los avisos, ya fuera de la transacción
+            avisar(id, cierre.aviso());
             switch (cierre.tipo()) {
                 case CONFIRMADA -> {
                     descontarCupos(leida);
@@ -220,10 +239,10 @@ public class BookingService {
         Reservation reserva = bookingRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
         if (reserva.getEstado() == ReservationStatus.CONFIRMADA) {
-            return new Cierre(Cierre.Tipo.RESUELTA, yaConfirmada(reserva, pedido));
+            return new Cierre(Cierre.Tipo.RESUELTA, yaConfirmada(reserva, pedido), null);
         }
         if (cambio(leida, reserva, pedido)) {
-            return new Cierre(Cierre.Tipo.CAMBIO, null);
+            return new Cierre(Cierre.Tipo.CAMBIO, null, null);
         }
         if (conLugar) {
             copiarRetenciones(leida, reserva);
@@ -234,25 +253,31 @@ public class BookingService {
                 reserva.setMotivoCancelacion(null);
                 reserva.setTokenPagoConfirmacion(pedido.getTokenPago());
                 bookingRepository.save(reserva);
-                notificarCambioEnTiempoReal(reserva);
-                return new Cierre(Cierre.Tipo.CONFIRMADA, ConfirmacionPagoResponse.confirmada());
+                return new Cierre(Cierre.Tipo.CONFIRMADA, ConfirmacionPagoResponse.confirmada(),
+                        reservationMapper.toResponse(reserva));
             }
         }
         String motivo = evaluacion.motivoSinLugar();
-        inventario.liberarAsientos(reserva);
+        if (reserva.getEstado() != ReservationStatus.EXPIRADA) {
+            // Los de una EXPIRADA ya los soltó el scheduler; pueden estar en otro carrito del usuario
+            inventario.liberarAsientos(reserva);
+        }
         reserva.getDetalles().forEach(d -> d.setPaymentStatus(PaymentStatus.CANCELADO));
         reserva.setEstado(ReservationStatus.CANCELADA);
         reserva.setMotivoCancelacion(motivo);
         bookingRepository.save(reserva);
-        notificarCambioEnTiempoReal(reserva);
         log.warn("Reserva {} cancelada al confirmar el pago {}: {}", id, pedido.getTokenPago(), motivo);
         return new Cierre(Cierre.Tipo.SIN_LUGAR, ConfirmacionPagoResponse.cancelada(motivo,
                 ConfirmacionPagoResponse.PAGO_TARDIO_SIN_DISPONIBILIDAD.equals(motivo)
                         ? "El pago llegó después del vencimiento y ya no hay lugar para todo el carrito."
-                        : "Ya no hay lugar para todo el carrito."));
+                        : "Ya no hay lugar para todo el carrito."), reservationMapper.toResponse(reserva));
     }
 
-    /** El mismo pago reenviado es idempotente; otro pago sobre una reserva confirmada es un duplicado. */
+    /**
+     * El mismo pago reenviado es idempotente; otro pago sobre una reserva confirmada es un duplicado.
+     * Una reserva CONFIRMADA sin token guardado (anterior a la columna) también responde PAGO_DUPLICADO:
+     * es seguro solo porque esas bases se recrean (D21) y todas las confirmaciones nuevas guardan el token.
+     */
     private static ConfirmacionPagoResponse yaConfirmada(Reservation reserva, PaymentConfirmationRequest pedido) {
         return Objects.equals(reserva.getTokenPagoConfirmacion(), pedido.getTokenPago())
                 ? ConfirmacionPagoResponse.confirmada()
@@ -270,7 +295,15 @@ public class BookingService {
                 || !idsEstadias(actual).equals(idsEstadias(leida))
                 || !new ArrayList<>(actual.getFlightIds()).equals(new ArrayList<>(leida.getFlightIds()))
                 || !CarritoCalculo.datosCompletos(actual)
-                || !coincideElMonto(actual, pedido);
+                || !coincideElMonto(actual, pedido)
+                || !titulares(actual).equals(titulares(leida));
+    }
+
+    /** El hotel se confirma con el nombre del titular: si cambió, hay que confirmar con el vigente. */
+    private static Map<Long, String> titulares(Reservation reserva) {
+        Map<Long, String> nombres = new HashMap<>();
+        CarritoCalculo.estadiasActivas(reserva).forEach(e -> nombres.put(e.getId(), e.getTitularNombre()));
+        return nombres;
     }
 
     private static Set<Long> idsEstadias(Reservation reserva) {
@@ -334,7 +367,8 @@ public class BookingService {
         }
     }
 
-    private record Cierre(Tipo tipo, ConfirmacionPagoResponse respuesta) {
+    /** aviso: lo que se manda por WebSocket después del commit (null si la reserva no cambió). */
+    private record Cierre(Tipo tipo, ConfirmacionPagoResponse respuesta, ReservationResponse aviso) {
         enum Tipo { CONFIRMADA, SIN_LUGAR, RESUELTA, CAMBIO }
     }
 
@@ -361,9 +395,16 @@ public class BookingService {
         return paquete;
     }
 
-    private void notificarCambioEnTiempoReal(Reservation reserva) {
-        ReservationResponse response = reservationMapper.toResponse(reserva);
-        messagingTemplate.convertAndSend("/topic/reserva/" + reserva.getId(), response);
+    /** Informativo: se manda después del commit y si falla no cambia el resultado. */
+    private void avisar(Long id, ReservationResponse aviso) {
+        if (aviso == null) {
+            return;
+        }
+        try {
+            messagingTemplate.convertAndSend("/topic/reserva/" + id, aviso);
+        } catch (RuntimeException ex) {
+            log.warn("No se pudo avisar el cambio de la reserva {}: {}", id, ex.getMessage());
+        }
     }
 
     @Transactional

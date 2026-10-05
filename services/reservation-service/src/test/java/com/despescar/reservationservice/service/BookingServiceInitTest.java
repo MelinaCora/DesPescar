@@ -90,16 +90,22 @@ class BookingServiceInitTest {
     private void carritoActual(Reservation carrito) {
         when(bookingRepository.findFirstByCreadorIdAndEstadoInOrderByIdDesc(eq(7L), any()))
                 .thenReturn(Optional.ofNullable(carrito));
+        if (carrito != null) {
+            org.mockito.Mockito.lenient().when(bookingRepository.findByIdForUpdate(carrito.getId())).thenReturn(Optional.of(carrito));
+        }
     }
 
     private void guardarAsignaId() {
+        java.util.concurrent.atomic.AtomicReference<Reservation> creado = new java.util.concurrent.atomic.AtomicReference<>();
         org.mockito.stubbing.Answer<Reservation> asignaId = inv -> {
             Reservation r = inv.getArgument(0);
             if (r.getId() == null) {
                 r.setId(12L);
+                creado.set(r);
             }
             return r;
         };
+        org.mockito.Mockito.lenient().when(bookingRepository.findByIdForUpdate(12L)).thenAnswer(inv -> Optional.ofNullable(creado.get()));
         when(bookingRepository.save(any(Reservation.class))).thenAnswer(asignaId);
         when(bookingRepository.saveAndFlush(any(Reservation.class))).thenAnswer(asignaId); // el carrito nuevo se crea con flush
     }
@@ -237,5 +243,38 @@ class BookingServiceInitTest {
         BookingException ex = assertThrows(BookingException.class, () -> service.obtenerReserva(5L, 9L));
 
         assertEquals(HttpStatus.FORBIDDEN, ex.getStatus());
+    }
+
+    @Test
+    void siOtroPedidoLeSumoUnVueloMientrasSeCotizabaResponde409SinGuardar() {
+        Reservation leido = carrito(30L, ReservationStatus.INICIADA, AHORA.plusMinutes(5));
+        carritoActual(leido);
+        Reservation enLaBase = carrito(30L, ReservationStatus.INICIADA, AHORA.plusMinutes(5));
+        enLaBase.getFlightIds().add(UUID.randomUUID());
+        when(bookingRepository.findByIdForUpdate(30L)).thenReturn(Optional.of(enLaBase));
+        vueloDisponible();
+
+        BookingException ex = assertThrows(BookingException.class,
+                () -> service.initializeBooking(pedido(PaymentType.SINGLE_PAYMENT), null, 7L));
+
+        assertEquals("CARRITO_YA_TIENE_VUELO", ex.getCodigo());
+        verify(bookingRepository, never()).save(any());
+        verify(inventario, never()).alinearBloqueos(any());
+    }
+
+    @Test
+    void cotizaElVueloAntesDeBloquearElCarrito() {
+        Reservation deHotel = carrito(30L, ReservationStatus.INICIADA, AHORA.plusMinutes(5));
+        carritoActual(deHotel);
+        vueloDisponible();
+        when(bookingRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.initializeBooking(pedido(PaymentType.SINGLE_PAYMENT), null, 7L);
+
+        org.mockito.InOrder orden = org.mockito.Mockito.inOrder(flightClient, bookingRepository, inventario);
+        orden.verify(flightClient).getFlightByNumber(VUELO);
+        orden.verify(bookingRepository).findByIdForUpdate(30L);
+        orden.verify(bookingRepository).save(deHotel);
+        orden.verify(inventario).alinearBloqueos(deHotel);
     }
 }

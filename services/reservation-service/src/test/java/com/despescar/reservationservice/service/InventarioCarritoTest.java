@@ -132,6 +132,7 @@ class InventarioCarritoTest {
     @Test
     void liberarAsientosSoloTocaLosDelCreador() {
         Seat mio = asiento("1A", "OCUPADO", 7L);
+        mio.setReservaId(12L);
         Seat ajeno = asiento("1B", "RESERVADO_TEMPORAL", 9L);
 
         inventario.liberarAsientos(reserva);
@@ -227,7 +228,7 @@ class InventarioCarritoTest {
     }
 
     @Test
-    void sinLugarDevuelveLoTomadoEnElIntento() {
+    void sinLugarNoSueltaLasRetencionesPreviasDelCarrito() {
         UUID primera = UUID.randomUUID();
         UUID segunda = UUID.randomUUID();
         estadia(primera);
@@ -238,7 +239,31 @@ class InventarioCarritoTest {
 
         assertFalse(inventario.confirmarEstadias(reserva));
 
-        verify(hotelClient).liberarRetencion(primera);
+        // La primera es del carrito (quizás ya la usa otro intento que confirmó): no se suelta acá.
+        // Si la reserva se cancela, BookingService la libera después del commit.
+        verify(hotelClient, never()).liberarRetencion(any());
+    }
+
+    @Test
+    void sinLugarSoloSueltaLaRetencionRescatadaEnEsteIntento() {
+        UUID vieja = UUID.randomUUID();
+        UUID nueva = UUID.randomUUID();
+        UUID segunda = UUID.randomUUID();
+        estadia(vieja);
+        estadia(segunda);
+        when(hotelClient.confirmarRetencion(vieja, "Ana Pérez"))
+                .thenThrow(new BookingException("RETENCION_LIBERADA", "liberada", HttpStatus.CONFLICT));
+        RetencionHotelResponse creada = new RetencionHotelResponse();
+        creada.setRetencionId(nueva);
+        when(hotelClient.crearRetencion(any())).thenReturn(creada);
+        when(hotelClient.confirmarRetencion(nueva, "Ana Pérez")).thenReturn(new RetencionHotelResponse());
+        when(hotelClient.confirmarRetencion(segunda, "Ana Pérez"))
+                .thenThrow(new BookingException("SIN_DISPONIBILIDAD_HOTEL", "Sin lugar", HttpStatus.CONFLICT));
+
+        assertFalse(inventario.confirmarEstadias(reserva));
+
+        verify(hotelClient).liberarRetencion(nueva);
+        verify(hotelClient, never()).liberarRetencion(vieja);
         verify(hotelClient, never()).liberarRetencion(segunda);
     }
 
@@ -335,8 +360,8 @@ class InventarioCarritoTest {
 
         assertThrows(BookingException.class, () -> inventario.confirmarEstadias(reserva));
 
-        verify(hotelClient).liberarRetencion(primera);
-        verify(hotelClient, never()).liberarRetencion(segunda);
+        // Un 503 en la segunda no suelta la primera: es del carrito y otro intento pudo confirmarla
+        verify(hotelClient, never()).liberarRetencion(any());
     }
 
     @Test
@@ -367,6 +392,7 @@ class InventarioCarritoTest {
     @Test
     void confirmarUnAsientoYaOcupadoPorElCreadorEsIdempotente() {
         Seat a = asiento("1A", "OCUPADO", 7L);
+        a.setReservaId(12L);
 
         assertTrue(inventario.confirmarAsientos(reserva));
         assertTrue(inventario.confirmarAsientos(reserva));
@@ -432,5 +458,144 @@ class InventarioCarritoTest {
         asiento("1A", "DISPONIBLE", null);
         inventario.liberarAsientos(reserva);
         assertTrue(inventario.confirmarAsientos(reserva));
+    }
+
+    @Test
+    void noOcupaUnAsientoQueElCreadorTieneParaOtroCarrito() {
+        Seat a = asiento("1A", "RESERVADO_TEMPORAL", 7L);
+        a.setReservaId(99L);
+
+        assertFalse(inventario.confirmarAsientos(reserva));
+
+        assertEquals("RESERVADO_TEMPORAL", a.getStatusSeat());
+        assertEquals(99L, a.getReservaId());
+    }
+
+    @Test
+    void noOcupaUnAsientoQueOtraReservaYaPago() {
+        Seat a = asiento("1A", "OCUPADO", 7L);
+        a.setReservaId(99L);
+
+        assertFalse(inventario.confirmarAsientos(reserva));
+    }
+
+    @Test
+    void confirmarDejaElAsientoATadoALaReserva() {
+        Seat a = asiento("1A", "RESERVADO_TEMPORAL", 7L);
+        a.setReservaId(12L);
+        Seat b = asiento("1B", "DISPONIBLE", null);
+
+        assertTrue(inventario.confirmarAsientos(reserva));
+
+        assertEquals(12L, a.getReservaId());
+        assertEquals(12L, b.getReservaId());
+    }
+
+    @Test
+    void unaReservaExpiradaSoloTomaAsientosLibresOSuyos() {
+        reserva.setEstado(ReservationStatus.EXPIRADA);
+        // Bloqueado por el usuario desde el mapa, sin carrito: puede ser para otra compra
+        Seat a = asiento("1A", "RESERVADO_TEMPORAL", 7L);
+
+        assertFalse(inventario.confirmarAsientos(reserva));
+        assertEquals("RESERVADO_TEMPORAL", a.getStatusSeat());
+    }
+
+    @Test
+    void unaReservaExpiradaTomaAsientosDisponibles() {
+        reserva.setEstado(ReservationStatus.EXPIRADA);
+        Seat a = asiento("1A", "DISPONIBLE", null);
+
+        assertTrue(inventario.confirmarAsientos(reserva));
+        assertEquals("OCUPADO", a.getStatusSeat());
+    }
+
+    @Test
+    void liberarNuncaSueltaUnAsientoPagadoPorOtraReserva() {
+        Seat pagado = asiento("1A", "OCUPADO", 7L);
+        pagado.setReservaId(99L);
+        Seat legado = asiento("1B", "OCUPADO", 7L); // pagado antes de reserva_id: no se sabe de quién es
+
+        inventario.liberarAsientos(reserva);
+
+        assertEquals("OCUPADO", pagado.getStatusSeat());
+        assertEquals("OCUPADO", legado.getStatusSeat());
+        verify(seatRepository, never()).save(any());
+    }
+
+    @Test
+    void liberarNoSueltaElBloqueoDeOtroCarritoDelMismoUsuario() {
+        Seat otro = asiento("1A", "RESERVADO_TEMPORAL", 7L);
+        otro.setReservaId(99L);
+
+        inventario.liberarAsientos(reserva);
+
+        assertEquals("RESERVADO_TEMPORAL", otro.getStatusSeat());
+    }
+
+    @Test
+    void liberarSueltaYDesataLosDeEstaReserva() {
+        Seat mio = asiento("1A", "RESERVADO_TEMPORAL", 7L);
+        mio.setReservaId(12L);
+
+        inventario.liberarAsientos(reserva);
+
+        assertEquals("DISPONIBLE", mio.getStatusSeat());
+        assertNull(mio.getReservaId());
+    }
+
+    @Test
+    void alinearBloqueosAtaLosAsientosAlCarrito() {
+        Seat mio = new Seat();
+        mio.setFlightId(VUELO);
+        mio.setNumberSeat("1A");
+        mio.setStatusSeat("RESERVADO_TEMPORAL");
+        mio.setBlockedByUserId(7L);
+        when(seatRepository.findByFlightId(VUELO)).thenReturn(List.of(mio));
+
+        inventario.alinearBloqueos(reserva);
+
+        assertEquals(12L, mio.getReservaId());
+    }
+
+    @Test
+    void liberarDesataLosAsientosElegidosQueNoLlegaronAUnPasajero() {
+        // Elegido en el mapa y atado al carrito al entrar el vuelo, pero sin pasajero cargado: al
+        // soltar el vuelo sigue bloqueado por el usuario, ya sin carrito, y otro carrito suyo lo puede usar
+        Seat elegido = new Seat();
+        elegido.setSeatUuid(UUID.randomUUID());
+        elegido.setFlightId(VUELO);
+        elegido.setNumberSeat("9C");
+        elegido.setStatusSeat("RESERVADO_TEMPORAL");
+        elegido.setBlockedByUserId(7L);
+        elegido.setBloqueadoHasta(LIMITE);
+        elegido.setReservaId(12L);
+        when(seatRepository.findIdsByFlightIdAndReservaId(VUELO, 12L)).thenReturn(List.of(elegido.getSeatUuid()));
+        when(seatRepository.findByIdForUpdate(elegido.getSeatUuid())).thenReturn(Optional.of(elegido));
+
+        inventario.liberarAsientos(reserva);
+
+        assertNull(elegido.getReservaId());
+        assertEquals("RESERVADO_TEMPORAL", elegido.getStatusSeat());
+        assertEquals(7L, elegido.getBlockedByUserId());
+        verify(seatRepository).save(elegido);
+    }
+
+    @Test
+    void liberarNoDesataUnAsientoQueYaSePago() {
+        Seat pagado = new Seat();
+        pagado.setSeatUuid(UUID.randomUUID());
+        pagado.setFlightId(VUELO);
+        pagado.setNumberSeat("9D");
+        pagado.setStatusSeat("OCUPADO");
+        pagado.setBlockedByUserId(7L);
+        pagado.setReservaId(12L);
+        when(seatRepository.findIdsByFlightIdAndReservaId(VUELO, 12L)).thenReturn(List.of(pagado.getSeatUuid()));
+        when(seatRepository.findByIdForUpdate(pagado.getSeatUuid())).thenReturn(Optional.of(pagado));
+
+        inventario.liberarAsientos(reserva);
+
+        assertEquals(12L, pagado.getReservaId());
+        verify(seatRepository, never()).save(any());
     }
 }

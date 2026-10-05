@@ -294,7 +294,8 @@ class BookingServiceConfirmacionTest {
         // Las retenciones viejas de una EXPIRADA son del scheduler: no se confirman
         verify(inventario, never()).confirmarEstadias(any());
         verify(inventario, never()).confirmarAsientos(any());
-        verify(inventario).liberarAsientos(reserva);
+        // Sus asientos ya los soltó el scheduler: liberarlos otra vez podría tocar los de otro carrito
+        verify(inventario, never()).liberarAsientos(any());
     }
 
     @Test
@@ -516,5 +517,71 @@ class BookingServiceConfirmacionTest {
         assertEquals(HttpStatus.GONE, ex.getStatus());
         assertEquals(ReservationStatus.PENDIENTE_PAGO, reserva.getEstado());
         verify(bookingRepository, never()).save(any());
+    }
+
+    @Test
+    void elAvisoPorWebSocketSaleDespuesDelCommit() {
+        when(inventario.confirmarEstadias(reserva)).thenReturn(true);
+        when(inventario.confirmarAsientos(reserva)).thenReturn(true);
+        vueloConNumero();
+
+        service.confirmarPago(12L, pedido(7L, TOTAL));
+
+        InOrder orden = inOrder(inventario, transactionManager, messagingTemplate);
+        orden.verify(inventario).confirmarAsientos(reserva);
+        orden.verify(transactionManager).commit(any());
+        orden.verify(messagingTemplate).convertAndSend(org.mockito.ArgumentMatchers.eq("/topic/reserva/12"), any(Object.class));
+    }
+
+    @Test
+    void unAvisoQueFallaNoCambiaLaRespuesta() {
+        when(inventario.confirmarEstadias(reserva)).thenReturn(true);
+        when(inventario.confirmarAsientos(reserva)).thenReturn(true);
+        vueloConNumero();
+        doThrow(new IllegalStateException("broker caído")).when(messagingTemplate)
+                .convertAndSend(org.mockito.ArgumentMatchers.anyString(), any(Object.class));
+
+        assertEquals("CONFIRMADA", service.confirmarPago(12L, pedido(7L, TOTAL)).estado());
+    }
+
+    @Test
+    void unIntentoQueTerminaDespuesDeQueOtroConfirmoNoSueltaNadaDeEse() {
+        // A confirmó (mismo pago, reintento tras un timeout); B se queda sin lugar en el hotel porque
+        // revalidó tarde: no se cancela ni se suelta ninguna retención de A
+        Reservation leida = carrito();
+        Reservation confirmadaPorA = carrito();
+        confirmadaPorA.setEstado(ReservationStatus.CONFIRMADA);
+        confirmadaPorA.setTokenPagoConfirmacion("MOCK-1");
+        when(bookingRepository.findById(12L)).thenReturn(Optional.of(leida));
+        when(bookingRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(confirmadaPorA));
+        when(inventario.confirmarEstadias(leida)).thenReturn(false);
+
+        ConfirmacionPagoResponse r = service.confirmarPago(12L, pedido(7L, TOTAL));
+
+        assertEquals("CONFIRMADA", r.estado());
+        assertEquals(ReservationStatus.CONFIRMADA, confirmadaPorA.getEstado());
+        verify(inventario, never()).liberarRetenciones(any());
+        verify(inventario, never()).liberarRetencion(any());
+        verify(inventario, never()).liberarAsientos(any());
+    }
+
+    @Test
+    void siCambioElNombreDelTitularSeVuelveAConfirmarConElNuevo() {
+        Reservation leida = carrito();
+        Reservation renombrada = carrito();
+        renombrada.getEstadias().get(0).setId(leida.getEstadias().get(0).getId());
+        renombrada.getEstadias().get(0).setTitularNombre("Beatriz Gómez");
+        when(bookingRepository.findById(12L)).thenReturn(Optional.of(leida), Optional.of(renombrada));
+        when(bookingRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(renombrada));
+        when(inventario.confirmarEstadias(leida)).thenReturn(true);
+        when(inventario.confirmarEstadias(renombrada)).thenReturn(true);
+        when(inventario.confirmarAsientos(renombrada)).thenReturn(true);
+        vueloConNumero();
+
+        assertEquals("CONFIRMADA", service.confirmarPago(12L, pedido(7L, TOTAL)).estado());
+
+        // El hotel recibe el titular vigente, no el que se leyó antes del cambio
+        verify(inventario).confirmarEstadias(renombrada);
+        verify(inventario, times(1)).confirmarAsientos(any());
     }
 }

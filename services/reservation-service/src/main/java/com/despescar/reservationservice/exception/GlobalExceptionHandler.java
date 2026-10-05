@@ -12,7 +12,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -69,12 +72,23 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.CONFLICT, "CONFLICTO", "La operación entra en conflicto con el estado actual.");
     }
 
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleInesperado(Exception ex) throws Exception {
-        // 401 y 403 los resuelve Spring Security (SecurityConfig) con el mismo formato
-        if (ex instanceof AccessDeniedException || ex instanceof AuthenticationException) {
-            throw ex;
+    /**
+     * Rechazos de seguridad que llegan desde el controlador (@PreAuthorize): se responden acá con el
+     * mismo cuerpo que SecurityConfig, sin pasar por el manejador genérico ni dejar un WARN por cada
+     * acceso denegado. Un anónimo recibe 401, como en el filtro de Spring Security.
+     */
+    @ExceptionHandler({AccessDeniedException.class, AuthenticationException.class})
+    public ResponseEntity<ErrorResponse> handleSeguridad(RuntimeException ex) {
+        Authentication actual = SecurityContextHolder.getContext().getAuthentication();
+        boolean anonimo = actual == null || actual instanceof AnonymousAuthenticationToken || !actual.isAuthenticated();
+        if (ex instanceof AuthenticationException || anonimo) {
+            return error(HttpStatus.UNAUTHORIZED, "NO_AUTENTICADO", "Necesitás iniciar sesión.");
         }
+        return error(HttpStatus.FORBIDDEN, "ACCESO_DENEGADO", "No tenés permisos para esta acción.");
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleInesperado(Exception ex) {
         // 404, 405, 415...: Spring MVC ya sabe su código; no es un 500
         if (ex instanceof org.springframework.web.ErrorResponse errorResponse) {
             HttpStatusCode status = errorResponse.getStatusCode();

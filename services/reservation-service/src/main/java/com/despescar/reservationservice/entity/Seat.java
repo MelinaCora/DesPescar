@@ -32,4 +32,12 @@ public class Seat {
     @Column(name = "bloqueado_hasta")
     private LocalDateTime bloqueadoHasta;
 
+    /**
+     * Carrito o reserva a la que pertenece el asiento: se fija al entrar el asiento al carrito y al
+     * pagarse, y se borra al soltarlo. Distingue asientos del mismo usuario en carritos distintos: una
+     * reserva solo ocupa o libera los suyos. Null en un bloqueo hecho desde el mapa, sin carrito.
+     */
+    @Column(name = "reserva_id")
+    private Long reservaId;
+
 }

@@ -1,6 +1,7 @@
 package com.despescar.reservationservice.service;
 
 import com.despescar.reservationservice.entity.Seat;
+import com.despescar.reservationservice.exception.BookingException;
 import com.despescar.reservationservice.repository.SeatRepository;
 import java.time.Clock;
 import java.time.Duration;
@@ -9,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,13 +50,14 @@ public class SeatService {
 
     @Transactional
     public Seat blockedSeat(UUID seatUuid, Long userId) {
-        Seat seat = seatRepository.findByIdForUpdate(seatUuid)
-                .orElseThrow(() -> new RuntimeException("El asiento no existe en este vuelo"));
+        Seat seat = buscar(seatUuid);
         if (!InventarioCarrito.DISPONIBLE.equals(seat.getStatusSeat())) {
-            throw new RuntimeException("El asiento " + seatUuid + " ya fue reservado por otra persona.");
+            throw new BookingException("ASIENTO_NO_DISPONIBLE",
+                    "El asiento " + seat.getNumberSeat() + " ya fue reservado por otra persona.", HttpStatus.CONFLICT);
         }
         seat.setStatusSeat(InventarioCarrito.RESERVADO_TEMPORAL);
         seat.setBlockedByUserId(userId);
+        seat.setReservaId(null); // bloqueo desde el mapa: se ata al carrito al entrar el vuelo
         seat.setBloqueadoHasta(LocalDateTime.now(clock).plus(BLOQUEO));
         return seatRepository.save(seat);
     }
@@ -62,17 +65,24 @@ public class SeatService {
     /** Solo se suelta un bloqueo temporal propio: un asiento pagado (OCUPADO) no se libera desde el mapa. */
     @Transactional
     public Seat unblockSeat(UUID seatUuid, Long userId) {
-        Seat seat = seatRepository.findByIdForUpdate(seatUuid)
-                .orElseThrow(() -> new RuntimeException("El asiento no existe en este vuelo"));
+        Seat seat = buscar(seatUuid);
         if (userId == null || !userId.equals(seat.getBlockedByUserId())) {
-            throw new RuntimeException("No tienes permisos para liberar un asiento que no te pertenece.");
+            throw new BookingException("ASIENTO_NO_DISPONIBLE",
+                    "No podés liberar un asiento que no es tuyo.", HttpStatus.CONFLICT);
         }
         if (!InventarioCarrito.RESERVADO_TEMPORAL.equals(seat.getStatusSeat())) {
-            throw new RuntimeException("El asiento ya está pagado y no se puede liberar.");
+            throw new BookingException("ASIENTO_OCUPADO",
+                    "El asiento ya está pagado y no se puede liberar.", HttpStatus.CONFLICT);
         }
         seat.setStatusSeat(InventarioCarrito.DISPONIBLE);
         seat.setBlockedByUserId(null);
         seat.setBloqueadoHasta(null);
+        seat.setReservaId(null);
         return seatRepository.save(seat);
+    }
+
+    private Seat buscar(UUID seatUuid) {
+        return seatRepository.findByIdForUpdate(seatUuid).orElseThrow(() -> new BookingException(
+                "ASIENTO_NO_ENCONTRADO", "El asiento no existe en este vuelo.", HttpStatus.NOT_FOUND));
     }
 }

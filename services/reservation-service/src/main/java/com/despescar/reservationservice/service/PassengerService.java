@@ -39,7 +39,8 @@ public class PassengerService {
 
     @Transactional
     public void assignPassengersToSeats(Long reservationId, PassengerAssignationRequest request, Long authenticatedUserId) {
-        Reservation reserva = soporte.reservaDelUsuario(reservationId, authenticatedUserId);
+        // Reserva bloqueada primero y después los asientos: el mismo orden que la confirmación del pago
+        Reservation reserva = soporte.reservaDelUsuarioBloqueada(reservationId, authenticatedUserId);
         soporte.verificarModificable(reserva);
         if (!CarritoCalculo.tieneVuelo(reserva)) {
             throw new BookingException("SIN_VUELO", "El carrito no tiene vuelo.", HttpStatus.BAD_REQUEST);
@@ -91,7 +92,8 @@ public class PassengerService {
         for (PassengerAssignationRequest.PassengerItemDTO pasajero : pasajeros) {
             Seat asiento = pedidosPorId.get(pasajero.getAsientoIda());
             if (!InventarioCarrito.RESERVADO_TEMPORAL.equals(asiento.getStatusSeat())
-                    || !authenticatedUserId.equals(asiento.getBlockedByUserId())) {
+                    || !authenticatedUserId.equals(asiento.getBlockedByUserId())
+                    || (asiento.getReservaId() != null && !asiento.getReservaId().equals(reserva.getId()))) {
                 throw new BookingException("ASIENTO_NO_BLOQUEADO", "El asiento " + asiento.getNumberSeat()
                         + " no está bloqueado por vos. Elegilo primero en el mapa.", HttpStatus.CONFLICT);
             }
@@ -118,19 +120,21 @@ public class PassengerService {
                 .toList();
         reserva.getDetalles().clear();
         reserva.getDetalles().addAll(nuevos);
-        soltados.forEach(numero -> soltar(bloqueados.get(numero), authenticatedUserId));
+        soltados.forEach(numero -> soltar(bloqueados.get(numero), authenticatedUserId, reserva.getId()));
 
         reserva.setEstado(CarritoCalculo.estadoAbierto(reserva));
         bookingRepository.save(reserva);
         inventario.alinearBloqueos(reserva);
     }
 
-    private void soltar(Seat s, Long usuarioId) {
+    private void soltar(Seat s, Long usuarioId, Long reservaId) {
         if (s != null && InventarioCarrito.RESERVADO_TEMPORAL.equals(s.getStatusSeat())
-                && usuarioId.equals(s.getBlockedByUserId())) {
+                && usuarioId.equals(s.getBlockedByUserId())
+                && (s.getReservaId() == null || s.getReservaId().equals(reservaId))) {
             s.setStatusSeat(InventarioCarrito.DISPONIBLE);
             s.setBlockedByUserId(null);
             s.setBloqueadoHasta(null);
+            s.setReservaId(null);
             seatRepository.save(s);
             inventario.avisar(s); // el mapa se entera recién al confirmarse la transacción
         }

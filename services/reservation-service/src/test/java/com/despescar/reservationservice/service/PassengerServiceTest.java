@@ -65,6 +65,7 @@ class PassengerServiceTest {
                 .flightIds(new ArrayList<>(List.of(VUELO))).baggageIds(new ArrayList<>(List.of(TARIFA)))
                 .precioVueloPorPasajero(new BigDecimal("240000.00")).tarifasVuelo("Light").build();
         lenient().when(bookingRepository.findById(12L)).thenReturn(Optional.of(carrito));
+        lenient().when(bookingRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(carrito));
         lenient().when(bookingRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -291,5 +292,39 @@ class PassengerServiceTest {
 
         assertEquals(2, carrito.getDetalles().size());
         assertEquals(ReservationStatus.PENDIENTE_PAGO, carrito.getEstado());
+    }
+
+    @Test
+    void bloqueaLaReservaAntesQueLosAsientos() {
+        Seat a = mio("1A");
+        Seat b = mio("1B");
+
+        service.assignPassengersToSeats(12L, pedido(a, b), 7L);
+
+        // Mismo orden que la confirmación del pago (reserva, después asientos): no hay deadlock entre ellas
+        org.mockito.InOrder orden = org.mockito.Mockito.inOrder(bookingRepository, seatRepository);
+        orden.verify(bookingRepository).findByIdForUpdate(12L);
+        orden.verify(seatRepository).findByIdForUpdate(a.getSeatUuid());
+        verify(bookingRepository, org.mockito.Mockito.never()).findById(12L);
+    }
+
+    @Test
+    void unaReservaConfirmadaEnLaBaseNoAceptaPasajeros() {
+        Reservation enLaBase = Reservation.builder().id(12L).creadorId(7L).cantidadPasajeros(2)
+                .tipoPago(PaymentType.SINGLE_PAYMENT).estado(ReservationStatus.CONFIRMADA)
+                .limiteTiempo(AHORA.plusMinutes(10)).flightIds(new ArrayList<>(List.of(VUELO))).build();
+        org.mockito.Mockito.when(bookingRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(enLaBase));
+
+        assertEquals("ESTADO_INVALIDO", falla(pedido(mio("1A"), mio("1B")), 7L).getCodigo());
+
+        verify(seatRepository, org.mockito.Mockito.never()).findByIdForUpdate(any());
+    }
+
+    @Test
+    void noAceptaUnAsientoAtadoAOtroCarrito() {
+        Seat a = mio("1A");
+        a.setReservaId(99L);
+
+        assertEquals("ASIENTO_NO_BLOQUEADO", falla(pedido(a, mio("1B")), 7L).getCodigo());
     }
 }

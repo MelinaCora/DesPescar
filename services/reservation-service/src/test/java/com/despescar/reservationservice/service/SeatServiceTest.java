@@ -93,12 +93,117 @@ class SeatServiceTest {
     @Test
     void elSchedulerDeAsientosUsaLaHoraDeArgentina() {
         Seat vencido = asiento("RESERVADO_TEMPORAL", 7L);
-        when(seatRepository.findByStatusSeatAndBloqueadoHastaBefore("RESERVADO_TEMPORAL", AHORA)).thenReturn(List.of(vencido));
+        vencido.setBloqueadoHasta(AHORA.minusMinutes(1));
+        vencido.setReservaId(12L);
+        when(seatRepository.findIdsByStatusSeatAndBloqueadoHastaBefore("RESERVADO_TEMPORAL", AHORA))
+                .thenReturn(List.of(vencido.getSeatUuid()));
 
         new SeatReleaseScheduler(seatRepository, messagingTemplate, RELOJ).liberarAsientosExpirados();
 
         assertEquals("DISPONIBLE", vencido.getStatusSeat());
         assertNull(vencido.getBlockedByUserId());
+        assertNull(vencido.getReservaId());
         verify(messagingTemplate).convertAndSend(eq("/topic/flight/" + VUELO), any(Object.class));
+    }
+
+    @Test
+    void elSchedulerDeAsientosNoSueltaUnoQueSePagoDespuesDeLaConsulta() {
+        Seat pagado = asiento("OCUPADO", 7L);
+        pagado.setReservaId(12L);
+        when(seatRepository.findIdsByStatusSeatAndBloqueadoHastaBefore("RESERVADO_TEMPORAL", AHORA))
+                .thenReturn(List.of(pagado.getSeatUuid()));
+
+        new SeatReleaseScheduler(seatRepository, messagingTemplate, RELOJ).liberarAsientosExpirados();
+
+        assertEquals("OCUPADO", pagado.getStatusSeat());
+        assertEquals(7L, pagado.getBlockedByUserId());
+        org.mockito.Mockito.verify(seatRepository, org.mockito.Mockito.never()).save(any());
+        org.mockito.Mockito.verifyNoInteractions(messagingTemplate);
+    }
+
+    @Test
+    void elSchedulerDeAsientosNoSueltaUnBloqueoRenovado() {
+        Seat renovado = asiento("RESERVADO_TEMPORAL", 7L);
+        renovado.setBloqueadoHasta(AHORA.plusMinutes(10)); // el carrito lo extendió después de la consulta
+        when(seatRepository.findIdsByStatusSeatAndBloqueadoHastaBefore("RESERVADO_TEMPORAL", AHORA))
+                .thenReturn(List.of(renovado.getSeatUuid()));
+
+        new SeatReleaseScheduler(seatRepository, messagingTemplate, RELOJ).liberarAsientosExpirados();
+
+        assertEquals("RESERVADO_TEMPORAL", renovado.getStatusSeat());
+    }
+
+    @Test
+    void elSchedulerDeAsientosAvisaRecienDespuesDelCommit() {
+        Seat vencido = asiento("RESERVADO_TEMPORAL", 7L);
+        vencido.setBloqueadoHasta(AHORA.minusMinutes(1));
+        when(seatRepository.findIdsByStatusSeatAndBloqueadoHastaBefore("RESERVADO_TEMPORAL", AHORA))
+                .thenReturn(List.of(vencido.getSeatUuid()));
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            new SeatReleaseScheduler(seatRepository, messagingTemplate, RELOJ).liberarAsientosExpirados();
+            org.mockito.Mockito.verifyNoInteractions(messagingTemplate);
+
+            org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
+
+            verify(messagingTemplate).convertAndSend(eq("/topic/flight/" + VUELO), any(Object.class));
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void bloquearUnAsientoTomadoResponde409ConCodigo() {
+        Seat s = asiento("RESERVADO_TEMPORAL", 9L);
+
+        com.despescar.reservationservice.exception.BookingException ex = assertThrows(
+                com.despescar.reservationservice.exception.BookingException.class, () -> service.blockedSeat(s.getSeatUuid(), 7L));
+
+        assertEquals("ASIENTO_NO_DISPONIBLE", ex.getCodigo());
+        assertEquals(org.springframework.http.HttpStatus.CONFLICT, ex.getStatus());
+    }
+
+    @Test
+    void unAsientoInexistenteResponde404ConCodigo() {
+        UUID id = UUID.randomUUID();
+        when(seatRepository.findByIdForUpdate(id)).thenReturn(Optional.empty());
+
+        com.despescar.reservationservice.exception.BookingException ex = assertThrows(
+                com.despescar.reservationservice.exception.BookingException.class, () -> service.blockedSeat(id, 7L));
+
+        assertEquals("ASIENTO_NO_ENCONTRADO", ex.getCodigo());
+        assertEquals(org.springframework.http.HttpStatus.NOT_FOUND, ex.getStatus());
+    }
+
+    @Test
+    void liberarUnAsientoPagadoResponde409AsientoOcupado() {
+        Seat s = asiento("OCUPADO", 7L);
+
+        com.despescar.reservationservice.exception.BookingException ex = assertThrows(
+                com.despescar.reservationservice.exception.BookingException.class, () -> service.unblockSeat(s.getSeatUuid(), 7L));
+
+        assertEquals("ASIENTO_OCUPADO", ex.getCodigo());
+        assertEquals(org.springframework.http.HttpStatus.CONFLICT, ex.getStatus());
+    }
+
+    @Test
+    void liberarUnAsientoAjenoResponde409() {
+        Seat s = asiento("RESERVADO_TEMPORAL", 9L);
+
+        com.despescar.reservationservice.exception.BookingException ex = assertThrows(
+                com.despescar.reservationservice.exception.BookingException.class, () -> service.unblockSeat(s.getSeatUuid(), 7L));
+
+        assertEquals("ASIENTO_NO_DISPONIBLE", ex.getCodigo());
+    }
+
+    @Test
+    void liberarDesdeElMapaDesataElAsientoDelCarrito() {
+        Seat s = asiento("RESERVADO_TEMPORAL", 7L);
+        s.setReservaId(12L);
+
+        service.unblockSeat(s.getSeatUuid(), 7L);
+
+        assertNull(s.getReservaId());
     }
 }

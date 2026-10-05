@@ -5,7 +5,12 @@ import com.despescar.common.security.JwtService;
 import com.despescar.common.security.UserIdJwtAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import com.despescar.reservationservice.exception.ErrorResponse;
+import java.time.Clock;
 import java.time.LocalDateTime;
+import org.springframework.beans.factory.ObjectProvider;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -25,7 +30,13 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             JwtService jwtService,
-            @Value("${reservation-service.sync-token:}") String paymentSyncToken) throws Exception {
+            @Value("${reservation-service.sync-token:}") String paymentSyncToken,
+            ObjectProvider<ObjectMapper> mapper,
+            ObjectProvider<Clock> reloj) throws Exception {
+
+        // El cuerpo lo arma el ObjectMapper (nada de JSON a mano) y la hora sale del Clock del servicio
+        ObjectMapper json = mapper.getIfAvailable(() -> JsonMapper.builder().build());
+        Clock clock = reloj.getIfAvailable(() -> Clock.system(ClockConfig.ZONA));
 
         // Rutas internas: solo payment-service, con X-Internal-Service-Token (401 sin el token correcto)
         InternalServiceAuthenticationFilter paymentSyncFilter = new InternalServiceAuthenticationFilter(
@@ -41,9 +52,9 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             // Sin token: 401. Con token pero sin el rol: 403. Los dos con {codigo, mensaje, timestamp}.
             .exceptionHandling(e -> e
-                .authenticationEntryPoint((request, response, ex) -> escribirError(response,
+                .authenticationEntryPoint((request, response, ex) -> escribirError(response, json, clock,
                         HttpServletResponse.SC_UNAUTHORIZED, "NO_AUTENTICADO", "Necesitás iniciar sesión."))
-                .accessDeniedHandler((request, response, ex) -> escribirError(response,
+                .accessDeniedHandler((request, response, ex) -> escribirError(response, json, clock,
                         HttpServletResponse.SC_FORBIDDEN, "ACCESO_DENEGADO", "No tenés permisos para esta acción.")))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/error").permitAll()
@@ -60,12 +71,12 @@ public class SecurityConfig {
         return http.build();
     }
 
-    private static void escribirError(HttpServletResponse response, int status, String codigo, String mensaje)
-            throws IOException {
+    private static void escribirError(HttpServletResponse response, ObjectMapper json, Clock clock, int status,
+                                      String codigo, String mensaje) throws IOException {
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
-        response.getWriter().write("{\"codigo\":\"" + codigo + "\",\"mensaje\":\"" + mensaje
-                + "\",\"timestamp\":\"" + LocalDateTime.now(ClockConfig.ZONA) + "\"}");
+        response.getWriter().write(json.writeValueAsString(
+                new ErrorResponse(codigo, mensaje, LocalDateTime.now(clock))));
     }
 }
