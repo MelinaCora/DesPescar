@@ -216,11 +216,20 @@ public class InventarioCarrito {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    messagingTemplate.convertAndSend(destino, aviso);
+                    enviar(destino, aviso);
                 }
             });
         } else {
+            enviar(destino, aviso);
+        }
+    }
+
+    // El aviso es informativo: si falla el envío, la operación ya quedó guardada y no se revierte.
+    private void enviar(String destino, SeatResponse aviso) {
+        try {
             messagingTemplate.convertAndSend(destino, aviso);
+        } catch (RuntimeException ex) {
+            log.warn("No se pudo avisar el cambio de asiento a {}: {}", destino, ex.getMessage());
         }
     }
 }
