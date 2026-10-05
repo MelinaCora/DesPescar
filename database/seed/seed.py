@@ -66,11 +66,18 @@ def grant_super_admin(email):
         f"WHERE u.email = '{email}' AND NOT EXISTS (SELECT 1 FROM despescar_identity.user_roles ur "
         "WHERE ur.user_id = u.id AND ur.role_id = r.id);"
     )
-    cmd = ["docker", "exec", "-e", f"MYSQL_PWD={DB_PASSWORD}", DB_CONTAINER, "mysql", "-uroot", "-e", sql]
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    if os.environ.get("MYSQL_LOCAL") == "1":
+        # MySQL instalado en la maquina (sin Docker): usa el cliente mysql local.
+        user = os.environ.get("DB_USER", "root")
+        cmd = ["mysql", f"-u{user}", "-e", sql]
+        env = {**os.environ, "MYSQL_PWD": DB_PASSWORD}
+    else:
+        cmd = ["docker", "exec", "-e", f"MYSQL_PWD={DB_PASSWORD}", DB_CONTAINER, "mysql", "-uroot", "-e", sql]
+        env = None
+    res = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if res.returncode != 0:
         sys.exit(
-            "No pude asignar el rol SUPER_ADMIN con docker exec:\n"
+            "No pude asignar el rol SUPER_ADMIN con el cliente mysql:\n"
             f"{res.stderr.strip()}\n"
             "Hacelo a mano (ver docs/INSTRUCTIVO-DOCKER.md, seccion 'Usuario administrador') y volve a correr el script."
         )
