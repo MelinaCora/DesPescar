@@ -23,7 +23,7 @@ public class SecurityConfig {
             // Sin token: 401. Con token pero sin el rol: 403.
             .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/error").permitAll()
                 // Catálogo público, como la búsqueda de vuelos
                 .requestMatchers(HttpMethod.GET, "/hoteles", "/hoteles/destinos", "/hoteles/*").permitAll()
                 .requestMatchers(HttpMethod.POST, "/hoteles").hasAnyRole("SUPER_ADMIN", "HOTEL_ADMIN")

@@ -135,4 +135,23 @@ class HotelControllerTest {
                 .andExpect(jsonPath("$.campos['imagenes[0]']").exists());
         verify(admin, never()).crear(any());
     }
+
+    @Test
+    void unErrorInesperadoEnUnaLecturaPublicaResponde500() throws Exception {
+        when(catalogo.buscar(any(), any(), any(), any())).thenThrow(new RuntimeException("boom"));
+
+        mockMvc.perform(get("/hoteles"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").value("Ocurrió un error inesperado."));
+    }
+
+    @Test
+    void unJsonMalFormadoResponde400() throws Exception {
+        mockMvc.perform(post("/hoteles")
+                        .header("Authorization", jwt("HOTEL_ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("El cuerpo del pedido no es válido."));
+    }
 }

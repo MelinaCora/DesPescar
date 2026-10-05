@@ -73,7 +73,7 @@ public class HotelMapper {
                                           BigDecimal precioTotalDesde) {
         String imagenPrincipal = hotel.getImagenes().isEmpty() ? null : hotel.getImagenes().get(0);
         return new HotelResumenResponse(hotel.getId(), hotel.getNombre(), hotel.getCiudad(), hotel.getPais(),
-                hotel.getEstrellas(), imagenPrincipal, Set.copyOf(hotel.getServicios()), hotel.isAllInclusive(),
+                hotel.getEstrellas(), imagenPrincipal, hotel.getServicios().stream().sorted().toList(), hotel.isAllInclusive(),
                 precioDesde, hotel.getCalificacionPromedio(), hotel.getCantidadResenas(), disponible,
                 precioTotalDesde);
     }
@@ -94,7 +94,7 @@ public class HotelMapper {
                 .toList();
         return new HotelDetalleResponse(hotel.getId(), hotel.getNombre(), hotel.getCiudad(), hotel.getPais(),
                 hotel.getDireccion(), hotel.getEstrellas(), hotel.getDescripcion(), List.copyOf(hotel.getImagenes()),
-                Set.copyOf(hotel.getServicios()), hotel.isAllInclusive(), hotel.getHoraCheckIn(),
+                hotel.getServicios().stream().sorted().toList(), hotel.isAllInclusive(), hotel.getHoraCheckIn(),
                 hotel.getZonaHoraria(), politica, hotel.getCalificacionPromedio(), hotel.getCantidadResenas(),
                 noches, habitaciones);
     }
