@@ -17,6 +17,7 @@ import com.despescar.hotelservice.exception.SolicitudInvalidaException;
 import com.despescar.hotelservice.repository.RetencionRepository;
 import com.despescar.hotelservice.repository.TipoHabitacionRepository;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -32,6 +33,9 @@ public class RetencionService {
     static final String MONEDA = "ARS";
     static final String SIN_DISPONIBILIDAD = "SIN_DISPONIBILIDAD";
     static final String RETENCION_LIBERADA = "RETENCION_LIBERADA";
+    static final String RETENCION_CONFIRMADA = "RETENCION_CONFIRMADA";
+    /** Lo más lejos que puede vencer una retención: el plazo del pago en grupo (24 h) con una hora de margen. */
+    static final Duration VENTANA_MAXIMA = Duration.ofHours(25);
 
     private final TipoHabitacionRepository tipoRepository;
     private final RetencionRepository retencionRepository;
@@ -105,6 +109,39 @@ public class RetencionService {
             retencion.setEstado(EstadoRetencion.CONFIRMADA);
             retencion.setNombreTitular(nombreTitular.trim());
         }
+        return respuesta(retencion, tipo);
+    }
+
+    /**
+     * Cambia el vencimiento de una retención RETENIDA (pago en grupo, CB1). Sirve para alargarla
+     * hasta el plazo del grupo y para volverla al vencimiento anterior si el grupo no se pudo
+     * crear. Idempotente. Si ya había vencido no ocupaba lugar: se revalida bajo el lock del tipo,
+     * como al confirmar (D5). Orden de locks: Retencion y después TipoHabitacion.
+     */
+    // READ_COMMITTED: ver lo que otras transacciones ya confirmaron al contar la ocupación.
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public RetencionResponse cambiarVencimiento(UUID id, Instant expiraEn) {
+        Instant ahora = Instant.now(clock);
+        if (expiraEn == null || !expiraEn.isAfter(ahora)) {
+            throw new SolicitudInvalidaException("El vencimiento nuevo ya pasó.");
+        }
+        if (expiraEn.isAfter(ahora.plus(VENTANA_MAXIMA))) {
+            throw new SolicitudInvalidaException("Una retención puede vencer como máximo 25 horas después de ahora.");
+        }
+        Retencion retencion = buscar(id);
+        if (retencion.getEstado() == EstadoRetencion.LIBERADA) {
+            throw new ConflictoException(RETENCION_LIBERADA, "La retención ya fue liberada.");
+        }
+        if (retencion.getEstado() == EstadoRetencion.CONFIRMADA) {
+            throw new ConflictoException(RETENCION_CONFIRMADA, "La retención ya está confirmada.");
+        }
+        TipoHabitacion tipo = tipoRepository.findByIdForUpdate(retencion.getTipoHabitacionId())
+                .orElseThrow(() -> new HotelNotFoundException("La habitación de la retención ya no existe."));
+        if (!retencion.getExpiraEn().isAfter(ahora)) {
+            exigirLugar(tipo, new RangoEstadia(retencion.getCheckIn(), retencion.getCheckOut()),
+                    retencion.getCantidad(), ahora);
+        }
+        retencion.setExpiraEn(expiraEn);
         return respuesta(retencion, tipo);
     }
 

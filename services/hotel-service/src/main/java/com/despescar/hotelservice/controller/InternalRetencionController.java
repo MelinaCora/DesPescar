@@ -3,6 +3,7 @@ package com.despescar.hotelservice.controller;
 import com.despescar.hotelservice.dto.internal.ConfirmarRetencionRequest;
 import com.despescar.hotelservice.dto.internal.RetencionRequest;
 import com.despescar.hotelservice.dto.internal.RetencionResponse;
+import com.despescar.hotelservice.dto.internal.VencimientoRetencionRequest;
 import com.despescar.hotelservice.service.RetencionService;
 import jakarta.validation.Valid;
 import java.util.UUID;
@@ -33,6 +34,12 @@ public class InternalRetencionController {
     @PostMapping("/{id}/confirmar")
     public RetencionResponse confirmar(@PathVariable UUID id, @Valid @RequestBody ConfirmarRetencionRequest pedido) {
         return service.confirmar(id, pedido.nombreTitular());
+    }
+
+    @PostMapping("/{id}/vencimiento")
+    public RetencionResponse cambiarVencimiento(@PathVariable UUID id,
+                                                @Valid @RequestBody VencimientoRetencionRequest pedido) {
+        return service.cambiarVencimiento(id, pedido.expiraEn());
     }
 
     @PostMapping("/{id}/liberar")
