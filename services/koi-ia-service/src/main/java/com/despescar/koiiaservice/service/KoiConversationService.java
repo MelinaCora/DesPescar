@@ -2,6 +2,7 @@ package com.despescar.koiiaservice.service;
 
 import com.despescar.koiiaservice.domain.DatosFaltantes;
 import com.despescar.koiiaservice.domain.DatosViaje;
+import com.despescar.koiiaservice.domain.HablaRioplatense;
 import com.despescar.koiiaservice.domain.KoiExtraccion;
 import com.despescar.koiiaservice.domain.KoiExtraccionParser;
 import com.despescar.koiiaservice.domain.KoiPreguntas;
@@ -53,7 +54,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class KoiConversationService {
 
     public static final String SALUDO = "¡Hola! Soy KOI ✨ Contame a dónde querés viajar, desde dónde salís, "
-            + "cuántos viajan y con qué presupuesto, y te armo opciones de vuelo + hotel.";
+            + "cuántos viajan y con qué presupuesto, y te armo opciones de vuelo + hotel. Si no tenés destino, "
+            + "decime cuánta plata tenés y te propongo algunos.";
     public static final String MODELO_CAIDO = "Uy, tuve un problema para procesar tu mensaje.";
     public static final String NO_ENTENDI = "Perdón, no te entendí bien.";
     public static final String FUERA_DE_TEMA = "Solo te puedo ayudar a armar viajes con DesPescar.";
@@ -71,6 +73,19 @@ public class KoiConversationService {
     public static final String AVISO_VIAJEROS = "Puedo armar viajes de 1 a " + DatosViaje.MAX_VIAJEROS
             + " personas.";
     public static final String AVISO_PRESUPUESTO = "El presupuesto tiene que ser un monto mayor a cero.";
+    public static final String ORIGEN_POR_DEFECTO = "Buenos Aires";
+    public static final int VIAJEROS_POR_DEFECTO = 1;
+    public static final String ASUMI_ORIGEN = "Asumí que salís de Buenos Aires; si no, decime desde dónde.";
+    public static final String ASUMI_VIAJEROS = "Lo armé para 1 persona; si son más, decime cuántos.";
+    public static final String ASUMI_FECHAS = "Como no me diste fechas, busqué en los próximos "
+            + KoiExplorador.VENTANA_DIAS + " días con estadías de unas " + KoiExplorador.NOCHES_POR_DEFECTO
+            + " noches.";
+    public static final String FECHAS_CERCANAS = "Para las fechas que me dijiste no había vuelos, así que te "
+            + "muestro las más cercanas con vuelo.";
+    public static final String SIN_OPCIONES_EXPLORANDO = "No encontré viajes para armar con ese presupuesto. "
+            + "Probá con otro monto u otras fechas, o decime un destino.";
+    public static final String SEGUIMOS_EXPLORANDO = "Si querés, decime un destino, otras fechas, cuántos viajan "
+            + "o desde dónde salís, y busco de nuevo.";
     private static final String REINTENTAR = "Probá de nuevo en un ratito.";
     private static final String OTRA_FORMA = "¿Me lo decís de otra forma?";
     private static final String PRECIOS_ORIENTATIVOS =
@@ -93,17 +108,19 @@ public class KoiConversationService {
     private final KoiConversationMessageRepository messageRepository;
     private final KoiModeloLenguaje modelo;
     private final KoiCatalogo catalogo;
+    private final KoiExplorador explorador;
     private final KoiOpcionesJson opcionesJson;
     private final Clock clock;
 
     public KoiConversationService(KoiConversationSessionRepository sessionRepository,
                                   KoiConversationMessageRepository messageRepository,
-                                  KoiModeloLenguaje modelo, KoiCatalogo catalogo,
+                                  KoiModeloLenguaje modelo, KoiCatalogo catalogo, KoiExplorador explorador,
                                   KoiOpcionesJson opcionesJson, Clock clock) {
         this.sessionRepository = sessionRepository;
         this.messageRepository = messageRepository;
         this.modelo = modelo;
         this.catalogo = catalogo;
+        this.explorador = explorador;
         this.opcionesJson = opcionesJson;
         this.clock = clock;
     }
@@ -179,7 +196,8 @@ public class KoiConversationService {
         }
 
         DatosViaje antes = datosDe(session);
-        Limpieza limpieza = limpiar(extraccion.map(e -> antes.combinar(e.aDatos())).orElse(antes), hoy);
+        Limpieza limpieza = limpiar(extraccion.map(e -> antes.combinar(enCriollo(e.aDatos(), mensaje, hoy)))
+                .orElse(antes), hoy);
         DatosViaje datos = limpieza.datos();
         guardarDatos(session, datos);
         List<MissingInfoField> faltan = DatosFaltantes.calcular(datos, hoy);
@@ -198,9 +216,9 @@ public class KoiConversationService {
         } else if (!faltan.isEmpty() || !listoParaRecomendar(datos)) {
             turno = preguntar(session, faltan, datos, unir(comentario, avisos), null);
         } else if (!datos.equals(antes) || session.getStage() != ConversationStage.RECOMMENDING) {
-            turno = recomendar(session, datos, comentario);
+            turno = datos.esDestinoAbierto() ? explorar(session, datos, comentario) : recomendar(session, datos, comentario);
         } else {
-            turno = new Turno(unir(comentario, SEGUIMOS), List.of());
+            turno = new Turno(unir(comentario, datos.esDestinoAbierto() ? SEGUIMOS_EXPLORANDO : SEGUIMOS), List.of());
         }
 
         turno = new Turno(acotarRespuesta(turno.texto()), turno.opciones());
@@ -276,6 +294,69 @@ public class KoiConversationService {
         return new Turno(unir(comentarioSinPrecios, resumen(opciones, datos.presupuesto())), opciones);
     }
 
+    /**
+     * Destino abierto: propone combos de distintos destinos con los supuestos que el usuario no
+     * dio (origen, viajeros, fechas), y se los dice para que los pueda corregir.
+     */
+    private Turno explorar(KoiConversationSession session, DatosViaje datos, String comentario) {
+        session.setAwaitingField(null);
+        String origen = datos.origen() != null ? recortar(datos.origen(), MAX_TEXTO_CIUDAD) : ORIGEN_POR_DEFECTO;
+        int viajeros = datos.viajeros() != null ? datos.viajeros() : VIAJEROS_POR_DEFECTO;
+        Integer noches = datos.noches();
+        if (noches == null && datos.fechaIda() != null && datos.fechaVuelta() != null) {
+            noches = (int) ChronoUnit.DAYS.between(datos.fechaIda(), datos.fechaVuelta());
+        }
+        List<String> supuestos = new ArrayList<>();
+        if (datos.origen() == null) {
+            supuestos.add(ASUMI_ORIGEN);
+        }
+        if (datos.viajeros() == null) {
+            supuestos.add(ASUMI_VIAJEROS);
+        }
+        if (datos.fechaIda() == null && datos.mesIda() == null) {
+            supuestos.add(ASUMI_FECHAS);
+        }
+        List<KoiRecommendationResponse> opciones;
+        try {
+            opciones = explorador.explorar(new PedidoExploracion(datos.presupuesto(), viajeros, origen,
+                    datos.fechaIda(), datos.mesIda(), noches, LocalDate.now(clock)));
+        } catch (RuntimeException ex) {
+            log.warn("KOI: no pude explorar destinos: {}", ex.toString());
+            session.setStage(ConversationStage.READY_TO_RECOMMEND);
+            return new Turno(unir(comentario, CATALOGO_CAIDO), List.of());
+        }
+        session.setStage(ConversationStage.RECOMMENDING);
+        if (opciones.isEmpty()) {
+            return new Turno(unir(comentario, String.join(" ", supuestos), SIN_OPCIONES_EXPLORANDO), List.of());
+        }
+        if (datos.fechaIda() != null && opciones.stream()
+                .anyMatch(o -> o.hotel() != null && !datos.fechaIda().equals(o.hotel().checkIn()))) {
+            supuestos.add(FECHAS_CERCANAS);
+        }
+        String comentarioSinPrecios = comentario != null && MENCIONA_PRECIO.matcher(comentario).find()
+                ? null : comentario;
+        return new Turno(unir(comentarioSinPrecios, String.join(" ", supuestos),
+                resumen(opciones, datos.presupuesto())), opciones);
+    }
+
+    /**
+     * Lo que el texto dice en criollo pisa lo que entendió el modelo: plata ("2 palos"), gente
+     * ("somos 2"), "un finde" y el pedido de opciones sin destino.
+     */
+    static DatosViaje enCriollo(DatosViaje delModelo, String mensaje, LocalDate hoy) {
+        BigDecimal presupuesto = HablaRioplatense.presupuesto(mensaje).orElse(delModelo.presupuesto());
+        Integer viajeros = HablaRioplatense.viajeros(mensaje).orElse(delModelo.viajeros());
+        Optional<HablaRioplatense.Finde> finde = HablaRioplatense.finde(mensaje, hoy);
+        LocalDate ida = finde.map(HablaRioplatense.Finde::ida).orElse(delModelo.fechaIda());
+        YearMonth mes = finde.isPresent() ? null : delModelo.mesIda();
+        LocalDate vuelta = finde.isPresent() ? null : delModelo.fechaVuelta();
+        Integer noches = finde.map(HablaRioplatense.Finde::noches).orElse(delModelo.noches());
+        Boolean abierto = delModelo.destino() == null
+                && (Boolean.TRUE.equals(delModelo.destinoAbierto()) || HablaRioplatense.quiereExplorar(mensaje));
+        return new DatosViaje(delModelo.intencion(), presupuesto, viajeros, delModelo.origen(), delModelo.destino(),
+                ida, mes, vuelta, noches, abierto);
+    }
+
     /** Texto libre del modelo: sin precios ni ids y de largo acotado; null si no sirve. */
     static String sanearComentario(String comentario) {
         if (comentario == null || comentario.isBlank()) {
@@ -306,6 +387,9 @@ public class KoiConversationService {
 
     /** Defensa extra: el recomendador nunca recibe fechas nulas aunque DatosFaltantes cambie. */
     private static boolean listoParaRecomendar(DatosViaje d) {
+        if (d.esDestinoAbierto()) {
+            return d.presupuesto() != null;
+        }
         if (d.fechaIda() == null || d.viajeros() == null || d.destino() == null) {
             return false;
         }
@@ -352,7 +436,7 @@ public class KoiConversationService {
             avisos.add(AVISO_VUELTA_INVALIDA);
         }
         return new Limpieza(new DatosViaje(d.intencion(), presupuesto, viajeros, d.origen(), d.destino(), ida, mes,
-                vuelta, noches), avisos);
+                vuelta, noches, d.destinoAbierto()), avisos);
     }
 
     private static String unir(String... partes) {
@@ -387,7 +471,8 @@ public class KoiConversationService {
 
     private static DatosViaje datosDe(KoiConversationSession s) {
         return new DatosViaje(s.getIntent(), s.getBudget(), s.getTravelers(), s.getOrigin(), s.getDestination(),
-                s.getDepartureDate(), mes(s.getTravelMonth()), s.getReturnDate(), s.getNights());
+                s.getDepartureDate(), mes(s.getTravelMonth()), s.getReturnDate(), s.getNights(),
+                Boolean.TRUE.equals(s.getOpenDestination()));
     }
 
     private static YearMonth mes(String valor) {
@@ -407,6 +492,7 @@ public class KoiConversationService {
         s.setTravelers(d.viajeros());
         s.setOrigin(recortar(d.origen(), MAX_TEXTO_CIUDAD));
         s.setDestination(recortar(d.destino(), MAX_TEXTO_CIUDAD));
+        s.setOpenDestination(d.esDestinoAbierto());
         s.setDepartureDate(d.fechaIda());
         s.setTravelMonth(d.mesIda() == null ? null : d.mesIda().toString());
         s.setReturnDate(d.fechaVuelta());

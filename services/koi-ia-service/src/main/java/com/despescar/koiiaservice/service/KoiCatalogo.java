@@ -8,10 +8,12 @@ import com.despescar.koiiaservice.client.dto.BusquedaVuelosResponse.Tarifa;
 import com.despescar.koiiaservice.client.dto.BusquedaVuelosResponse.VueloBuscado;
 import com.despescar.koiiaservice.client.dto.HotelDetalleResponse;
 import com.despescar.koiiaservice.client.dto.HotelResumenResponse;
+import com.despescar.koiiaservice.client.dto.VueloListadoResponse;
 import com.despescar.koiiaservice.recomendador.AeropuertosPorLugar;
 import com.despescar.koiiaservice.recomendador.HabitacionCandidata;
 import com.despescar.koiiaservice.recomendador.HotelCandidato;
 import com.despescar.koiiaservice.recomendador.VueloCandidato;
+import com.despescar.koiiaservice.recomendador.VueloProgramado;
 import com.despescar.koiiaservice.exception.KoiCatalogUnavailableException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -66,6 +68,40 @@ public class KoiCatalogo {
             }
         }
         return new VuelosCandidatos(idas, vueltas);
+    }
+
+    public List<AirportResponse> aeropuertos() {
+        return vuelosClient.aeropuertos();
+    }
+
+    /** Ciudades con hoteles, en el orden del catálogo. */
+    public List<String> destinos() {
+        return hotelesClient.destinos().stream()
+                .map(d -> d == null ? null : d.ciudad())
+                .filter(c -> c != null && !c.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    /** Ruta y día de cada vuelo publicado; se omiten los que no se pueden leer. */
+    public List<VueloProgramado> vuelosProgramados() {
+        return vuelosClient.todos().stream()
+                .map(KoiCatalogo::programado)
+                .flatMap(Optional::stream)
+                .toList();
+    }
+
+    private static Optional<VueloProgramado> programado(VueloListadoResponse v) {
+        if (v == null || v.originAirport() == null || v.destinationAirport() == null || v.departureTime() == null
+                || v.originAirport().code() == null || v.destinationAirport().code() == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new VueloProgramado(v.originAirport().code(), v.destinationAirport().code(),
+                    LocalDateTime.parse(v.departureTime()).toLocalDate()));
+        } catch (DateTimeParseException ex) {
+            return Optional.empty();
+        }
     }
 
     public List<HotelCandidato> hoteles(String destino, LocalDate checkIn, LocalDate checkOut, int viajeros) {

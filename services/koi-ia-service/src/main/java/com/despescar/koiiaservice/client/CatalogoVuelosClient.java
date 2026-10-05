@@ -2,6 +2,7 @@ package com.despescar.koiiaservice.client;
 
 import com.despescar.koiiaservice.client.dto.AirportResponse;
 import com.despescar.koiiaservice.client.dto.BusquedaVuelosResponse;
+import com.despescar.koiiaservice.client.dto.VueloListadoResponse;
 import com.despescar.koiiaservice.exception.KoiCatalogUnavailableException;
 import java.time.LocalDate;
 import java.util.List;
@@ -38,6 +39,20 @@ public class CatalogoVuelosClient {
                     .body(new ParameterizedTypeReference<List<AirportResponse>>() {
                     });
             return aeropuertos == null ? List.of() : aeropuertos;
+        } catch (RestClientException ex) {
+            throw new KoiCatalogUnavailableException("No se pudo consultar flightservice", ex);
+        }
+    }
+
+    /** Todos los vuelos publicados: con ellos KOI sabe qué rutas y días existen de verdad. */
+    public List<VueloListadoResponse> todos() {
+        try {
+            List<VueloListadoResponse> vuelos = restClient.get()
+                    .uri("/api/flights")
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<List<VueloListadoResponse>>() {
+                    });
+            return vuelos == null ? List.of() : vuelos;
         } catch (RestClientException ex) {
             throw new KoiCatalogUnavailableException("No se pudo consultar flightservice", ex);
         }

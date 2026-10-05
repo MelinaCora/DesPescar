@@ -18,6 +18,8 @@ import com.despescar.koiiaservice.domain.DatosViaje;
 import com.despescar.koiiaservice.domain.KoiPreguntas;
 import com.despescar.koiiaservice.dto.request.KoiConversationMessageRequest;
 import com.despescar.koiiaservice.dto.response.KoiConversationResponse;
+import com.despescar.koiiaservice.dto.response.KoiHotelOpcion;
+import com.despescar.koiiaservice.dto.response.KoiRecommendationResponse;
 import com.despescar.koiiaservice.dto.response.KoiMensajeResponse;
 import com.despescar.koiiaservice.dto.response.KoiSessionResponse;
 import com.despescar.koiiaservice.entity.KoiConversationMessage;
@@ -85,6 +87,7 @@ class KoiConversationServiceTest {
     private final KoiConversationMessageRepository messageRepository =
             mock(KoiConversationMessageRepository.class);
     private final KoiCatalogo catalogo = mock(KoiCatalogo.class);
+    private final KoiExplorador explorador = mock(KoiExplorador.class);
     private final ModeloFalso modelo = new ModeloFalso();
     private final List<KoiConversationMessage> guardados = new ArrayList<>();
     private KoiConversationService service;
@@ -94,7 +97,7 @@ class KoiConversationServiceTest {
     @BeforeEach
     void setUp() {
         service = new KoiConversationService(sessionRepository, messageRepository, modelo, catalogo,
-                new KoiOpcionesJson(), CLOCK);
+                explorador, new KoiOpcionesJson(), CLOCK);
         sessionId = UUID.randomUUID();
         session = new KoiConversationSession();
         session.setId(sessionId);
@@ -611,6 +614,130 @@ class KoiConversationServiceTest {
 
         KoiConversationResponse r = service.handleMessage(sessionId, request("dale"), null);
 
+        assertTrue(r.getReply().endsWith(KoiConversationService.CATALOGO_CAIDO), r.getReply());
+        assertEquals(ConversationStage.READY_TO_RECOMMEND, r.getStage());
+    }
+    /** Dos combos de destinos distintos, como los devuelve el explorador. */
+    private static List<KoiRecommendationResponse> opcionesExploradas() {
+        KoiHotelOpcion cordoba = new KoiHotelOpcion(id("HC"), "Hotel Córdoba", "Córdoba", 4, null, id("DC"), "Doble",
+                LocalDate.of(2026, 11, 19), LocalDate.of(2026, 11, 22), 3, 1, 1, new BigDecimal("3000.00"));
+        KoiHotelOpcion mendoza = new KoiHotelOpcion(id("HM"), "Hotel Mendoza", "Mendoza", 4, null, id("DM"), "Doble",
+                LocalDate.of(2026, 11, 19), LocalDate.of(2026, 11, 22), 3, 1, 1, new BigDecimal("4500.00"));
+        return List.of(
+                new KoiRecommendationResponse("o1", TipoOpcion.COMBO, null, cordoba, 1, new BigDecimal("3200.00"),
+                        "ARS", null, "Córdoba 3 noches."),
+                new KoiRecommendationResponse("o2", TipoOpcion.COMBO, null, mendoza, 1, new BigDecimal("5100.00"),
+                        "ARS", null, "Mendoza 3 noches."));
+    }
+
+    @Test
+    void sinDestinoYConPlataExploraConLosSupuestosDichosEnLaRespuesta() {
+        modelo.respuesta = """
+                {"comentario":"¡Qué lindo plan!","intencion":"COMBO","presupuesto":2000000,"destinoAbierto":true}
+                """;
+        when(explorador.explorar(any())).thenReturn(opcionesExploradas());
+
+        KoiConversationResponse r = service.handleMessage(sessionId,
+                request("che Koi tengo 2 palos, ofreceme vuelos y hoteles o algún viaje"), null);
+
+        ArgumentCaptor<PedidoExploracion> captor = ArgumentCaptor.forClass(PedidoExploracion.class);
+        verify(explorador).explorar(captor.capture());
+        PedidoExploracion pedido = captor.getValue();
+        assertEquals(new BigDecimal("2000000.00"), pedido.presupuesto());
+        assertEquals(1, pedido.viajeros());
+        assertEquals(KoiConversationService.ORIGEN_POR_DEFECTO, pedido.origen());
+        assertNull(pedido.fechaIda());
+        assertNull(pedido.noches());
+        assertEquals(LocalDate.of(2026, 11, 1), pedido.hoy());
+        assertFalse(r.getReply().contains(KoiPreguntas.texto(MissingInfoField.DESTINATION, DatosViaje.vacio())));
+        assertTrue(r.getReply().contains(KoiConversationService.ASUMI_ORIGEN), r.getReply());
+        assertTrue(r.getReply().contains(KoiConversationService.ASUMI_VIAJEROS), r.getReply());
+        assertTrue(r.getReply().contains(KoiConversationService.ASUMI_FECHAS), r.getReply());
+        assertTrue(r.getReply().contains("2 opciones dentro de tu presupuesto de $ 2.000.000"), r.getReply());
+        assertFalse(r.isNeedsMoreInfo());
+        assertTrue(r.getMissingFields().isEmpty());
+        assertEquals(ConversationStage.RECOMMENDING, r.getStage());
+        assertEquals(2, r.getRecommendations().size());
+        assertEquals(Boolean.TRUE, session.getOpenDestination());
+        assertNull(session.getDestination());
+        verify(catalogo, never()).vuelos(anyString(), anyString(), any(), any(), anyInt());
+    }
+
+    @Test
+    void laPlataColoquialYElPedidoDeOpcionesSeEntiendenAunqueElModeloNoLosVea() {
+        modelo.respuesta = "{\"comentario\":\"¡Dale!\",\"intencion\":\"COMBO\"}";
+        when(explorador.explorar(any())).thenReturn(opcionesExploradas());
+
+        KoiConversationResponse r = service.handleMessage(sessionId,
+                request("che Koi tengo 2 palos, ofreceme vuelos y hoteles o algún viaje"), null);
+
+        assertEquals(new BigDecimal("2000000.00"), session.getBudget());
+        assertEquals(Boolean.TRUE, session.getOpenDestination());
+        assertEquals(2, r.getRecommendations().size());
+        assertEquals(ConversationStage.RECOMMENDING, r.getStage());
+    }
+
+    @Test
+    void explorandoSinPlataSoloPideElPresupuesto() {
+        modelo.respuesta = "{\"comentario\":\"¡Me encanta!\",\"destinoAbierto\":true}";
+
+        KoiConversationResponse r = service.handleMessage(sessionId, request("sorprendeme"), null);
+
+        assertEquals(List.of(MissingInfoField.BUDGET), r.getMissingFields());
+        assertEquals("¡Me encanta! " + KoiPreguntas.texto(MissingInfoField.BUDGET, DatosViaje.vacio()), r.getReply());
+        verify(explorador, never()).explorar(any());
+    }
+
+    @Test
+    void enModoExplorarSomosDosYUnFindeAjustanViajerosYFechas() {
+        session.setOpenDestination(true);
+        session.setStage(ConversationStage.RECOMMENDING);
+        session.setBudget(PRESUPUESTO);
+        modelo.respuesta = "{\"comentario\":\"¡Buenísimo!\",\"viajeros\":2}";
+        when(explorador.explorar(any())).thenReturn(opcionesExploradas());
+
+        KoiConversationResponse r = service.handleMessage(sessionId,
+                request("somos 2, tenemos 3 palos para un finde"), null);
+
+        ArgumentCaptor<PedidoExploracion> captor = ArgumentCaptor.forClass(PedidoExploracion.class);
+        verify(explorador).explorar(captor.capture());
+        PedidoExploracion pedido = captor.getValue();
+        assertEquals(new BigDecimal("3000000.00"), pedido.presupuesto());
+        assertEquals(2, pedido.viajeros());
+        assertEquals(LocalDate.of(2026, 11, 6), pedido.fechaIda());
+        assertEquals(2, pedido.noches());
+        assertFalse(r.getReply().contains(KoiConversationService.ASUMI_VIAJEROS), r.getReply());
+        assertFalse(r.getReply().contains(KoiConversationService.ASUMI_FECHAS), r.getReply());
+        assertTrue(r.getReply().contains(KoiConversationService.FECHAS_CERCANAS), r.getReply());
+        assertTrue(r.getReply().contains(KoiConversationService.ASUMI_ORIGEN), r.getReply());
+    }
+
+    @Test
+    void siNombraUnDestinoDejaDeExplorarYPideLoQueFalta() {
+        session.setOpenDestination(true);
+        session.setStage(ConversationStage.RECOMMENDING);
+        session.setBudget(PRESUPUESTO);
+        modelo.respuesta = "{\"comentario\":\"¡Bariloche!\",\"destino\":\"Bariloche\"}";
+
+        KoiConversationResponse r = service.handleMessage(sessionId, request("mejor Bariloche"), null);
+
+        assertEquals(Boolean.FALSE, session.getOpenDestination());
+        assertEquals("Bariloche", session.getDestination());
+        assertEquals(MissingInfoField.TRAVELERS, r.getNextQuestion());
+        verify(explorador, never()).explorar(any());
+    }
+
+    @Test
+    void siElExploradorNoEncuentraNadaOFallaAvisa() {
+        modelo.respuesta = "{\"presupuesto\":2000000,\"destinoAbierto\":true}";
+        when(explorador.explorar(any())).thenReturn(List.of());
+        assertTrue(service.handleMessage(sessionId, request("a donde sea"), null).getReply()
+                .contains(KoiConversationService.SIN_OPCIONES_EXPLORANDO));
+
+        session.setStage(ConversationStage.COLLECTING_INFO);
+        modelo.respuesta = "{\"presupuesto\":2500000}";
+        when(explorador.explorar(any())).thenThrow(new KoiCatalogUnavailableException("caído", null));
+        KoiConversationResponse r = service.handleMessage(sessionId, request("2,5M"), null);
         assertTrue(r.getReply().endsWith(KoiConversationService.CATALOGO_CAIDO), r.getReply());
         assertEquals(ConversationStage.READY_TO_RECOMMEND, r.getStage());
     }

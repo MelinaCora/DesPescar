@@ -10,7 +10,8 @@ import java.util.List;
 
 /**
  * Decide qué datos faltan según la intención (spec 3.7). Un valor inválido (fecha pasada,
- * vuelta antes de la ida, 0 viajeros) cuenta como faltante para que KOI lo vuelva a pedir.
+ * vuelta antes de la ida, 0 viajeros) cuenta como faltante para que KOI lo vuelva a pedir. Con
+ * el destino abierto solo hace falta el presupuesto: origen, viajeros y fechas tienen supuestos.
  */
 public final class DatosFaltantes {
 
@@ -23,6 +24,12 @@ public final class DatosFaltantes {
         boolean conHotel = intencion != UserIntent.SOLO_VUELO;
         List<MissingInfoField> faltan = new ArrayList<>();
 
+        if (d.esDestinoAbierto()) {
+            if (!presupuestoValido(d.presupuesto())) {
+                faltan.add(MissingInfoField.BUDGET);
+            }
+            return faltan;
+        }
         if (conHotel && !presupuestoValido(d.presupuesto())) {
             faltan.add(MissingInfoField.BUDGET);
         }

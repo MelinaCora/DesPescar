@@ -1,5 +1,6 @@
 package com.despescar.koiiaservice.client;
 
+import com.despescar.koiiaservice.client.dto.DestinoResponse;
 import com.despescar.koiiaservice.client.dto.HotelDetalleResponse;
 import com.despescar.koiiaservice.client.dto.HotelResumenResponse;
 import com.despescar.koiiaservice.exception.KoiCatalogUnavailableException;
@@ -44,6 +45,20 @@ public class CatalogoHotelesClient {
                     .body(new ParameterizedTypeReference<List<HotelResumenResponse>>() {
                     });
             return hoteles == null ? List.of() : hoteles;
+        } catch (RestClientException ex) {
+            throw new KoiCatalogUnavailableException("No se pudo consultar hotel-service", ex);
+        }
+    }
+
+    /** Ciudades con hoteles activos, para proponer viajes cuando el destino está abierto. */
+    public List<DestinoResponse> destinos() {
+        try {
+            List<DestinoResponse> destinos = restClient.get()
+                    .uri("/hoteles/destinos")
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<List<DestinoResponse>>() {
+                    });
+            return destinos == null ? List.of() : destinos;
         } catch (RestClientException ex) {
             throw new KoiCatalogUnavailableException("No se pudo consultar hotel-service", ex);
         }

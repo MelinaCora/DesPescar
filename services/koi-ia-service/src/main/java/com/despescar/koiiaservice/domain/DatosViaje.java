@@ -8,6 +8,8 @@ import java.time.YearMonth;
 /**
  * Lo que se sabe del viaje. Cualquier campo puede ser null. mesIda se usa cuando el usuario dio
  * solo el mes; fechaVuelta y noches son alternativas (la última que llega reemplaza a la otra).
+ * destinoAbierto marca que el usuario pidió opciones sin elegir destino: KOI lo propone en vez
+ * de preguntarlo; nombrar un destino lo cierra.
  */
 public record DatosViaje(
         UserIntent intencion,
@@ -18,13 +20,14 @@ public record DatosViaje(
         LocalDate fechaIda,
         YearMonth mesIda,
         LocalDate fechaVuelta,
-        Integer noches) {
+        Integer noches,
+        Boolean destinoAbierto) {
 
     public static final int MAX_VIAJEROS = 9;
     public static final int MAX_NOCHES = 30;
 
     public static DatosViaje vacio() {
-        return new DatosViaje(null, null, null, null, null, null, null, null, null);
+        return new DatosViaje(null, null, null, null, null, null, null, null, null, null);
     }
 
     /** Suma lo nuevo a lo que ya se sabía: lo no nulo de {@code nuevos} gana. */
@@ -39,12 +42,29 @@ public record DatosViaje(
                 : nuevos.noches() != null ? null : fechaVuelta;
         Integer cantidadNoches = nuevos.noches() != null ? nuevos.noches()
                 : nuevos.fechaVuelta() != null ? null : noches;
+        String destinoNuevo = texto(nuevos.destino());
+        boolean abierto;
+        String destinoFinal;
+        if (destinoNuevo != null) {
+            abierto = false;
+            destinoFinal = destinoNuevo;
+        } else if (nuevos.esDestinoAbierto()) {
+            abierto = true;
+            destinoFinal = null;
+        } else {
+            abierto = esDestinoAbierto();
+            destinoFinal = destino;
+        }
         return new DatosViaje(intent,
                 primero(nuevos.presupuesto(), presupuesto),
                 primero(nuevos.viajeros(), viajeros),
                 primero(texto(nuevos.origen()), origen),
-                primero(texto(nuevos.destino()), destino),
-                ida, mes, vuelta, cantidadNoches);
+                destinoFinal,
+                ida, mes, vuelta, cantidadNoches, abierto);
+    }
+
+    public boolean esDestinoAbierto() {
+        return Boolean.TRUE.equals(destinoAbierto) && destino == null;
     }
 
     public UserIntent intencionEfectiva() {

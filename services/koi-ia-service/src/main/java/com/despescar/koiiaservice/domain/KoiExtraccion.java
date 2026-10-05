@@ -24,7 +24,8 @@ public record KoiExtraccion(
         String destino,
         String fechaIda,
         String fechaVuelta,
-        Integer noches) {
+        Integer noches,
+        Boolean destinoAbierto) {
 
     public boolean esFueraDeTema() {
         return Boolean.TRUE.equals(fueraDeTema);
@@ -34,7 +35,7 @@ public record KoiExtraccion(
         // Escala 2 como la columna de la sesión: así un presupuesto repetido no cuenta como cambio
         BigDecimal monto = presupuesto == null ? null : presupuesto.setScale(2, RoundingMode.HALF_UP);
         return new DatosViaje(intencion(intencion), monto, viajeros, texto(origen), texto(destino),
-                fecha(fechaIda), mes(fechaIda), fecha(fechaVuelta), noches);
+                fecha(fechaIda), mes(fechaIda), fecha(fechaVuelta), noches, destinoAbierto);
     }
 
     private static UserIntent intencion(String valor) {
