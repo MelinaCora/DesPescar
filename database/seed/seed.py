@@ -162,17 +162,58 @@ def main():
         hotel_by_city = {h["ciudad"]: h["id"] for h in hotels}
     else:
         hotel_by_city = {}
-        for nombre, ciudad, direccion, estrellas, precio, hab, todo in (
-            ("Hotel Alvear Palace", "Buenos Aires", "Av. Alvear 1891", 5, 250, 40, False),
-            ("Sheraton Córdoba", "Córdoba", "Duarte Quirós 1300", 4, 120, 60, False),
-            ("Llao Llao Resort", "San Carlos de Bariloche", "Av. Ezequiel Bustillo km 25", 5, 310, 30, True),
-            ("Hotel Sheraton Mendoza", "Mendoza", "Primitivo de la Reta 989", 4, 140, 50, False),
-            ("Hilton Madrid Airport", "Madrid", "Calle de Acanto 22", 4, 160, 70, False),
-            ("Fontainebleau Miami Beach", "Miami", "4441 Collins Ave", 5, 280, 80, True),
-        ):
+        img = [
+            "https://images.unsplash.com/photo-1611892440504-42a792e24d32",
+            "https://images.unsplash.com/photo-1590490360182-c33d57733427",
+            "https://images.unsplash.com/photo-1631049307264-da0ec9d70304",
+        ]
+        flexible = [{"horasAntes": 24, "porcentajeReembolso": 100}, {"horasAntes": 0, "porcentajeReembolso": 0}]
+        escalonada = [{"horasAntes": 72, "porcentajeReembolso": 100}, {"horasAntes": 24, "porcentajeReembolso": 50},
+                      {"horasAntes": 0, "porcentajeReembolso": 0}]
+        no_reembolsable = [{"horasAntes": 0, "porcentajeReembolso": 0}]
+
+        def hab(nombre, desc, cap, precio, unidades, i):
+            return {"nombre": nombre, "descripcion": desc, "capacidad": cap, "precioPorNoche": precio,
+                    "cantidadUnidades": unidades, "imagenes": [img[i % 3]]}
+
+        hoteles = (
+            ("Alvear Palace", "Buenos Aires", "Argentina", "Av. Alvear 1891", 5, False, escalonada,
+             "America/Argentina/Buenos_Aires", "Palacio clásico en Recoleta con atención de mayordomo.",
+             ["WIFI", "DESAYUNO", "SPA", "GIMNASIO", "RESTAURANTE", "AIRE_ACONDICIONADO"],
+             [hab("Clásica doble", "Cama king o dos twin.", 2, 380000, 20, 0),
+              hab("Suite Deluxe", "Living separado y vista a la avenida.", 3, 620000, 8, 1)]),
+            ("Sheraton Córdoba", "Córdoba", "Argentina", "Duarte Quirós 1300", 4, False, flexible,
+             "America/Argentina/Buenos_Aires", "Hotel de negocios a minutos del centro.",
+             ["WIFI", "PILETA", "GIMNASIO", "ESTACIONAMIENTO", "RESTAURANTE"],
+             [hab("Doble estándar", "Dos camas o una king.", 2, 145000, 30, 2),
+              hab("Familiar", "Ideal para cuatro personas.", 4, 230000, 10, 0)]),
+            ("Llao Llao Resort", "San Carlos de Bariloche", "Argentina", "Av. Bustillo km 25", 5, True, escalonada,
+             "America/Argentina/Buenos_Aires", "Resort entre lagos y montañas, con todo incluido.",
+             ["WIFI", "PILETA", "DESAYUNO", "SPA", "GIMNASIO", "RESTAURANTE", "TRASLADO"],
+             [hab("Doble vista al bosque", "Balcón al bosque.", 2, 410000, 15, 1),
+              hab("Doble vista al lago", "Vista al Nahuel Huapi.", 2, 520000, 10, 2),
+              hab("Suite familiar", "Dos ambientes.", 4, 780000, 5, 0)]),
+            ("Sheraton Mendoza", "Mendoza", "Argentina", "Primitivo de la Reta 989", 4, False, flexible,
+             "America/Argentina/Buenos_Aires", "En el centro, cerca de bodegas y de la Peatonal.",
+             ["WIFI", "PILETA", "DESAYUNO", "ESTACIONAMIENTO", "MASCOTAS"],
+             [hab("Doble estándar", "Vista a la ciudad.", 2, 160000, 25, 2),
+              hab("Triple", "Tres camas individuales.", 3, 210000, 8, 1)]),
+            ("Hilton Madrid Airport", "Madrid", "España", "Av. de la Hispanidad 2", 4, False, no_reembolsable,
+             "Europe/Madrid", "Junto a Barajas, con traslado gratis a las terminales.",
+             ["WIFI", "GIMNASIO", "RESTAURANTE", "TRASLADO", "AIRE_ACONDICIONADO"],
+             [hab("Doble", "Insonorizada.", 2, 230000, 40, 0)]),
+            ("Fontainebleau Miami Beach", "Miami", "Estados Unidos", "4441 Collins Ave", 5, True, escalonada,
+             "America/New_York", "Resort frente al mar con todo incluido.",
+             ["WIFI", "PILETA", "SPA", "GIMNASIO", "RESTAURANTE", "AIRE_ACONDICIONADO"],
+             [hab("Doble vista al mar", "Balcón al océano.", 2, 540000, 30, 1),
+              hab("Suite junior", "Living integrado.", 3, 790000, 10, 2)]),
+        )
+        for i, (nombre, ciudad, pais, direccion, estrellas, todo, politica, zona, desc, servicios, habs) in enumerate(hoteles):
             _, h = call("POST", HOTEL + "/hoteles", {
-                "nombre": nombre, "ciudad": ciudad, "direccion": direccion, "estrellas": estrellas,
-                "precioPorNoche": precio, "habitacionesDisponibles": hab, "allInclusive": todo}, token)
+                "nombre": nombre, "ciudad": ciudad, "pais": pais, "direccion": direccion, "estrellas": estrellas,
+                "descripcion": desc, "allInclusive": todo, "imagenes": [img[i % 3], img[(i + 1) % 3]],
+                "servicios": servicios, "politicaCancelacion": politica, "zonaHoraria": zona,
+                "habitaciones": habs}, token)
             hotel_by_city[ciudad] = h["id"]
         print(f"hoteles: {len(hotel_by_city)} creados")
 
