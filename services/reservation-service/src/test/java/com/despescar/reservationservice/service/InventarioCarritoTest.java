@@ -195,6 +195,38 @@ class InventarioCarritoTest {
     }
 
     @Test
+    void retenerYConfirmarNoUsaLaRetencionViejaDeUnaExpirada() {
+        UUID vieja = UUID.randomUUID();
+        UUID nueva = UUID.randomUUID();
+        EstadiaHotel e = estadia(vieja);
+        RetencionHotelResponse creada = new RetencionHotelResponse();
+        creada.setRetencionId(nueva);
+        when(hotelClient.crearRetencion(any())).thenReturn(creada);
+
+        assertTrue(inventario.retenerYConfirmarEstadias(reserva));
+
+        assertEquals(nueva, e.getRetencionId());
+        verify(hotelClient).confirmarRetencion(nueva, "Ana Pérez");
+        verify(hotelClient, never()).confirmarRetencion(vieja, "Ana Pérez");
+        verify(hotelClient, never()).liberarRetencion(any());
+    }
+
+    @Test
+    void retenerYConfirmarSinLugarSueltaLasNuevasTomadas() {
+        UUID primeraNueva = UUID.randomUUID();
+        estadia(UUID.randomUUID());
+        estadia(UUID.randomUUID());
+        RetencionHotelResponse creada = new RetencionHotelResponse();
+        creada.setRetencionId(primeraNueva);
+        when(hotelClient.crearRetencion(any())).thenReturn(creada)
+                .thenThrow(new BookingException("SIN_DISPONIBILIDAD_HOTEL", "Sin lugar", HttpStatus.CONFLICT));
+
+        assertFalse(inventario.retenerYConfirmarEstadias(reserva));
+
+        verify(hotelClient).liberarRetencion(primeraNueva);
+    }
+
+    @Test
     void sinLugarDevuelveLoTomadoEnElIntento() {
         UUID primera = UUID.randomUUID();
         UUID segunda = UUID.randomUUID();

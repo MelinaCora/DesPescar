@@ -89,6 +89,7 @@ class CarritoServiceTest {
         lenient().when(bookingRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(bookingRepository.saveAndFlush(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(bookingRepository.findById(12L)).thenReturn(Optional.of(carrito));
+        lenient().when(bookingRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(carrito));
         lenient().when(inventario.vencimiento(any())).thenReturn(VENCE);
     }
 
@@ -358,6 +359,20 @@ class CarritoServiceTest {
         assertEquals(ReservationStatus.CANCELADA, carrito.getEstado());
         assertEquals("ABANDONADA", carrito.getMotivoCancelacion());
         assertEquals(PaymentStatus.CANCELADO, carrito.getDetalles().get(0).getPaymentStatus());
+    }
+
+    @Test
+    void abandonarBloqueaLaReservaAntesDeSoltarLasRetenciones() {
+        estadia(3L, "Ana Pérez");
+
+        service.abandonar(12L, 7L);
+
+        // Con la reserva bloqueada, una confirmación de pago en curso no puede quedar CONFIRMADA con
+        // las retenciones ya liberadas: o confirma antes (y esto responde 409) o ve la CANCELADA
+        org.mockito.InOrder orden = org.mockito.Mockito.inOrder(bookingRepository, inventario);
+        orden.verify(bookingRepository).findByIdForUpdate(12L);
+        orden.verify(inventario).liberarRetenciones(carrito);
+        verify(bookingRepository, never()).findById(12L);
     }
 
     @Test

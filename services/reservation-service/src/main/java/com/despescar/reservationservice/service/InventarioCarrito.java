@@ -135,10 +135,28 @@ public class InventarioCarrito {
      * lo confirmado en este intento y devuelve false. Los errores de comunicación se propagan.
      */
     public boolean confirmarEstadias(Reservation reserva) {
+        return confirmarEstadias(reserva, false);
+    }
+
+    /**
+     * Pago tardío sobre una reserva EXPIRADA: sus retenciones son del scheduler, que las libera después
+     * de su commit (quizás todavía no lo hizo). Confirmarlas sería perderlas cuando llegue esa
+     * liberación, así que se toma una retención nueva por estadía y se confirma. Mismo contrato que
+     * {@link #confirmarEstadias}: sin lugar suelta lo tomado y devuelve false.
+     */
+    public boolean retenerYConfirmarEstadias(Reservation reserva) {
+        return confirmarEstadias(reserva, true);
+    }
+
+    private boolean confirmarEstadias(Reservation reserva, boolean renovar) {
         List<UUID> tomadas = new ArrayList<>();
         for (EstadiaHotel estadia : CarritoCalculo.estadiasActivas(reserva)) {
             try {
-                confirmarUna(reserva, estadia);
+                if (renovar) {
+                    retenerYConfirmar(reserva, estadia);
+                } else {
+                    confirmarUna(reserva, estadia);
+                }
                 tomadas.add(estadia.getRetencionId());
             } catch (BookingException ex) {
                 if (!FALTA_DE_LUGAR.contains(ex.getCodigo())) {
@@ -160,18 +178,23 @@ public class InventarioCarrito {
             if (!"RETENCION_LIBERADA".equals(ex.getCodigo())) {
                 throw ex;
             }
-            RetencionHotelResponse nueva = hotelClient.crearRetencion(new RetencionHotelRequest(
-                    reserva.getId(), reserva.getCreadorId(), estadia.getHotelId(), estadia.getTipoHabitacionId(),
-                    estadia.getCheckIn(), estadia.getCheckOut(), estadia.getCantidadHabitaciones(),
-                    estadia.getHuespedes(), Instant.now(clock).plus(RETENCION_DE_RESCATE)));
-            try {
-                hotelClient.confirmarRetencion(nueva.getRetencionId(), estadia.getTitularNombre());
-            } catch (RuntimeException e) {
-                liberarRetencion(nueva.getRetencionId());
-                throw e;
-            }
-            estadia.setRetencionId(nueva.getRetencionId());
+            retenerYConfirmar(reserva, estadia);
         }
+    }
+
+    /** Toma una retención nueva para la estadía, la confirma con el titular y la deja en la estadía. */
+    private void retenerYConfirmar(Reservation reserva, EstadiaHotel estadia) {
+        RetencionHotelResponse nueva = hotelClient.crearRetencion(new RetencionHotelRequest(
+                reserva.getId(), reserva.getCreadorId(), estadia.getHotelId(), estadia.getTipoHabitacionId(),
+                estadia.getCheckIn(), estadia.getCheckOut(), estadia.getCantidadHabitaciones(),
+                estadia.getHuespedes(), Instant.now(clock).plus(RETENCION_DE_RESCATE)));
+        try {
+            hotelClient.confirmarRetencion(nueva.getRetencionId(), estadia.getTitularNombre());
+        } catch (RuntimeException e) {
+            liberarRetencion(nueva.getRetencionId());
+            throw e;
+        }
+        estadia.setRetencionId(nueva.getRetencionId());
     }
 
     /** Libera las retenciones de las estadías activas. Mejor esfuerzo (D31). */

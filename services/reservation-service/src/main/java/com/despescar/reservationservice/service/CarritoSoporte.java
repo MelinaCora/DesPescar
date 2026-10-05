@@ -1,7 +1,6 @@
 package com.despescar.reservationservice.service;
 
 import com.despescar.reservationservice.entity.Reservation;
-import com.despescar.reservationservice.enums.PaymentStatus;
 import com.despescar.reservationservice.enums.PaymentType;
 import com.despescar.reservationservice.enums.ReservationStatus;
 import com.despescar.reservationservice.exception.BookingException;
@@ -61,7 +60,8 @@ public class CarritoSoporte {
      * Crea y guarda un carrito vacío: dura 15 minutos desde ahora. Se hace en su propia transacción:
      * un usuario tiene un solo carrito abierto (índice único), así que si otro pedido lo creó primero
      * (doble clic) se reutiliza ese. Un carrito abierto pero vencido, que el scheduler todavía no
-     * cerró, se cierra acá para no impedir el nuevo; sus retenciones y asientos vencen solos.
+     * cerró, se cierra acá para no impedir el nuevo; sus retenciones y asientos vencen solos. Sus
+     * pasajeros quedan PENDIENTE, como en el scheduler: un pago tardío todavía coincide con el total (D6).
      */
     public Reservation crearCarrito(Long usuarioId) {
         TransactionTemplate nueva = new TransactionTemplate(gestor);
@@ -70,7 +70,6 @@ public class CarritoSoporte {
             return nueva.execute(estado -> {
                 carritoAbierto(usuarioId).filter(this::vencido).ifPresent(vencido -> {
                     vencido.setEstado(ReservationStatus.EXPIRADA);
-                    vencido.getDetalles().forEach(d -> d.setPaymentStatus(PaymentStatus.CANCELADO));
                     bookingRepository.saveAndFlush(vencido);
                 });
                 return bookingRepository.saveAndFlush(Reservation.builder()
@@ -88,7 +87,16 @@ public class CarritoSoporte {
     }
 
     public Reservation reservaDelUsuario(Long id, Long usuarioId) {
-        Reservation reserva = bookingRepository.findById(id)
+        return delUsuario(bookingRepository.findById(id), usuarioId);
+    }
+
+    /** Igual que {@link #reservaDelUsuario}, con la fila bloqueada hasta el fin de la transacción. */
+    public Reservation reservaDelUsuarioBloqueada(Long id, Long usuarioId) {
+        return delUsuario(bookingRepository.findByIdForUpdate(id), usuarioId);
+    }
+
+    private static Reservation delUsuario(Optional<Reservation> encontrada, Long usuarioId) {
+        Reservation reserva = encontrada
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
         if (!reserva.getCreadorId().equals(usuarioId)) {
             throw new BookingException("ACCESO_DENEGADO", "No tenés acceso a esta reserva.", HttpStatus.FORBIDDEN);

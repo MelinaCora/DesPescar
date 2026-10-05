@@ -161,4 +161,40 @@ class CarritoRepositoryTest {
         Reservation segundo = em.persistAndFlush(carrito(7L, ReservationStatus.INICIADA, AHORA.plusMinutes(15)));
         assertEquals(7L, segundo.getCarritoAbiertoDe());
     }
+
+    @Test
+    void laReservaBloqueadaGuardaElTokenQueLaConfirmo() {
+        Long id = em.persistAndFlush(carrito(7L, ReservationStatus.PENDIENTE_PAGO, AHORA.plusMinutes(15))).getId();
+        em.clear();
+
+        Reservation bloqueada = bookingRepository.findByIdForUpdate(id).orElseThrow();
+        bloqueada.setEstado(ReservationStatus.CONFIRMADA);
+        bloqueada.setTokenPagoConfirmacion("MOCK-1");
+        em.flush();
+        em.clear();
+
+        Reservation leida = em.find(Reservation.class, id);
+        assertEquals("MOCK-1", leida.getTokenPagoConfirmacion());
+        assertNull(leida.getCarritoAbiertoDe());
+    }
+
+    @Test
+    void unaCopiaViejaNoPisaUnaReservaYaConfirmada() {
+        Reservation c = em.persistAndFlush(carrito(7L, ReservationStatus.PENDIENTE_PAGO, AHORA.plusMinutes(15)));
+        Long id = c.getId();
+        Long versionLeida = c.getVersion();
+        em.clear();
+        Reservation confirmada = em.find(Reservation.class, id);
+        confirmada.setEstado(ReservationStatus.CONFIRMADA);
+        em.flush();
+        em.clear();
+
+        // Otro pedido (p. ej. cargar titulares) que leyó la reserva antes de la confirmación
+        Reservation vieja = carrito(7L, ReservationStatus.PENDIENTE_PAGO, AHORA.plusMinutes(15));
+        vieja.setId(id);
+        vieja.setVersion(versionLeida);
+
+        assertThrows(org.springframework.orm.ObjectOptimisticLockingFailureException.class,
+                () -> bookingRepository.saveAndFlush(vieja));
+    }
 }

@@ -96,6 +96,21 @@ public class Reservation {
     private String motivoCancelacion;
 
     /**
+     * tokenPago del pago que confirmó la reserva. Un reenvío con el mismo token es idempotente; otro
+     * token sobre una reserva ya confirmada es un pago duplicado (se reembolsa).
+     */
+    @Column(name = "token_pago_confirmacion", length = 120)
+    private String tokenPagoConfirmacion;
+
+    /**
+     * Bloqueo optimista: una escritura hecha con una copia vieja de la reserva (por ejemplo, cargar
+     * titulares mientras se confirma el pago) falla en lugar de pisar una reserva ya CONFIRMADA.
+     */
+    @Version
+    @Column(name = "version", nullable = false, columnDefinition = "bigint default 0")
+    private Long version;
+
+    /**
      * Igual a creadorId mientras el carrito esta INICIADA o PENDIENTE_PAGO y null en cualquier otro
      * estado. Su indice unico garantiza un solo carrito abierto por usuario (NULL no choca en MySQL).
      */

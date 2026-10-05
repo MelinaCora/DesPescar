@@ -4,9 +4,12 @@ import com.despescar.reservationservice.client.FlightClient;
 import com.despescar.reservationservice.client.PackageClient;
 import com.despescar.reservationservice.dto.packagecatalog.response.PackageLookupResponse;
 import com.despescar.reservationservice.dto.reservation.request.BookingInitRequest;
+import com.despescar.reservationservice.dto.reservation.request.PaymentConfirmationRequest;
 import com.despescar.reservationservice.dto.reservation.request.SplitPaymentSetupRequest;
 import com.despescar.reservationservice.dto.reservation.response.BookingInitResponse;
+import com.despescar.reservationservice.dto.reservation.response.ConfirmacionPagoResponse;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
+import com.despescar.reservationservice.entity.EstadiaHotel;
 import com.despescar.reservationservice.entity.Reservation;
 import com.despescar.reservationservice.entity.ReservationDetail;
 import com.despescar.reservationservice.enums.PaymentStatus;
@@ -22,11 +25,17 @@ import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -44,6 +53,10 @@ public class BookingService {
     private final CarritoSoporte soporte;
     private final PrecioVuelo precioVuelo;
     private final InventarioCarrito inventario;
+    private final TransactionTemplate transaccion;
+
+    /** Intentos cuando la reserva cambia entre la lectura y el bloqueo (vencimiento, abandono, edición). */
+    static final int INTENTOS_CONFIRMACION = 3;
 
     /**
      * Suma la parte de vuelo al carrito activo del usuario o crea uno (D11). El precio por
@@ -93,73 +106,236 @@ public class BookingService {
                 .build();
     }
 
-    @Transactional
+    /**
+     * Se conserva para clientes viejos (el front no lo usa): solo el creador, solo un carrito listo
+     * para pagar y en hora. Ya no exige pasajeros (un carrito de solo hotel también se paga) ni
+     * cancela al leer un carrito vencido: de eso se ocupa el scheduler (D13).
+     */
+    @Transactional(readOnly = true)
     public String procesarPago(Long id, Long payerUserId) {
-
-        Reservation reserva = bookingRepository.findById(id)
-                .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
-
-        if (!ReservationStatus.PENDIENTE_PAGO.equals(reserva.getEstado())) {
-            throw new BookingException("MODIFICACION_PROHIBIDA", "La reserva no está lista para pago (Estado actual: " + reserva.getEstado() + ")", HttpStatus.BAD_REQUEST);
+        Reservation reserva = soporte.reservaDelUsuario(id, payerUserId);
+        if (reserva.getEstado() != ReservationStatus.PENDIENTE_PAGO) {
+            throw new BookingException("MODIFICACION_PROHIBIDA",
+                    "La reserva no está lista para pago (estado actual: " + reserva.getEstado() + ").", HttpStatus.BAD_REQUEST);
         }
-
-        validarExpiracion(reserva);
-
-        List<ReservationDetail> detallesAPagar = detailRepository
-                .findByReservation_IdAndPayerUserIdAndPaymentStatus(id, payerUserId, PaymentStatus.PENDIENTE);
-
-        if (detallesAPagar.isEmpty()) {
-            throw new BookingException("SIN_DEUDAS", "No tienes pagos pendientes en este carrito.", HttpStatus.BAD_REQUEST);
+        if (soporte.vencido(reserva)) {
+            throw new BookingException("CARRITO_EXPIRADO", "El tiempo límite de 15 minutos terminó.", HttpStatus.GONE);
         }
-
         return "Pago pendiente de confirmacion del proveedor. La reserva no se confirmara hasta recibir un callback validado.";
     }
 
-    @Transactional
-    public String confirmarPagoValidado(Long id, Long payerUserId, String providerTransactionId) {
-        if (payerUserId == null || providerTransactionId == null || providerTransactionId.isBlank()) {
-            throw new BookingException("CONFIRMACION_INVALIDA", "La confirmacion del proveedor esta incompleta.", HttpStatus.BAD_REQUEST);
-        }
+    /**
+     * Confirmación del pago (contrato C3). Sin @Transactional a propósito: las estadías se confirman
+     * primero por HTTP, sin transacción; después, en una transacción corta y con la fila de la reserva
+     * bloqueada, se revalida que nada haya cambiado y se ocupan los asientos (los FOR UPDATE nunca
+     * cruzan una llamada HTTP). Si no hay lugar, la reserva se cancela en esa misma transacción y las
+     * retenciones se liberan después del commit. Si la reserva cambió durante la llamada al hotel
+     * (vencimiento, abandono, edición) se sueltan las retenciones que tomó este intento y se vuelve a
+     * evaluar. Los errores de comunicación con hotel-service se propagan (5xx) y payment-service
+     * reintenta con el mismo tokenPago.
+     */
+    public ConfirmacionPagoResponse confirmarPago(Long id, PaymentConfirmationRequest pedido) {
+        for (int intento = 1; intento <= INTENTOS_CONFIRMACION; intento++) {
+            Evaluacion evaluacion = transaccion.execute(status -> evaluar(id, pedido));
+            if (evaluacion.respuesta() != null) {
+                return evaluacion.respuesta();
+            }
+            Reservation leida = evaluacion.reserva();
+            Set<UUID> previas = retenciones(leida);
 
-        Reservation reserva = bookingRepository.findById(id)
-                .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
+            // 1. Estadías: llamadas remotas, sin transacción abierta ni asientos bloqueados. Las
+            // retenciones de una EXPIRADA son del scheduler (las libera después de su commit): se toman nuevas.
+            boolean conLugar = evaluacion.renovar()
+                    ? inventario.retenerYConfirmarEstadias(leida)
+                    : inventario.confirmarEstadias(leida);
 
-        if (!ReservationStatus.PENDIENTE_PAGO.equals(reserva.getEstado())) {
-            throw new BookingException("MODIFICACION_PROHIBIDA", "La reserva no está lista para pago (Estado actual: " + reserva.getEstado() + ")", HttpStatus.BAD_REQUEST);
-        }
+            // 2. Base: transacción corta con la reserva bloqueada
+            Cierre cierre;
+            try {
+                cierre = transaccion.execute(status -> cerrarEnBase(id, leida, evaluacion, pedido, conLugar));
+            } catch (RuntimeException ex) {
+                liberarNuevas(leida, previas);
+                throw ex;
+            }
 
-        validarExpiracion(reserva);
-
-        List<ReservationDetail> detallesAPagar = detailRepository
-                .findByReservation_IdAndPayerUserIdAndPaymentStatus(id, payerUserId, PaymentStatus.PENDIENTE);
-
-        if (detallesAPagar.isEmpty()) {
-            throw new BookingException("SIN_DEUDAS", "No hay pagos pendientes para este pagador.", HttpStatus.BAD_REQUEST);
-        }
-
-        for (ReservationDetail detalle : detallesAPagar) {
-            if (detalle.getPassengerName() == null || detalle.getPassengerDni() == null) {
-                throw new BookingException("DOCUMENTACION_INCOMPLETA", "Falta documentación del pasajero asignado al asiento " + detalle.getOutboundSeatNumber(), HttpStatus.BAD_REQUEST);
+            // 3. Lo remoto, ya fuera de la transacción
+            switch (cierre.tipo()) {
+                case CONFIRMADA -> {
+                    descontarCupos(leida);
+                    log.info("Reserva {} confirmada con el pago {}", id, pedido.getTokenPago());
+                    return cierre.respuesta();
+                }
+                case SIN_LUGAR -> {
+                    inventario.liberarRetenciones(leida);
+                    return cierre.respuesta();
+                }
+                case RESUELTA -> {
+                    liberarNuevas(leida, previas);
+                    return cierre.respuesta();
+                }
+                default -> {
+                    liberarNuevas(leida, previas);
+                    log.warn("La reserva {} cambió mientras se confirmaba el pago {} (intento {})", id, pedido.getTokenPago(), intento);
+                }
             }
         }
+        throw new BookingException("CONFIRMACION_CONCURRENTE",
+                "La reserva cambió mientras se confirmaba el pago. Reintentá.", HttpStatus.SERVICE_UNAVAILABLE);
+    }
 
-        detallesAPagar.forEach(detalle -> detalle.setPaymentStatus(PaymentStatus.PAGADO));
-        detailRepository.saveAll(detallesAPagar);
-
-        long pendientes = detailRepository.countByReservation_IdAndPaymentStatus(id, PaymentStatus.PENDIENTE);
-
-        if (pendientes == 0) {
-            reserva.setEstado(ReservationStatus.CONFIRMADA);
-
-            ajustarInventario(reserva, -1);
-
-            bookingRepository.save(reserva);
-            notificarCambioEnTiempoReal(reserva);
-            return "Reserva confirmada. Todos los pagos fueron realizados.";
+    /** Lectura y controles. Deja inicializados vuelos, pasajeros y estadías para usarlos después del commit. */
+    private Evaluacion evaluar(Long id, PaymentConfirmationRequest pedido) {
+        Reservation reserva = bookingRepository.findById(id)
+                .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
+        if (!Objects.equals(reserva.getCreadorId(), pedido.getPagadorId())) {
+            throw new BookingException("PAGADOR_INVALIDO", "El pagador no es el creador de la reserva.", HttpStatus.BAD_REQUEST);
         }
+        if (reserva.getEstado() == ReservationStatus.CONFIRMADA) {
+            return Evaluacion.fin(yaConfirmada(reserva, pedido));
+        }
+        if (reserva.getEstado() == ReservationStatus.CANCELADA) {
+            return Evaluacion.fin(ConfirmacionPagoResponse.cancelada(motivoDeCancelada(reserva), "La reserva ya estaba cancelada."));
+        }
+        if (!CarritoCalculo.datosCompletos(reserva)) {
+            return Evaluacion.fin(ConfirmacionPagoResponse.rechazada(ConfirmacionPagoResponse.DATOS_INCOMPLETOS,
+                    "Faltan datos de pasajeros o titulares."));
+        }
+        if (!coincideElMonto(reserva, pedido)) {
+            return Evaluacion.fin(ConfirmacionPagoResponse.rechazada(ConfirmacionPagoResponse.MONTO_NO_COINCIDE,
+                    "El monto pagado no coincide con el total del carrito."));
+        }
+        boolean expirada = reserva.getEstado() == ReservationStatus.EXPIRADA;
+        boolean tardio = expirada || soporte.vencido(reserva);
+        return new Evaluacion(null, reserva, tardio
+                ? ConfirmacionPagoResponse.PAGO_TARDIO_SIN_DISPONIBILIDAD
+                : ConfirmacionPagoResponse.SIN_DISPONIBILIDAD, expirada);
+    }
 
+    /**
+     * Con la reserva bloqueada: si otro pago la confirmó, responde según el token; si cambió desde la
+     * lectura, pide reintentar; si hay lugar ocupa los asientos y la confirma; si no, la cancela.
+     */
+    private Cierre cerrarEnBase(Long id, Reservation leida, Evaluacion evaluacion, PaymentConfirmationRequest pedido,
+                                boolean conLugar) {
+        Reservation reserva = bookingRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
+        if (reserva.getEstado() == ReservationStatus.CONFIRMADA) {
+            return new Cierre(Cierre.Tipo.RESUELTA, yaConfirmada(reserva, pedido));
+        }
+        if (cambio(leida, reserva, pedido)) {
+            return new Cierre(Cierre.Tipo.CAMBIO, null);
+        }
+        if (conLugar) {
+            copiarRetenciones(leida, reserva);
+            if (inventario.confirmarAsientos(reserva)) {
+                reserva.getDetalles().forEach(d -> d.setPaymentStatus(PaymentStatus.PAGADO));
+                CarritoCalculo.estadiasActivas(reserva).forEach(e -> e.setEstadoPago(PaymentStatus.PAGADO));
+                reserva.setEstado(ReservationStatus.CONFIRMADA);
+                reserva.setMotivoCancelacion(null);
+                reserva.setTokenPagoConfirmacion(pedido.getTokenPago());
+                bookingRepository.save(reserva);
+                notificarCambioEnTiempoReal(reserva);
+                return new Cierre(Cierre.Tipo.CONFIRMADA, ConfirmacionPagoResponse.confirmada());
+            }
+        }
+        String motivo = evaluacion.motivoSinLugar();
+        inventario.liberarAsientos(reserva);
+        reserva.getDetalles().forEach(d -> d.setPaymentStatus(PaymentStatus.CANCELADO));
+        reserva.setEstado(ReservationStatus.CANCELADA);
+        reserva.setMotivoCancelacion(motivo);
+        bookingRepository.save(reserva);
         notificarCambioEnTiempoReal(reserva);
-        return "Pago realizado correctamente. Esperando pagos del resto del grupo.";
+        log.warn("Reserva {} cancelada al confirmar el pago {}: {}", id, pedido.getTokenPago(), motivo);
+        return new Cierre(Cierre.Tipo.SIN_LUGAR, ConfirmacionPagoResponse.cancelada(motivo,
+                ConfirmacionPagoResponse.PAGO_TARDIO_SIN_DISPONIBILIDAD.equals(motivo)
+                        ? "El pago llegó después del vencimiento y ya no hay lugar para todo el carrito."
+                        : "Ya no hay lugar para todo el carrito."));
+    }
+
+    /** El mismo pago reenviado es idempotente; otro pago sobre una reserva confirmada es un duplicado. */
+    private static ConfirmacionPagoResponse yaConfirmada(Reservation reserva, PaymentConfirmationRequest pedido) {
+        return Objects.equals(reserva.getTokenPagoConfirmacion(), pedido.getTokenPago())
+                ? ConfirmacionPagoResponse.confirmada()
+                : ConfirmacionPagoResponse.duplicado();
+    }
+
+    /** Exacto, sin redondear lo que llega: 819999.995 no paga 820000.00. La escala no importa. */
+    private static boolean coincideElMonto(Reservation reserva, PaymentConfirmationRequest pedido) {
+        return pedido.getMonto() != null && CarritoCalculo.montoTotal(reserva).compareTo(pedido.getMonto()) == 0;
+    }
+
+    /** Lo que se leyó antes de llamar al hotel ya no es lo que hay en la base. */
+    private static boolean cambio(Reservation leida, Reservation actual, PaymentConfirmationRequest pedido) {
+        return actual.getEstado() != leida.getEstado()
+                || !idsEstadias(actual).equals(idsEstadias(leida))
+                || !new ArrayList<>(actual.getFlightIds()).equals(new ArrayList<>(leida.getFlightIds()))
+                || !CarritoCalculo.datosCompletos(actual)
+                || !coincideElMonto(actual, pedido);
+    }
+
+    private static Set<Long> idsEstadias(Reservation reserva) {
+        return CarritoCalculo.estadiasActivas(reserva).stream().map(EstadiaHotel::getId).collect(Collectors.toSet());
+    }
+
+    private static Set<UUID> retenciones(Reservation reserva) {
+        return CarritoCalculo.estadiasActivas(reserva).stream().map(EstadiaHotel::getRetencionId)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
+    }
+
+    /**
+     * Suelta solo las retenciones que creó este intento (rescate o pago tardío): las que ya tenía el
+     * carrito siguen siendo suyas (las libera el abandono o el vencimiento, o son de la reserva confirmada).
+     */
+    private void liberarNuevas(Reservation leida, Set<UUID> previas) {
+        retenciones(leida).stream().filter(r -> !previas.contains(r)).forEach(inventario::liberarRetencion);
+    }
+
+    /** Si confirmarEstadias tomó una retención nueva (rescate o pago tardío), la reserva releída la guarda. */
+    private static void copiarRetenciones(Reservation desde, Reservation hacia) {
+        if (desde == hacia) {
+            return;
+        }
+        Map<Long, UUID> retenciones = new HashMap<>();
+        desde.getEstadias().forEach(e -> retenciones.put(e.getId(), e.getRetencionId()));
+        hacia.getEstadias().forEach(e -> {
+            UUID nueva = retenciones.get(e.getId());
+            if (nueva != null) {
+                e.setRetencionId(nueva);
+            }
+        });
+    }
+
+    private static String motivoDeCancelada(Reservation reserva) {
+        String motivo = reserva.getMotivoCancelacion();
+        return ConfirmacionPagoResponse.PAGO_TARDIO_SIN_DISPONIBILIDAD.equals(motivo)
+                || ConfirmacionPagoResponse.SIN_DISPONIBILIDAD.equals(motivo)
+                ? motivo : ConfirmacionPagoResponse.RESERVA_CANCELADA;
+    }
+
+    /**
+     * Descuenta el cupo informativo de flight-service (availableSeats). Mejor esfuerzo: el mapa de
+     * asientos de este servicio es lo que manda y la reserva ya está confirmada.
+     */
+    private void descontarCupos(Reservation reserva) {
+        for (UUID flightId : reserva.getFlightIds()) {
+            try {
+                String numero = flightClient.getFlightByNumber(flightId).getFlightNumber();
+                flightClient.adjustSeats(numero, -reserva.getCantidadPasajeros());
+            } catch (RuntimeException ex) {
+                log.warn("No se pudo descontar el cupo del vuelo {} de la reserva {}: {}", flightId, reserva.getId(), ex.getMessage());
+            }
+        }
+    }
+
+    private record Evaluacion(ConfirmacionPagoResponse respuesta, Reservation reserva, String motivoSinLugar,
+                              boolean renovar) {
+        static Evaluacion fin(ConfirmacionPagoResponse respuesta) {
+            return new Evaluacion(respuesta, null, null, false);
+        }
+    }
+
+    private record Cierre(Tipo tipo, ConfirmacionPagoResponse respuesta) {
+        enum Tipo { CONFIRMADA, SIN_LUGAR, RESUELTA, CAMBIO }
     }
 
     @Transactional(readOnly = true)
@@ -172,57 +348,6 @@ public class BookingService {
         Reservation reserva = bookingRepository.findById(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
         return reservationMapper.toResponse(reserva);
-    }
-
-    @Transactional
-    public void cancelarReservaManualmente(Long id, Long usuarioId) {
-        Reservation reserva = bookingRepository.findById(id)
-                .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
-
-        if (!reserva.getCreadorId().equals(usuarioId)) {
-            throw new BookingException("ACCESO_DENEGADO", "Solo el creador puede cancelar la reserva.", HttpStatus.FORBIDDEN);
-        }
-
-        // El inventario solo se descuenta al confirmar el pago: unicamente ahi hay que devolverlo.
-        boolean inventarioDescontado = ReservationStatus.CONFIRMADA.equals(reserva.getEstado());
-
-        reserva.setEstado(ReservationStatus.CANCELADA);
-        bookingRepository.save(reserva);
-
-        if (inventarioDescontado) {
-            ajustarInventario(reserva, 1);
-        }
-
-        List<ReservationDetail> detalles = detailRepository.findByReservation_Id(id);
-        for (ReservationDetail detalle : detalles) {
-            if (PaymentStatus.PAGADO.equals(detalle.getPaymentStatus())) {
-                detalle.setPaymentStatus(PaymentStatus.REEMBOLSADO);
-            } else {
-                detalle.setPaymentStatus(PaymentStatus.CANCELADO);
-            }
-        }
-        detailRepository.saveAll(detalles);
-
-        log.info("Usuario {} canceló la reserva {}", usuarioId, id);
-        notificarCambioEnTiempoReal(reserva);
-    }
-
-    /** Descuenta (sentido -1) o devuelve (sentido 1) asientos de los vuelos. */
-    private void ajustarInventario(Reservation reserva, int sentido) {
-        for (UUID flightId : reserva.getFlightIds()) {
-            String flightNumber = flightClient.getFlightByNumber(flightId).getFlightNumber();
-            flightClient.adjustSeats(flightNumber, sentido * reserva.getCantidadPasajeros());
-        }
-    }
-
-    private void validarExpiracion(Reservation reserva) {
-        if (soporte.vencido(reserva) &&
-                (ReservationStatus.INICIADA.equals(reserva.getEstado()) || ReservationStatus.PENDIENTE_PAGO.equals(reserva.getEstado()))) {
-
-            reserva.setEstado(ReservationStatus.CANCELADA);
-            bookingRepository.save(reserva);
-            throw new BookingException("CARRITO_EXPIRADO", "El tiempo límite de 15 minutos terminó.", HttpStatus.GONE);
-        }
     }
 
     private PackageLookupResponse validarYObtenerPaquete(Long packageId, String authHeader) {

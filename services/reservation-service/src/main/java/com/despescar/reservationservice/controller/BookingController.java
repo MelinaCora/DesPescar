@@ -6,6 +6,7 @@ import com.despescar.reservationservice.dto.reservation.request.BookingInitReque
 import com.despescar.reservationservice.dto.reservation.request.PaymentConfirmationRequest;
 import com.despescar.reservationservice.dto.reservation.request.SplitPaymentSetupRequest;
 import com.despescar.reservationservice.dto.reservation.response.BookingInitResponse;
+import com.despescar.reservationservice.dto.reservation.response.ConfirmacionPagoResponse;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
 import com.despescar.reservationservice.service.BookingService;
 import com.despescar.reservationservice.service.CarritoService;
@@ -82,12 +83,16 @@ public class BookingController {
         return ResponseEntity.accepted().body(bookingService.procesarPago(id, usuario(authentication)));
     }
 
+    /**
+     * Contrato C3: 200 con {estado, motivo, mensaje} si la reserva existe y el pedido es coherente; 400
+     * PAGADOR_INVALIDO o VALIDACION; 404 RESERVA_NO_ENCONTRADA; 5xx de hotel-service se propagan.
+     */
     @PostMapping("/internal/{id}/payment-confirmed")
     @PreAuthorize("hasRole('ROLE_SERVICE_PAYMENT')")
-    public ResponseEntity<String> confirmarPagoValidado(
+    public ResponseEntity<ConfirmacionPagoResponse> confirmarPago(
             @PathVariable Long id,
             @Valid @RequestBody PaymentConfirmationRequest request) {
-        return ResponseEntity.ok(bookingService.confirmarPagoValidado(id, request.getPagadorId(), request.getTokenPago()));
+        return ResponseEntity.ok(bookingService.confirmarPago(id, request));
     }
 
     @GetMapping("/{id}")

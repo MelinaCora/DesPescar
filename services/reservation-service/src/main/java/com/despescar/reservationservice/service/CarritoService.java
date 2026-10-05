@@ -176,11 +176,13 @@ public class CarritoService {
 
     /**
      * Abandona un carrito sin pagar (D12): libera retenciones (remoto, primero) y asientos. Sobre una
-     * reserva pagada responde 409: se cancela por ítem (E4).
+     * reserva pagada responde 409: se cancela por ítem (E4). La reserva se lee bloqueada antes de soltar
+     * nada: una confirmación de pago en curso o confirma antes (y esto responde 409) o ve la CANCELADA;
+     * nunca queda una reserva pagada con sus retenciones liberadas.
      */
     @Transactional
     public void abandonar(Long reservaId, Long usuarioId) {
-        Reservation reserva = soporte.reservaDelUsuario(reservaId, usuarioId);
+        Reservation reserva = soporte.reservaDelUsuarioBloqueada(reservaId, usuarioId);
         if (reserva.getEstado() == ReservationStatus.CONFIRMADA) {
             throw new BookingException("USAR_CANCELACION_POR_ITEM",
                     "La reserva ya está pagada: se cancela por ítem desde Mis reservas.", HttpStatus.CONFLICT);
