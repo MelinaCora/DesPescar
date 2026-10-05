@@ -111,10 +111,10 @@ public class GrupoPagoService {
 
     private Preparacion preparar(Long reservaId, int cantidadPartes, Long usuarioId) {
         Reservation reserva = soporte.reservaDelUsuario(reservaId, usuarioId);
-        exigirListoParaDividir(reserva);
         if (grupoRepository.findByReservation_Id(reservaId).isPresent()) {
             throw grupoYaExiste();
         }
+        exigirListoParaDividir(reserva);
         BigDecimal total = CarritoCalculo.montoTotal(reserva); // también deja cargadas estadías y pasajeros
         RepartoGrupo.validarCantidad(cantidadPartes, total);
         return new Preparacion(reserva, total, CarritoCalculo.cantidadItems(reserva), reserva.getLimiteTiempo(),

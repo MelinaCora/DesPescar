@@ -195,6 +195,16 @@ class GrupoPagoServiceIniciarTest {
     }
 
     @Test
+    void elCarritoQueYaSePagaEnGrupoRespondeQueElGrupoYaExiste() {
+        reserva.setEstado(ReservationStatus.ESPERANDO_PAGADORES);
+        when(grupoRepository.findByReservation_Id(12L)).thenReturn(Optional.of(new GrupoPago()));
+
+        assertEquals("GRUPO_YA_EXISTE",
+                assertThrows(BookingException.class, () -> service.iniciar(12L, 3, 7L)).getCodigo());
+        verifyNoInteractions(inventario);
+    }
+
+    @Test
     void unaCantidadInvalidaNoLlamaAlHotel() {
         assertEquals("CANTIDAD_PARTES_INVALIDA",
                 assertThrows(BookingException.class, () -> service.iniciar(12L, 11, 7L)).getCodigo());
