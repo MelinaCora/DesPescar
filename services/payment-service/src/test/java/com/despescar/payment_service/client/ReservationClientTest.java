@@ -121,6 +121,20 @@ class ReservationClientTest {
     }
 
     @Test
+    void unConflictoReintentableDeReservationServiceNoSeTomaComoRechazo() {
+        // 409 por concurrencia (carrito guardado en paralelo, lock ocupado o deadlock): el resultado no
+        // se conoce todavía, así que no se reembolsa y se reintenta
+        responde(21, json(HttpStatus.CONFLICT, "{\"codigo\":\"CARRITO_MODIFICADO\",\"mensaje\":\"x\"}"));
+        responde(22, json(HttpStatus.CONFLICT, "{\"codigo\":\"OPERACION_EN_CURSO\",\"mensaje\":\"x\"}"));
+
+        assertThatThrownBy(() -> client.confirmarPago(21L, 7L, "t", BigDecimal.TEN))
+                .isInstanceOf(ReservationClientException.class);
+        assertThatThrownBy(() -> client.confirmarPago(22L, 7L, "t", BigDecimal.TEN))
+                .isInstanceOf(ReservationClientException.class);
+        server.verify();
+    }
+
+    @Test
     void laConfirmacionUsaSuPropioClienteConMasTiempo() {
         RestTemplate lectura = new RestTemplate();
         RestTemplate confirmacion = new RestTemplate();
