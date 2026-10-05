@@ -1,5 +1,6 @@
 package com.despescar.reservationservice.controller;
 
+import com.despescar.reservationservice.dto.carrito.TitularRequest;
 import com.despescar.reservationservice.dto.passengers.request.PassengerAssignationRequest;
 import com.despescar.reservationservice.dto.reservation.request.BookingInitRequest;
 import com.despescar.reservationservice.dto.reservation.request.PaymentConfirmationRequest;
@@ -7,7 +8,9 @@ import com.despescar.reservationservice.dto.reservation.request.SplitPaymentSetu
 import com.despescar.reservationservice.dto.reservation.response.BookingInitResponse;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
 import com.despescar.reservationservice.service.BookingService;
+import com.despescar.reservationservice.service.CarritoService;
 import com.despescar.reservationservice.service.PassengerService;
+import java.util.List;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -31,6 +34,7 @@ public class BookingController {
 
     private final BookingService bookingService;
     private final PassengerService passengerService;
+    private final CarritoService carritoService;
 
     @PostMapping("/init")
     @PreAuthorize("hasRole('ROLE_CLIENTE')")
@@ -50,6 +54,16 @@ public class BookingController {
             Authentication authentication) {
         passengerService.assignPassengersToSeats(id, dto, usuario(authentication));
         return ResponseEntity.ok().build();
+    }
+
+    /** Titulares de las estadías. La lista se valida en el servicio (D30), por eso no lleva @Valid. */
+    @PutMapping("/{id}/titulares")
+    @PreAuthorize("hasRole('ROLE_CLIENTE')")
+    public ResponseEntity<ReservationResponse> cargarTitulares(
+            @PathVariable Long id,
+            @RequestBody List<TitularRequest> titulares,
+            Authentication authentication) {
+        return ResponseEntity.ok(carritoService.cargarTitulares(id, titulares, usuario(authentication)));
     }
 
     @PostMapping("/{id}/split-setup")
@@ -88,10 +102,11 @@ public class BookingController {
         return ResponseEntity.ok(bookingService.obtenerReservaInterna(id));
     }
 
+    /** Abandona un carrito sin pagar (D12). Una reserva pagada responde 409 USAR_CANCELACION_POR_ITEM. */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ROLE_CLIENTE')")
-    public ResponseEntity<Void> cancelarReservaManualmente(@PathVariable Long id, Authentication authentication) {
-        bookingService.cancelarReservaManualmente(id, usuario(authentication));
+    public ResponseEntity<Void> abandonar(@PathVariable Long id, Authentication authentication) {
+        carritoService.abandonar(id, usuario(authentication));
         return ResponseEntity.ok().build();
     }
 
