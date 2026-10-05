@@ -1,21 +1,19 @@
 package com.despescar.koiiaservice.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
-import java.util.List;
 
+/**
+ * Mensaje del usuario. El historial ya no viaja desde el cliente (se lee del servidor); si un
+ * cliente viejo manda "history", se ignora.
+ */
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class KoiConversationMessageRequest {
 
     @NotBlank
+    @Size(max = 1000)
     private String message;
-
-    // Historial reciente que manda React para darle memoria al bot
-    private List<MensajeHistorialDto> history;
-
-    @Data
-    public static class MensajeHistorialDto {
-        private String role;    // "user" o "assistant"
-        private String content; // El texto del mensaje
-    }
 }
