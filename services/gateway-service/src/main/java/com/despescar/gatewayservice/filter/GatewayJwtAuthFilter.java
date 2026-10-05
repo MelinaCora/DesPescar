@@ -22,6 +22,8 @@ import java.util.Set;
 public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
 
     private static final String BEARER_PREFIX = "Bearer ";
+    static final String USER_HEADER = "X-Authenticated-User";
+    static final String ROLE_HEADER = "X-Authenticated-Role";
     private static final Set<String> HOTEL_ROLES = Set.of("SUPER_ADMIN", "HOTEL_ADMIN");
     private static final Set<String> AIRLINE_ROLES = Set.of("SUPER_ADMIN", "AIRLINE_ADMIN");
     private static final Set<String> SUPER_ADMIN_ROLE = Set.of("SUPER_ADMIN");
@@ -34,6 +36,9 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        // La identidad solo la pone el gateway a partir del token (spec 3.6): lo que mande el
+        // cliente se borra en todas las rutas, públicas incluidas (antes /api/koi la dejaba pasar).
+        exchange = sinIdentidadDelCliente(exchange);
         HttpMethod method = exchange.getRequest().getMethod();
         String path = exchange.getRequest().getPath().value();
 
@@ -100,11 +105,25 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
         }
 
         ServerHttpRequest requestWithClaims = exchange.getRequest().mutate()
-                .header("X-Authenticated-User", username)
-                .header("X-Authenticated-Role", role)
+                .header(USER_HEADER, username)
+                .header(ROLE_HEADER, role)
                 .build();
 
         return chain.filter(exchange.mutate().request(requestWithClaims).build());
+    }
+
+    private static ServerWebExchange sinIdentidadDelCliente(ServerWebExchange exchange) {
+        HttpHeaders headers = exchange.getRequest().getHeaders();
+        if (!headers.containsKey(USER_HEADER) && !headers.containsKey(ROLE_HEADER)) {
+            return exchange;
+        }
+        ServerHttpRequest limpio = exchange.getRequest().mutate()
+                .headers(h -> {
+                    h.remove(USER_HEADER);
+                    h.remove(ROLE_HEADER);
+                })
+                .build();
+        return exchange.mutate().request(limpio).build();
     }
 
     private boolean isPublicPath(String path) {

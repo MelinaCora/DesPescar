@@ -23,11 +23,20 @@ import java.util.Objects;
 public class GatewayRateLimitFilter implements GlobalFilter, Ordered {
 
     private final int requestsPerMinute;
+    private final int koiMessagesPerMinute;
     private final Cache<String, Bucket> buckets;
+    private final Cache<String, Bucket> koiBuckets;
 
-    public GatewayRateLimitFilter(@Value("${gateway.rate-limit.requests-per-minute:120}") int requestsPerMinute) {
+    public GatewayRateLimitFilter(
+            @Value("${gateway.rate-limit.requests-per-minute:120}") int requestsPerMinute,
+            @Value("${gateway.rate-limit.koi-messages-per-minute:10}") int koiMessagesPerMinute) {
         this.requestsPerMinute = requestsPerMinute;
+        this.koiMessagesPerMinute = koiMessagesPerMinute;
         this.buckets = Caffeine.newBuilder()
+                .maximumSize(10_000)
+                .expireAfterAccess(Duration.ofMinutes(30))
+                .build();
+        this.koiBuckets = Caffeine.newBuilder()
                 .maximumSize(10_000)
                 .expireAfterAccess(Duration.ofMinutes(30))
                 .build();
@@ -41,7 +50,22 @@ public class GatewayRateLimitFilter implements GlobalFilter, Ordered {
         }
 
         String key = resolveClientIp(exchange);
-        Bucket bucket = buckets.get(key, this::newBucket);
+
+        // Cada POST a KOI es una llamada al modelo de lenguaje: balde propio, más chico (spec 3.6)
+        if (method == HttpMethod.POST && exchange.getRequest().getPath().value().startsWith("/api/koi/")) {
+            Bucket koiBucket = koiBuckets.get(key, k -> newBucket(koiMessagesPerMinute));
+            if (!koiBucket.tryConsume(1)) {
+                exchange.getResponse().getHeaders().set("Retry-After", "60");
+                return GatewayResponseWriter.writeError(
+                        exchange,
+                        HttpStatus.TOO_MANY_REQUESTS,
+                        "Too Many Requests",
+                        "Demasiados mensajes a KOI. Espera un minuto y segui."
+                );
+            }
+        }
+
+        Bucket bucket = buckets.get(key, k -> newBucket(requestsPerMinute));
         ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
 
         if (!probe.isConsumed()) {
@@ -61,10 +85,10 @@ public class GatewayRateLimitFilter implements GlobalFilter, Ordered {
         return chain.filter(exchange);
     }
 
-    private Bucket newBucket(String key) {
+    private Bucket newBucket(int perMinute) {
         Bandwidth limit = Bandwidth.builder()
-                .capacity(requestsPerMinute)
-                .refillGreedy(requestsPerMinute, Duration.ofMinutes(1))
+                .capacity(perMinute)
+                .refillGreedy(perMinute, Duration.ofMinutes(1))
                 .build();
         return Bucket.builder().addLimit(limit).build();
     }

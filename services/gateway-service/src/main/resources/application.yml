@@ -83,6 +83,9 @@ spring:
           uri: http://localhost:8088
           predicates:
             - Path=/api/koi/**
+          metadata:
+            response-timeout: 30000
+            connect-timeout: 3000
 
 server:
   port: 8087
@@ -113,9 +116,10 @@ resilience4j:
   timelimiter:
     instances:
       gatewayCircuitBreaker:
-        timeoutDuration: 5s
+        timeoutDuration: 30s
         cancelRunningFuture: true
 
 gateway:
   rate-limit:
     requests-per-minute: 120
+    koi-messages-per-minute: 10

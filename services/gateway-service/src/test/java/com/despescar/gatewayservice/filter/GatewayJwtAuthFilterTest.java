@@ -6,6 +6,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+import org.springframework.http.server.reactive.ServerHttpRequest;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
@@ -138,5 +140,62 @@ class GatewayJwtAuthFilterTest {
         ServerWebExchange publica = MockServerWebExchange.from(MockServerHttpRequest.get("/api/hotels/destinos").build());
         filter.filter(publica, chain).block();
         assertThat(publica.getResponse().getStatusCode()).isNull();
+    }
+
+    @Test
+    void publicPathsShouldDropIdentityHeadersSentByTheClient() {
+        GatewayJwtService jwtService = mock(GatewayJwtService.class);
+        GatewayJwtAuthFilter filter = new GatewayJwtAuthFilter(jwtService);
+
+        for (MockServerHttpRequest request : java.util.List.of(
+                MockServerHttpRequest.post("/api/koi/sessions/abc/messages").build(),
+                MockServerHttpRequest.get("/api/koi/sessions/abc/messages").build(),
+                MockServerHttpRequest.get("/api/hotels/destinos").build(),
+                MockServerHttpRequest.get("/api/flights/search").build())) {
+            AtomicReference<ServerHttpRequest> recibido = new AtomicReference<>();
+            GatewayFilterChain chain = exchange -> {
+                recibido.set(exchange.getRequest());
+                return Mono.empty();
+            };
+            ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest
+                    .method(request.getMethod(), request.getURI())
+                    .header("X-Authenticated-User", "admin@despescar.com")
+                    .header("X-Authenticated-Role", "SUPER_ADMIN")
+                    .build());
+
+            filter.filter(exchange, chain).block();
+
+            assertThat(recibido.get()).as(request.getPath().value()).isNotNull();
+            assertThat(recibido.get().getHeaders().containsKey("X-Authenticated-User"))
+                    .as(request.getPath().value()).isFalse();
+            assertThat(recibido.get().getHeaders().containsKey("X-Authenticated-Role"))
+                    .as(request.getPath().value()).isFalse();
+        }
+        verify(jwtService, never()).parseToken(org.mockito.Mockito.anyString());
+    }
+
+    @Test
+    void protectedPathsShouldReplaceSpoofedIdentityWithTheTokenOne() {
+        GatewayJwtService jwtService = mock(GatewayJwtService.class);
+        GatewayJwtAuthFilter filter = new GatewayJwtAuthFilter(jwtService);
+        io.jsonwebtoken.Claims claims = mock(io.jsonwebtoken.Claims.class);
+        org.mockito.Mockito.when(claims.getSubject()).thenReturn("cliente@mail.com");
+        org.mockito.Mockito.when(claims.get("role", String.class)).thenReturn("ROLE_USER");
+        org.mockito.Mockito.when(jwtService.parseToken("token-cliente")).thenReturn(claims);
+        AtomicReference<ServerHttpRequest> recibido = new AtomicReference<>();
+        GatewayFilterChain chain = exchange -> {
+            recibido.set(exchange.getRequest());
+            return Mono.empty();
+        };
+
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/api/bookings/carrito")
+                .header("Authorization", "Bearer token-cliente")
+                .header("X-Authenticated-User", "admin@despescar.com")
+                .header("X-Authenticated-Role", "SUPER_ADMIN")
+                .build());
+        filter.filter(exchange, chain).block();
+
+        assertThat(recibido.get().getHeaders().get("X-Authenticated-User")).containsExactly("cliente@mail.com");
+        assertThat(recibido.get().getHeaders().get("X-Authenticated-Role")).containsExactly("USER");
     }
 }
