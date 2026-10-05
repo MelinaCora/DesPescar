@@ -2,6 +2,7 @@ package com.despescar.koiiaservice.controller;
 
 import com.despescar.koiiaservice.dto.request.KoiConversationMessageRequest;
 import com.despescar.koiiaservice.dto.response.KoiConversationResponse;
+import com.despescar.koiiaservice.dto.response.KoiMensajeResponse;
 import com.despescar.koiiaservice.dto.response.KoiSessionResponse;
 import com.despescar.koiiaservice.service.KoiConversationService;
 import jakarta.validation.Valid;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RequestHeader;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -35,6 +37,14 @@ public class KoiConversationController {
     @GetMapping("/sessions/{sessionId}")
     public ResponseEntity<KoiSessionResponse> getSession(@PathVariable UUID sessionId) {
         return ResponseEntity.ok(koiConversationService.getSession(sessionId));
+    }
+
+    @GetMapping("/sessions/{sessionId}/messages")
+    public ResponseEntity<List<KoiMensajeResponse>> getMessages(
+            @PathVariable UUID sessionId,
+            @RequestHeader(value = "X-Authenticated-User", required = false) String userIdentifier
+    ) {
+        return ResponseEntity.ok(koiConversationService.historial(sessionId, userIdentifier));
     }
 
     @PostMapping("/sessions/{sessionId}/messages")

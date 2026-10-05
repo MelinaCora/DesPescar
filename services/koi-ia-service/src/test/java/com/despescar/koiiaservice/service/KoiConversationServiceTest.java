@@ -18,6 +18,7 @@ import com.despescar.koiiaservice.domain.DatosViaje;
 import com.despescar.koiiaservice.domain.KoiPreguntas;
 import com.despescar.koiiaservice.dto.request.KoiConversationMessageRequest;
 import com.despescar.koiiaservice.dto.response.KoiConversationResponse;
+import com.despescar.koiiaservice.dto.response.KoiMensajeResponse;
 import com.despescar.koiiaservice.dto.response.KoiSessionResponse;
 import com.despescar.koiiaservice.entity.KoiConversationMessage;
 import com.despescar.koiiaservice.entity.KoiConversationSession;
@@ -484,5 +485,35 @@ class KoiConversationServiceTest {
         assertEquals(D19, r.getDepartureDate());
         assertEquals(3, r.getNights());
         assertEquals("2026-11", r.getTravelMonth());
+    }
+
+    @Test
+    void historialDevuelveLosMensajesConLasOpcionesDeCadaUno() {
+        sesionCompleta(UserIntent.COMBO, ConversationStage.COLLECTING_INFO);
+        session.setNights(null);
+        catalogoConUnaOpcion();
+        modelo.respuesta = "{\"noches\":3}";
+        KoiConversationResponse r = service.handleMessage(sessionId, request("3 noches"), null);
+        when(messageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId)).thenReturn(List.copyOf(guardados));
+
+        List<KoiMensajeResponse> historial = service.historial(sessionId, null);
+
+        assertEquals(2, historial.size());
+        assertEquals(MessageRole.USER, historial.get(0).rol());
+        assertEquals("3 noches", historial.get(0).texto());
+        assertTrue(historial.get(0).opciones().isEmpty());
+        assertEquals(MessageRole.KOI, historial.get(1).rol());
+        assertEquals(r.getReply(), historial.get(1).texto());
+        assertEquals(r.getRecommendations(), historial.get(1).opciones());
+    }
+
+    @Test
+    void historialDeOtraPersonaOInexistenteFalla() {
+        session.setUserIdentifier("ana@mail.com");
+        assertThrows(IllegalArgumentException.class, () -> service.historial(sessionId, "otro@mail.com"));
+
+        UUID otra = UUID.randomUUID();
+        when(sessionRepository.findById(otra)).thenReturn(Optional.empty());
+        assertThrows(KoiSessionNotFoundException.class, () -> service.historial(otra, null));
     }
 }

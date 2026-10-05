@@ -8,6 +8,7 @@ import com.despescar.koiiaservice.domain.KoiPreguntas;
 import com.despescar.koiiaservice.domain.KoiPrompt;
 import com.despescar.koiiaservice.dto.request.KoiConversationMessageRequest;
 import com.despescar.koiiaservice.dto.response.KoiConversationResponse;
+import com.despescar.koiiaservice.dto.response.KoiMensajeResponse;
 import com.despescar.koiiaservice.dto.response.KoiRecommendationResponse;
 import com.despescar.koiiaservice.dto.response.KoiSessionResponse;
 import com.despescar.koiiaservice.entity.KoiConversationMessage;
@@ -128,6 +129,16 @@ public class KoiConversationService {
     @Transactional(readOnly = true)
     public KoiSessionResponse getSession(UUID sessionId) {
         return toSessionResponse(loadSession(sessionId));
+    }
+
+    /** Historial completo de la sesión, para que el chat siga después de /login o de recargar. */
+    @Transactional(readOnly = true)
+    public List<KoiMensajeResponse> historial(UUID sessionId, String userIdentifier) {
+        KoiConversationSession session = loadSession(sessionId);
+        ensureSessionOwner(session, userIdentifier);
+        return messageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId).stream()
+                .map(m -> new KoiMensajeResponse(m.getRole(), m.getContent(), opcionesJson.leer(m.getOpcionesJson())))
+                .toList();
     }
 
     @Transactional
