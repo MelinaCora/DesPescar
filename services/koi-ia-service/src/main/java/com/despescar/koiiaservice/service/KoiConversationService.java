@@ -362,6 +362,13 @@ public class KoiConversationService {
                 presentes.add(parte.trim());
             }
         }
+        // El modelo suele devolver el comentario sin punto final y pegarlo al aviso queda mal.
+        for (int i = 0; i < presentes.size() - 1; i++) {
+            String parte = presentes.get(i);
+            if (!".!?:".contains(parte.substring(parte.length() - 1))) {
+                presentes.set(i, parte + ".");
+            }
+        }
         return String.join(" ", presentes);
     }
 

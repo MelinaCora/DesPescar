@@ -402,6 +402,17 @@ class KoiConversationServiceTest {
     }
 
     @Test
+    void elComentarioSinPuntoFinalSeCierraAntesDelAviso() {
+        sesionCompleta(UserIntent.COMBO, ConversationStage.COLLECTING_INFO);
+        session.setDepartureDate(null);
+        modelo.respuesta = "{\"comentario\":\"Qué buena elección\",\"fechaIda\":\"2026-10-03\"}";
+
+        KoiConversationResponse r = service.handleMessage(sessionId, request("el 3 de octubre"), null);
+
+        assertTrue(r.getReply().startsWith("Qué buena elección. " + KoiConversationService.AVISO_FECHA_PASADA + " "), r.getReply());
+    }
+
+    @Test
     void unaVueltaAnteriorALaIdaSeDescartaYSeVuelveAPedir() {
         sesionCompleta(UserIntent.COMBO, ConversationStage.COLLECTING_INFO);
         session.setNights(null);
@@ -550,7 +561,7 @@ class KoiConversationServiceTest {
         KoiConversationResponse r = service.handleMessage(sessionId, request("hola"), null);
 
         String pregunta = KoiPreguntas.texto(MissingInfoField.BUDGET, DatosViaje.vacio());
-        assertEquals("a".repeat(300) + " " + pregunta, r.getReply());
+        assertEquals("a".repeat(300) + ". " + pregunta, r.getReply());
     }
 
     @Test
