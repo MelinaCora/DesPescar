@@ -3,7 +3,10 @@
 
 Requisitos: MySQL (docker compose up -d) y los servicios identity (8080), flightservice (8081),
 hotel-service (8083) y package-service (8086) en marcha. Es repetible: si ya hay datos, no los duplica.
-Las fechas de los vuelos se calculan a partir de hoy, asi nunca quedan vencidas.
+Con --completar-rutas agrega los vuelos que falten sin borrar nada (--solo-vuelos y --completar-rutas se combinan).
+Con --solo-vuelos solo hacen falta identity y flightservice (no se cargan hoteles ni paquetes).
+Solo hay vuelos nacionales (Argentina) en pesos argentinos. Las fechas de los vuelos se calculan a
+partir de hoy hasta fin de mes (minimo 14 dias), asi nunca quedan vencidas.
 """
 import datetime as dt
 import json
@@ -24,6 +27,78 @@ DB_PASSWORD = os.environ.get("DB_PASSWORD", "despescar_dev")
 
 ADMIN = (os.environ.get("ADMIN_EMAIL", "admin@despescar.com"), os.environ.get("ADMIN_PASSWORD", "Admin2026!"))
 CLIENT = (os.environ.get("CLIENT_EMAIL", "cliente@despescar.com"), os.environ.get("CLIENT_PASSWORD", "Cliente123!"))
+
+# Solo vuelos nacionales (Argentina), en pesos argentinos (ARS).
+AIRPORTS = (  # nombre, IATA, ciudad
+    ("Aeropuerto Internacional Ministro Pistarini", "EZE", "Buenos Aires"),
+    ("Aeroparque Jorge Newbery", "AEP", "Buenos Aires"),
+    ("Aeropuerto Internacional Ingeniero Ambrosio Taravella", "COR", "Córdoba"),
+    ("Aeropuerto Internacional El Plumerillo", "MDZ", "Mendoza"),
+    ("Aeropuerto Internacional Teniente Luis Candelaria", "BRC", "San Carlos de Bariloche"),
+    ("Aeropuerto Internacional Martín Miguel de Güemes", "SLA", "Salta"),
+    ("Aeropuerto Internacional Malvinas Argentinas", "USH", "Ushuaia"),
+    ("Aeropuerto Internacional Comandante Armando Tola", "FTE", "El Calafate"),
+    ("Aeropuerto Internacional Cataratas del Iguazú", "IGR", "Puerto Iguazú"),
+    ("Aeropuerto Internacional Teniente Benjamín Matienzo", "TUC", "San Miguel de Tucumán"),
+    ("Aeropuerto Internacional Presidente Perón", "NQN", "Neuquén"),
+    ("Aeropuerto Internacional Astor Piazzolla", "MDQ", "Mar del Plata"),
+)
+# Aerolineas que operan cabotaje en Argentina.
+AIRLINES = (("Aerolíneas Argentinas", "AR"), ("Flybondi", "FO"), ("JetSMART", "JA"))
+AIRLINE_FACTOR = {"AR": 1.0, "FO": 0.85, "JA": 0.8}
+# Las tarifas son lo que se suma al precio del vuelo: Light no suma nada (solo equipaje de mano).
+FARES = (  # nombre, tipo, equipaje de mano, equipaje despachado, wifi, seleccion de asiento, base, impuestos (ARS)
+    ("Light", "LIGHT", True, False, False, "PAID", 0, 0),
+    ("Standard", "STANDARD", True, True, True, "FREE", 28000, 7000),
+)
+ROUTES = (  # origen, destino, minutos, precio base ARS, aerolineas que la vuelan (ida y vuelta, todos los dias)
+    ("AEP", "COR", 85, 80000, ("AR", "FO", "JA")),
+    ("AEP", "MDZ", 120, 95000, ("AR", "FO")),
+    ("AEP", "BRC", 150, 120000, ("AR", "FO", "JA")),
+    ("AEP", "SLA", 135, 110000, ("AR", "JA")),
+    ("AEP", "TUC", 120, 90000, ("AR", "FO")),
+    ("AEP", "IGR", 115, 100000, ("AR", "FO")),
+    ("AEP", "NQN", 115, 95000, ("AR", "JA")),
+    ("AEP", "MDQ", 65, 55000, ("AR", "FO")),
+    ("AEP", "USH", 215, 190000, ("AR", "FO")),
+    ("AEP", "FTE", 205, 180000, ("AR", "FO", "JA")),
+    ("EZE", "COR", 90, 85000, ("AR", "JA")),
+    ("EZE", "BRC", 150, 125000, ("AR",)),
+    ("EZE", "MDZ", 125, 98000, ("JA",)),
+    ("EZE", "USH", 215, 195000, ("AR",)),
+    ("EZE", "IGR", 120, 105000, ("AR",)),
+)
+DEPARTURE_HOURS = (6, 8, 10, 12, 14, 16, 18, 20)
+
+AIRPORT_COORDS = {  # lat, lon: sirven para estimar duracion y precio de las rutas sin servicio explicito
+    "EZE": (-34.82, -58.54), "AEP": (-34.56, -58.42), "COR": (-31.32, -64.21), "MDZ": (-32.83, -68.79),
+    "BRC": (-41.15, -71.16), "SLA": (-24.86, -65.49), "USH": (-54.84, -68.31), "FTE": (-50.28, -72.05),
+    "IGR": (-25.74, -54.47), "TUC": (-26.84, -65.10), "NQN": (-38.95, -68.16), "MDQ": (-37.93, -57.57),
+}
+
+
+def construir_rutas():
+    """ROUTES mas una ruta (una aerolinea, ida y vuelta) entre cada par de aeropuertos que aun no tenga servicio,
+    asi cualquier origen/destino que elija el usuario tiene vuelos. EZE y AEP son la misma ciudad: no se unen."""
+    import math
+    rutas = list(ROUTES)
+    cubiertas = {frozenset((o, d)) for o, d, *_ in ROUTES} | {frozenset(("EZE", "AEP"))}
+    codes = [code for _, code, _ in AIRPORTS]
+    i = 0
+    for x, a in enumerate(codes):
+        for b in codes[x + 1:]:
+            if frozenset((a, b)) in cubiertas:
+                continue
+            (la1, lo1), (la2, lo2) = AIRPORT_COORDS[a], AIRPORT_COORDS[b]
+            p1, p2 = math.radians(la1), math.radians(la2)
+            h = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lo2 - lo1) / 2) ** 2
+            km = 2 * 6371 * math.asin(math.sqrt(h))
+            minutos = round((35 + km / 12) / 5) * 5
+            precio = round((25000 + km * 55) / 500) * 500
+            rutas.append((a, b, minutos, precio, (AIRLINES[i % len(AIRLINES)][1],)))
+            i += 1
+    return rutas
+
 
 
 def call(method, url, body=None, token=None, ok=(200, 201, 204)):
@@ -76,8 +151,52 @@ def grant_super_admin(email):
         )
 
 
+def crear_vuelos(token, by_code, airlines, fares, flight_numbers, existentes=frozenset(), ultimo_numero=0):
+    """Crea un vuelo por ruta, aerolinea y sentido para cada dia desde hoy hasta fin de mes (minimo 14 dias).
+    `existentes` son claves (aerolinea, origen, destino, fecha) ya cargadas: no se repiten."""
+    today = dt.date.today()
+    # Del dia de hoy al fin de mes (o, si queda poco, al menos 14 dias): siempre hay fechas para buscar.
+    month_end = (today.replace(day=28) + dt.timedelta(days=4)).replace(day=1) - dt.timedelta(days=1)
+    last_day = max(month_end, today + dt.timedelta(days=14))
+    now = dt.datetime.now()
+    rutas = construir_rutas()
+    n = ultimo_numero
+    creados = 0
+    day_index = 0
+    day = today
+    while day <= last_day:
+        for r, (o, d, mins, price, serving) in enumerate(rutas):
+            for k, al in enumerate(serving):
+                for back in (False, True):
+                    a, b = (d, o) if back else (o, d)
+                    if (al, a, b, day.isoformat()) in existentes:
+                        continue
+                    hour = DEPARTURE_HOURS[(r + 2 * k + (3 if back else 0)) % len(DEPARTURE_HOURS)]
+                    dep = dt.datetime.combine(day, dt.time(hour, (r * 10 + k * 15) % 60))
+                    if dep <= now:
+                        continue
+                    n += 1
+                    creados += 1
+                    number = f"{al}{1000 + n}"
+                    flight_numbers.setdefault((al, a, b, day_index), number)
+                    # tarifa base ARS: cada aerolinea tiene su factor y el precio varia un poco segun el dia
+                    amount = round(price * AIRLINE_FACTOR[al] * (1 + 0.04 * ((day_index + r) % 4)) / 500) * 500
+                    call("POST", FLIGHT + "/api/flights", {
+                        "flightNumber": number, "airlineId": airlines[al], "originAirportId": by_code[a],
+                        "destinationAirportId": by_code[b], "departureTime": dep.isoformat(),
+                        "arrivalTime": (dep + dt.timedelta(minutes=mins)).isoformat(), "price": amount,
+                        "availableSeats": 150, "status": "SCHEDULED", "faresId": fares}, token)
+        day += dt.timedelta(days=1)
+        day_index += 1
+    print(f"vuelos: {creados} creados, del {today.strftime('%d/%m/%Y')} al {last_day.strftime('%d/%m/%Y')}, todos los dias")
+
+
 def main():
-    for url, name in ((IDENTITY, "identity-service"), (FLIGHT, "flightservice"), (HOTEL, "hotel-service"), (PACKAGE, "package-service")):
+    solo_vuelos = "--solo-vuelos" in sys.argv  # no toca hoteles ni paquetes (sus servicios pueden estar apagados)
+    services = [(IDENTITY, "identity-service"), (FLIGHT, "flightservice")]
+    if not solo_vuelos:
+        services += [(HOTEL, "hotel-service"), (PACKAGE, "package-service")]
+    for url, name in services:
         wait_port(url, name)
 
     # --- usuarios ---
@@ -94,59 +213,44 @@ def main():
     # --- vuelos ---
     _, airports = call("GET", FLIGHT + "/api/airports")
     flight_numbers = {}
-    start = dt.datetime.combine(dt.date.today() + dt.timedelta(days=14), dt.time(8, 0))
-    if airports:
-        print(f"vuelos: ya hay {len(airports)} aeropuertos, no cargo vuelos")
+    if airports and "--completar-rutas" in sys.argv:
+        # No borra nada: agrega solo los vuelos que faltan (por ejemplo, rutas nuevas o dias nuevos).
+        by_code = {a["code"]: a["id"] for a in airports}
+        _, airline_list = call("GET", FLIGHT + "/api/airlines", token=token)
+        airlines = {a["code"]: a["id"] for a in airline_list}
+        _, fare_list = call("GET", FLIGHT + "/api/fares", token=token)
+        _, vuelos = call("GET", FLIGHT + "/api/flights", token=token)
+        existentes = {
+            (v["flightNumber"][:2], v["originAirport"]["code"], v["destinationAirport"]["code"], v["departureTime"][:10])
+            for v in vuelos
+        }
+        ultimo = max((int(v["flightNumber"][2:]) - 1000 for v in vuelos), default=0)
+        crear_vuelos(token, by_code, airlines, [f["id"] for f in fare_list], flight_numbers, existentes, ultimo)
+    elif airports:
+        print(f"vuelos: ya hay {len(airports)} aeropuertos, no cargo vuelos (usa --completar-rutas para agregar los que falten)")
         by_code = {a["code"]: a["id"] for a in airports}
     else:
         by_code = {}
-        for name, code, city, country in (
-            ("Aeropuerto Internacional Ministro Pistarini", "EZE", "Buenos Aires", "Argentina"),
-            ("Aeroparque Jorge Newbery", "AEP", "Buenos Aires", "Argentina"),
-            ("Aeropuerto Internacional Ingeniero Ambrosio Taravella", "COR", "Córdoba", "Argentina"),
-            ("Aeropuerto Internacional El Plumerillo", "MDZ", "Mendoza", "Argentina"),
-            ("Aeropuerto Internacional Teniente Luis Candelaria", "BRC", "San Carlos de Bariloche", "Argentina"),
-            ("Aeropuerto Internacional Martín Miguel de Güemes", "SLA", "Salta", "Argentina"),
-            ("Aeropuerto Internacional Comodoro Arturo Merino Benítez", "SCL", "Santiago", "Chile"),
-            ("Miami International Airport", "MIA", "Miami", "Estados Unidos"),
-            ("Aeropuerto Adolfo Suárez Madrid-Barajas", "MAD", "Madrid", "España"),
-        ):
-            _, a = call("POST", FLIGHT + "/api/airports", {"name": name, "code": code, "city": city, "country": country}, token)
+        for name, code, city in AIRPORTS:
+            _, a = call("POST", FLIGHT + "/api/airports", {"name": name, "code": code, "city": city, "country": "Argentina"}, token)
             by_code[code] = a["id"]
         airlines = {}
-        for name, code, country in (("Aerolíneas Argentinas", "AR", "Argentina"), ("LATAM Airlines", "LA", "Chile"), ("Flybondi", "FO", "Argentina")):
-            _, a = call("POST", FLIGHT + "/api/airlines", {"name": name, "code": code, "country": country, "logoUrl": None}, token)
+        for name, code in AIRLINES:
+            _, a = call("POST", FLIGHT + "/api/airlines", {"name": name, "code": code, "country": "Argentina", "logoUrl": None}, token)
             airlines[code] = a["id"]
         fares = []
-        for name, kind, carry, checked, wifi, seat, base, tax in (
-            ("Light", "LIGHT", True, False, False, "PAID", 100, 30),
-            ("Standard", "STANDARD", True, True, True, "FREE", 130, 40),
-        ):
+        for name, kind, carry, checked, wifi, seat, base, tax in FARES:
             _, f = call("POST", FLIGHT + "/api/fares", {
                 "name": name, "type": kind, "personalItem": True, "carryOn": carry, "checkedBaggage": checked,
-                "wifi": wifi, "seatSelection": seat, "currency": "USD", "baseFare": base, "taxesAndFees": tax,
+                "wifi": wifi, "seatSelection": seat, "currency": "ARS", "baseFare": base, "taxesAndFees": tax,
                 "transparentFinalPrice": base + tax}, token)
             fares.append(f["id"])
-        routes = (  # aerolinea, origen, destino, precio, minutos
-            ("AR", "EZE", "COR", 60, 90), ("AR", "AEP", "BRC", 150, 150), ("AR", "AEP", "MDZ", 110, 120),
-            ("AR", "EZE", "MAD", 900, 780), ("LA", "EZE", "SCL", 180, 130), ("LA", "EZE", "MIA", 700, 540),
-            ("LA", "AEP", "SLA", 130, 130), ("FO", "AEP", "COR", 45, 85), ("FO", "AEP", "BRC", 120, 150),
-        )
-        n = 0
-        for i, (al, o, d, price, mins) in enumerate(routes):
-            for offset in (0, 3, 7):
-                for back in (False, True):
-                    a, b = (d, o) if back else (o, d)
-                    dep = start + dt.timedelta(days=offset, hours=i % 6 * 2 + (5 if back else 0))
-                    n += 1
-                    number = f"{al}{1000 + n}"
-                    flight_numbers[(al, a, b, offset)] = number
-                    call("POST", FLIGHT + "/api/flights", {
-                        "flightNumber": number, "airlineId": airlines[al], "originAirportId": by_code[a],
-                        "destinationAirportId": by_code[b], "departureTime": dep.isoformat(),
-                        "arrivalTime": (dep + dt.timedelta(minutes=mins)).isoformat(), "price": price,
-                        "availableSeats": 150, "status": "SCHEDULED", "faresId": fares}, token)
-        print(f"vuelos: {n} creados, salidas {', '.join((start + dt.timedelta(days=d)).strftime('%d/%m/%Y') for d in (0, 3, 7))}")
+
+        crear_vuelos(token, by_code, airlines, fares, flight_numbers)
+
+    if solo_vuelos:
+        print("\nListo (solo vuelos: no se cargaron hoteles ni paquetes).")
+        return
 
     # --- hoteles ---
     _, hotels = call("GET", HOTEL + "/hoteles", token=token)
@@ -160,8 +264,6 @@ def main():
             ("Sheraton Córdoba", "Córdoba", "Duarte Quirós 1300", 4, 120, 60, False),
             ("Llao Llao Resort", "San Carlos de Bariloche", "Av. Ezequiel Bustillo km 25", 5, 310, 30, True),
             ("Hotel Sheraton Mendoza", "Mendoza", "Primitivo de la Reta 989", 4, 140, 50, False),
-            ("Hilton Madrid Airport", "Madrid", "Calle de Acanto 22", 4, 160, 70, False),
-            ("Fontainebleau Miami Beach", "Miami", "4441 Collins Ave", 5, 280, 80, True),
         ):
             _, h = call("POST", HOTEL + "/hoteles", {
                 "nombre": nombre, "ciudad": ciudad, "direccion": direccion, "estrellas": estrellas,
@@ -178,8 +280,6 @@ def main():
             ("Escapada a Córdoba", "Vuelo y hotel 4 estrellas en Córdoba, sierras y vida cultural.", "Córdoba, Argentina", ("AR", "EZE", "COR"), "Córdoba", 4, 520),
             ("Bariloche Aventura", "Lagos, montañas y chocolate. Incluye all inclusive en Llao Llao.", "San Carlos de Bariloche, Argentina", ("AR", "AEP", "BRC"), "San Carlos de Bariloche", 6, 1450),
             ("Mendoza y sus vinos", "Ruta del vino con hotel 4 estrellas en Mendoza.", "Mendoza, Argentina", ("AR", "AEP", "MDZ"), "Mendoza", 5, 780),
-            ("Madrid Clásica", "Vuelo directo a Madrid y hotel cerca del aeropuerto.", "Madrid, España", ("AR", "EZE", "MAD"), "Madrid", 7, 2100),
-            ("Miami Beach All Inclusive", "Sol y playa en Miami Beach con todo incluido.", "Miami, Estados Unidos", ("LA", "EZE", "MIA"), "Miami", 7, 2800),
         ):
             body = {"name": name, "description": desc, "destination": dest, "durationNights": nights, "basePrice": price,
                     "hotelId": hotel_by_city.get(city)}
@@ -187,7 +287,7 @@ def main():
             if number:
                 body["flightNumber"] = number
             call("POST", PACKAGE + "/api/packages", body, token)
-        print("paquetes: 5 creados")
+        print("paquetes: 3 creados")
 
     print("\nListo. Usuarios de prueba (solo desarrollo local):")
     print(f"  administrador: {ADMIN[0]} / {ADMIN[1]}")
