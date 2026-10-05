@@ -27,8 +27,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * Trae del catálogo público los candidatos para el recomendador. Los precios de vuelo se toman
- * de la tarifa (transparentFinalPrice, por pasajero) y se suman como ARS (spec: moneda única).
+ * Trae del catálogo público los candidatos para el recomendador. El precio por pasajero de un
+ * vuelo es su precio base (price.baseFare) más la tarifa elegida (transparentFinalPrice), igual
+ * que lo que cobra el carrito; solo se usan precios en ARS (spec: moneda única).
  */
 @Slf4j
 @Service
