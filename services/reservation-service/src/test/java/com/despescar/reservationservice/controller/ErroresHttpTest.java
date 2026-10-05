@@ -45,6 +45,8 @@ class ErroresHttpTest {
     @MockitoBean
     private CarritoService carritoService;
     @MockitoBean
+    private com.despescar.reservationservice.service.CancelacionService cancelacionService;
+    @MockitoBean
     private BookingService bookingService;
     @MockitoBean
     private PassengerService passengerService;

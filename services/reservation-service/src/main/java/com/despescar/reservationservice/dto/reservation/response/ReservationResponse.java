@@ -49,6 +49,21 @@ public class ReservationResponse {
 
     private List<AsientoDetalleDTO> asientos;
 
+    private LocalDateTime creadoEn;
+
+    /** Solo en reservas canceladas. */
+    private String motivoCancelacion;
+
+    /** Solo si la canceló su dueño: cuándo, cuánto se devuelve y si el reembolso todavía no salió. */
+    private LocalDateTime canceladaEn;
+
+    private BigDecimal montoReembolsado;
+
+    private Boolean reembolsoPendiente;
+
+    /** La reserva se pagó entre varios (el reembolso vuelve a cada pagador en proporción). */
+    private Boolean pagoEnGrupo;
+
     @Data
     @Builder
     public static class AsientoDetalleDTO {

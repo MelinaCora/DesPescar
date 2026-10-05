@@ -60,6 +60,8 @@ class CarritoControllerTest {
     @MockitoBean
     private CarritoService carritoService;
     @MockitoBean
+    private com.despescar.reservationservice.service.CancelacionService cancelacionService;
+    @MockitoBean
     private BookingService bookingService;
     @MockitoBean
     private PassengerService passengerService;
@@ -192,6 +194,42 @@ class CarritoControllerTest {
         mockMvc.perform(delete("/api/bookings/12").header("Authorization", cliente()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.codigo").value("USAR_CANCELACION_POR_ITEM"));
+    }
+
+    @Test
+    void misReservasNoSeConfundeConElIdYUsaElUsuarioDelToken() throws Exception {
+        when(bookingService.misReservas(7L)).thenReturn(java.util.List.of(
+                com.despescar.reservationservice.dto.reservation.response.ReservationResponse.builder().idCarrito(15L).build()));
+
+        mockMvc.perform(get("/api/bookings/mias").header("Authorization", cliente()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].idCarrito").value(15));
+    }
+
+    @Test
+    void laCancelacionTieneVistaPreviaYConfirmacionConElUsuarioDelToken() throws Exception {
+        var respuesta = new com.despescar.reservationservice.dto.reservation.response.CancelacionResponse(15L,
+                com.despescar.reservationservice.enums.ReservationStatus.CANCELADA, new java.math.BigDecimal("230000.00"),
+                "ARS", false, false, java.util.List.of());
+        when(cancelacionService.vistaPrevia(15L, 7L)).thenReturn(respuesta);
+        when(cancelacionService.cancelar(15L, 7L)).thenReturn(respuesta);
+
+        mockMvc.perform(get("/api/bookings/15/cancelacion").header("Authorization", cliente()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.reembolsoTotal").value(230000.00));
+        mockMvc.perform(post("/api/bookings/15/cancelacion").header("Authorization", cliente()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.estado").value("CANCELADA"));
+    }
+
+    @Test
+    void cancelarFueraDePlazoResponde409ConCodigo() throws Exception {
+        when(cancelacionService.cancelar(15L, 7L)).thenThrow(new BookingException("CANCELACION_FUERA_DE_PLAZO",
+                "La reserva ya no se puede cancelar porque el viaje ya empezó.", HttpStatus.CONFLICT));
+
+        mockMvc.perform(post("/api/bookings/15/cancelacion").header("Authorization", cliente()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.codigo").value("CANCELACION_FUERA_DE_PLAZO"));
     }
 
     @Test

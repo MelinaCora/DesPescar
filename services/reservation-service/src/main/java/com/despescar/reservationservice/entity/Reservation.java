@@ -95,6 +95,22 @@ public class Reservation {
     @Column(name = "motivo_cancelacion", length = 60)
     private String motivoCancelacion;
 
+    /** Cuándo la canceló su dueño (cancelación con reembolso). */
+    @Column(name = "cancelada_en")
+    private LocalDateTime canceladaEn;
+
+    /** Total que se devuelve por la cancelación del dueño, decidido al cancelar. */
+    @Column(name = "monto_reembolsado", precision = 12, scale = 2)
+    private BigDecimal montoReembolsado;
+
+    /** La parte de montoReembolsado que corresponde al vuelo (la de cada estadía está en la estadía). */
+    @Column(name = "monto_reembolsado_vuelo", precision = 12, scale = 2)
+    private BigDecimal montoReembolsadoVuelo;
+
+    /** La reserva se canceló y payment-service todavía no respondió al pedido de reembolso: se reintenta. */
+    @Column(name = "reembolso_pendiente", nullable = false, columnDefinition = "boolean default false")
+    private boolean reembolsoPendiente;
+
     /**
      * tokenPago del pago que confirmó la reserva. Un reenvío con el mismo token es idempotente; otro
      * token sobre una reserva ya confirmada es un pago duplicado (se reembolsa).

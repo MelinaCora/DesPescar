@@ -3,6 +3,7 @@ package com.despescar.reservationservice.mapper;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
 import com.despescar.reservationservice.entity.EstadiaHotel;
 import com.despescar.reservationservice.entity.Reservation;
+import com.despescar.reservationservice.enums.PaymentType;
 import com.despescar.reservationservice.service.CarritoCalculo;
 import java.time.Clock;
 import java.time.LocalDateTime;
@@ -36,6 +37,12 @@ public class ReservationMapper {
                 .vuelo(conVuelo ? vuelo(reserva) : null)
                 .estadias(lista(reserva.getEstadias()).stream().map(this::estadia).toList())
                 .asientos(lista(reserva.getDetalles()).stream().map(detailMapper::toResponse).toList())
+                .creadoEn(reserva.getCreadoEn())
+                .motivoCancelacion(reserva.getMotivoCancelacion())
+                .canceladaEn(reserva.getCanceladaEn())
+                .montoReembolsado(reserva.getMontoReembolsado())
+                .reembolsoPendiente(reserva.isReembolsoPendiente())
+                .pagoEnGrupo(reserva.getTipoPago() == PaymentType.SPLIT_PAYMENT)
                 .build();
     }
 

@@ -68,6 +68,8 @@ class GrupoPagoControllerTest {
     private PassengerService passengerService;
     @MockitoBean
     private CarritoService carritoService;
+    @MockitoBean
+    private com.despescar.reservationservice.service.CancelacionService cancelacionService;
 
     static String jwt(String rol, long userId) {
         return "Bearer " + Jwts.builder()

@@ -28,6 +28,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -433,6 +434,14 @@ public class BookingService {
     @Transactional(readOnly = true)
     public ReservationResponse obtenerReserva(Long id, Long authenticatedUserId) {
         return reservationMapper.toResponse(soporte.reservaDelUsuario(id, authenticatedUserId));
+    }
+
+    /** Mis reservas: las confirmadas y canceladas que creó el usuario, la más nueva primero. */
+    @Transactional(readOnly = true)
+    public List<ReservationResponse> misReservas(Long usuarioId) {
+        return bookingRepository.findByCreadorIdAndEstadoInOrderByIdDesc(usuarioId,
+                        List.of(ReservationStatus.CONFIRMADA, ReservationStatus.CANCELADA)).stream()
+                .map(reservationMapper::toResponse).toList();
     }
 
     @Transactional(readOnly = true)

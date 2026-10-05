@@ -22,6 +22,13 @@ public interface BookingRepository extends JpaRepository<Reservation, Long> {
     Optional<Reservation> findFirstByCreadorIdAndEstadoInOrderByIdDesc(Long creadorId,
                                                                        Collection<ReservationStatus> estados);
 
+    /** Reservas del usuario en esos estados, la más nueva primero (Mis reservas). */
+    List<Reservation> findByCreadorIdAndEstadoInOrderByIdDesc(Long creadorId, Collection<ReservationStatus> estados);
+
+    /** Reservas canceladas por su dueño cuyo reembolso todavía no se pudo pedir a payment-service. */
+    @Query("SELECT r.id FROM Reservation r WHERE r.reembolsoPendiente = true ORDER BY r.id")
+    List<Long> idsConReembolsoPendiente();
+
     /** Carritos abiertos cuyo tiempo límite ya pasó (los cierra el scheduler). */
     List<Reservation> findByEstadoInAndLimiteTiempoBefore(Collection<ReservationStatus> estados,
                                                           LocalDateTime limite);
