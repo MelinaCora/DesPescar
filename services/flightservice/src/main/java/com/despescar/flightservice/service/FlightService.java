@@ -176,7 +176,7 @@ public class FlightService {
                                 .iata(flight.getDestinationAirport() != null ? flight.getDestinationAirport().getCode() : destination)
                                 .dateTime(flight.getArrivalTime().toString())
                                 .build())
-                        .durationMinutes(120)
+                        .durationMinutes((int) java.time.Duration.between(flight.getDepartureTime(), flight.getArrivalTime()).toMinutes())
                         .flightType("DIRECTO")
                         .build())
                 .scales(List.of())

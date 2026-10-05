@@ -70,6 +70,15 @@ class FlightSearchPriceTest {
                 .build();
     }
 
+    @Test
+    void laDuracionSaleDeLosHorariosDelVuelo() {
+        when(flightRepository.findFlightsForSearch(eq("AEP"), eq("BRC"), any(), any()))
+                .thenReturn(List.of(vuelo("160000.00", List.of(tarifa("Light", "0.00")))));
+        FlightSearchResponse respuesta = flightService.searchFlights("AEP", "BRC", LocalDate.of(2026, 10, 19), null, 1);
+
+        assertEquals(150, respuesta.getDepartureFlights().get(0).getItinerary().getDurationMinutes());
+    }
+
     private PriceDto buscarPrecio(Flight flight) {
         when(flightRepository.findFlightsForSearch(eq("AEP"), eq("BRC"), any(), any())).thenReturn(List.of(flight));
         FlightSearchResponse respuesta = flightService.searchFlights("AEP", "BRC", LocalDate.of(2026, 10, 19), null, 2);
