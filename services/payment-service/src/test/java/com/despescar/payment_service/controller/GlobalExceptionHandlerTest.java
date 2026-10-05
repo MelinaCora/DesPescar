@@ -20,7 +20,9 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import com.despescar.payment_service.exception.GlobalExceptionHandler;
 import com.despescar.payment_service.exception.InvalidPaymentStateException;
 import com.despescar.payment_service.exception.ReservationAmountResolutionException;
+import com.despescar.payment_service.service.PaymentConciliationService;
 import com.despescar.payment_service.service.PaymentService;
+import com.despescar.payment_service.service.PaymentSimulationService;
 
 /** El mapeo de excepciones del servicio a respuestas HTTP, sin levantar el contexto. */
 class GlobalExceptionHandlerTest {
@@ -32,7 +34,8 @@ class GlobalExceptionHandlerTest {
     @BeforeEach
     void setUp() {
         paymentService = mock(PaymentService.class);
-        mockMvc = MockMvcBuilders.standaloneSetup(new PaymentController(paymentService))
+        mockMvc = MockMvcBuilders.standaloneSetup(new PaymentController(paymentService, mock(PaymentSimulationService.class),
+                mock(PaymentConciliationService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

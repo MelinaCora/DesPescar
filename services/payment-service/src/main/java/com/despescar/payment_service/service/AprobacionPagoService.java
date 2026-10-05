@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.despescar.payment_service.client.ReservationClient;
 import com.despescar.payment_service.client.dto.ConfirmacionReservaResponse;
+import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
 import com.despescar.payment_service.dto.response.RefundGatewayResponse;
 import com.despescar.payment_service.entity.Payment;
 import com.despescar.payment_service.enums.PaymentMethod;
@@ -84,14 +85,15 @@ public class AprobacionPagoService {
      * transaccion se deshace y Mercado Pago reintenta la notificacion.
      */
     @Transactional
-    public void reembolsarCobroDuplicado(Payment payment, String transactionId, BigDecimal montoPagado) {
+    public void reembolsarCobroDuplicado(
+            Payment payment, String transactionId, BigDecimal montoPagado, PaymentMethod metodo) {
         BigDecimal monto = (montoPagado != null ? montoPagado : payment.getAmount()).setScale(2, RoundingMode.HALF_UP);
 
         ConfirmacionReservaResponse confirmacion = reservationClient.confirmarPago(
                 payment.getReservationId(), payment.getUserId(), transactionId, monto);
 
         if (confirmacion.confirmada()) {
-            adoptarCobroConfirmado(payment, transactionId);
+            adoptarCobroConfirmado(payment, transactionId, metodo);
             return;
         }
 
@@ -101,23 +103,42 @@ public class AprobacionPagoService {
         }
     }
 
-    /** El cobro que confirmo la reserva pasa a ser el del pago; el anterior se devuelve si no se habia devuelto. */
-    private void adoptarCobroConfirmado(Payment payment, String transactionId) {
+    /**
+     * El cobro que confirmo la reserva pasa a ser el del pago (con su metodo y fecha); el anterior se
+     * devuelve si no se habia devuelto, por el monto que Mercado Pago cobro en ese cobro.
+     */
+    private void adoptarCobroConfirmado(Payment payment, String transactionId, PaymentMethod metodo) {
         String anterior = payment.getTransactionId();
         boolean anteriorReembolsado = payment.getStatus() == PaymentStatus.REFUNDED;
 
         payment.setStatus(PaymentStatus.APPROVED);
         payment.setTransactionId(transactionId);
+        if (metodo != null) {
+            payment.setPaymentMethod(metodo);
+        }
+        payment.setPaymentDate(LocalDateTime.now());
         Payment guardado = paymentRepository.save(payment);
         paymentHistoryService.saveHistory(guardado, PaymentStatus.APPROVED, recortar(
                 "El cobro " + transactionId + " confirmo la reserva; el pago pasa a ese cobro (antes " + anterior + ")."));
 
         if (!anteriorReembolsado && anterior != null) {
-            if (reembolsarCobro(guardado, anterior, guardado.getAmount().setScale(2, RoundingMode.HALF_UP))) {
+            if (reembolsarCobro(guardado, anterior, montoCobrado(guardado, anterior))) {
                 paymentHistoryService.saveHistory(guardado, PaymentStatus.APPROVED, recortar(
                         "Cobro anterior " + anterior + " reembolsado (PAGO_DUPLICADO)."));
             }
         }
+    }
+
+    /** Lo que el proveedor cobro en ese cobro; si no se puede consultar, el monto del pago. */
+    private BigDecimal montoCobrado(Payment payment, String transactionId) {
+        BigDecimal monto = null;
+        try {
+            PaymentGatewayResponse cobro = paymentGatewayService.getPaymentStatus(transactionId);
+            monto = cobro == null ? null : cobro.getAmount();
+        } catch (RuntimeException ex) {
+            log.warn("No se pudo consultar el monto del cobro {}: {}", transactionId, ex.getMessage());
+        }
+        return (monto != null ? monto : payment.getAmount()).setScale(2, RoundingMode.HALF_UP);
     }
 
     /** Pide el reembolso del cobro; si no sale deja "Reembolso manual pendiente" y devuelve false. */

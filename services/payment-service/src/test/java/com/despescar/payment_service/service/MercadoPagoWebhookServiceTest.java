@@ -191,7 +191,7 @@ class MercadoPagoWebhookServiceTest {
 
         service.processPaymentNotification("445", "payment");
 
-        verify(aprobacionPagoService).reembolsarCobroDuplicado(payment, "445", new BigDecimal("1250.00"));
+        verify(aprobacionPagoService).reembolsarCobroDuplicado(eq(payment), eq("445"), eq(new BigDecimal("1250.00")), any());
         verify(aprobacionPagoService, never()).aprobar(any(), any(), any(), any());
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.APPROVED);
     }
@@ -205,7 +205,7 @@ class MercadoPagoWebhookServiceTest {
 
         service.processPaymentNotification("445", "payment");
 
-        verify(aprobacionPagoService, never()).reembolsarCobroDuplicado(any(), any(), any());
+        verify(aprobacionPagoService, never()).reembolsarCobroDuplicado(any(), any(), any(), any());
     }
 
     @Test

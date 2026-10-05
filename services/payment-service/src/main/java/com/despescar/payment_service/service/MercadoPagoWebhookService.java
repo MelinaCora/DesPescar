@@ -86,10 +86,11 @@ public class MercadoPagoWebhookService {
                 }
                 if ((actual == PaymentStatus.APPROVED || actual == PaymentStatus.REFUNDED)
                         && esOtroCobro(payment, gatewayResponse)) {
-                    log.warn("Segundo cobro {} aprobado para el pago {}: se reembolsa.",
+                    log.warn("Segundo cobro {} aprobado para el pago {}: se adopta si confirmo la reserva, si no se reembolsa.",
                             gatewayResponse.getTransactionId(), payment.getId());
                     aprobacionPagoService.reembolsarCobroDuplicado(
-                            payment, gatewayResponse.getTransactionId(), gatewayResponse.getAmount());
+                            payment, gatewayResponse.getTransactionId(), gatewayResponse.getAmount(),
+                            resolvePaymentMethod(gatewayResponse));
                     return payment;
                 }
                 if (gatewayResponse.getAmount() != null

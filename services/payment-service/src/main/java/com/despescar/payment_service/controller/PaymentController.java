@@ -15,9 +15,13 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 
+import com.despescar.payment_service.dto.request.ConciliacionPagoRequest;
 import com.despescar.payment_service.dto.request.PaymentRequest;
+import com.despescar.payment_service.dto.request.SimulacionPagoRequest;
 import com.despescar.payment_service.dto.response.PaymentResponse;
+import com.despescar.payment_service.service.PaymentConciliationService;
 import com.despescar.payment_service.service.PaymentService;
+import com.despescar.payment_service.service.PaymentSimulationService;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +32,8 @@ import lombok.RequiredArgsConstructor;
 public class PaymentController {
 
 	private final PaymentService paymentService;
+	private final PaymentSimulationService paymentSimulationService;
+	private final PaymentConciliationService paymentConciliationService;
 
 	/**
 	 * Creates a new payment.
@@ -107,5 +113,35 @@ public class PaymentController {
 				paymentService.cancelPayment(paymentId, Long.valueOf(authentication.getName()));
 
 		return ResponseEntity.ok(response);
+	}
+
+	/**
+	 * Aprueba o rechaza un pago del proveedor mock (pagina /pago/simulado). 404 si el proveedor
+	 * activo no es mock.
+	 */
+	@PostMapping("/{paymentId}/simulacion")
+	@PreAuthorize("hasRole('ROLE_CLIENTE')")
+	public ResponseEntity<PaymentResponse> simularPago(
+			@PathVariable UUID paymentId,
+			@Valid @RequestBody SimulacionPagoRequest request,
+			Authentication authentication) {
+
+		return ResponseEntity.ok(paymentSimulationService.simular(
+				paymentId, request.aprobado(), Long.valueOf(authentication.getName())));
+	}
+
+	/**
+	 * Concilia un pago con Mercado Pago a partir del payment_id de la back_url (pagina
+	 * /pago/resultado). 404 si el proveedor activo no es mercadopago.
+	 */
+	@PostMapping("/{paymentId}/conciliacion")
+	@PreAuthorize("hasRole('ROLE_CLIENTE')")
+	public ResponseEntity<PaymentResponse> conciliarPago(
+			@PathVariable UUID paymentId,
+			@Valid @RequestBody ConciliacionPagoRequest request,
+			Authentication authentication) {
+
+		return ResponseEntity.ok(paymentConciliationService.conciliar(
+				paymentId, request.mpPaymentId(), Long.valueOf(authentication.getName())));
 	}
 }

@@ -25,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.despescar.payment_service.client.ReservationClient;
 import com.despescar.payment_service.client.dto.ConfirmacionReservaResponse;
+import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
 import com.despescar.payment_service.dto.response.RefundGatewayResponse;
 import com.despescar.payment_service.entity.Payment;
 import com.despescar.payment_service.enums.PaymentMethod;
@@ -187,7 +188,7 @@ class AprobacionPagoServiceTest {
         when(paymentGatewayService.refund("999", TOTAL))
                 .thenReturn(RefundGatewayResponse.builder().approved(true).build());
 
-        service.reembolsarCobroDuplicado(pago, "999", new BigDecimal("1060000"));
+        service.reembolsarCobroDuplicado(pago, "999", new BigDecimal("1060000"), PaymentMethod.CREDIT_CARD);
 
         assertThat(pago.getStatus()).isEqualTo(PaymentStatus.APPROVED);
         assertThat(pago.getTransactionId()).isEqualTo("445");
@@ -203,7 +204,7 @@ class AprobacionPagoServiceTest {
         when(paymentGatewayService.refund("999", TOTAL))
                 .thenReturn(RefundGatewayResponse.builder().approved(false).message("HTTP 400").build());
 
-        service.reembolsarCobroDuplicado(pago, "999", TOTAL);
+        service.reembolsarCobroDuplicado(pago, "999", TOTAL, PaymentMethod.CREDIT_CARD);
 
         verify(paymentHistoryService).saveHistory(pago, PaymentStatus.APPROVED,
                 "Reembolso manual pendiente del cobro duplicado 999 (PAGO_DUPLICADO): HTTP 400");
@@ -217,7 +218,7 @@ class AprobacionPagoServiceTest {
         reservaResponde("A", "CONFIRMADA", null);
         when(paymentRepository.save(pago)).thenReturn(pago);
 
-        service.reembolsarCobroDuplicado(pago, "A", TOTAL);
+        service.reembolsarCobroDuplicado(pago, "A", TOTAL, PaymentMethod.CREDIT_CARD);
 
         assertThat(pago.getStatus()).isEqualTo(PaymentStatus.APPROVED);
         assertThat(pago.getTransactionId()).isEqualTo("A");
@@ -234,7 +235,7 @@ class AprobacionPagoServiceTest {
         when(paymentGatewayService.refund("B", TOTAL))
                 .thenReturn(RefundGatewayResponse.builder().approved(true).build());
 
-        service.reembolsarCobroDuplicado(pago, "A", TOTAL);
+        service.reembolsarCobroDuplicado(pago, "A", TOTAL, PaymentMethod.CREDIT_CARD);
 
         assertThat(pago.getTransactionId()).isEqualTo("A");
         assertThat(pago.getStatus()).isEqualTo(PaymentStatus.APPROVED);
@@ -243,12 +244,46 @@ class AprobacionPagoServiceTest {
     }
 
     @Test
+    void elCobroAnteriorSeReembolsaPorLoQueMercadoPagoCobroEnEseCobro() {
+        pago.setStatus(PaymentStatus.APPROVED);
+        pago.setTransactionId("B");
+        pago.setPaymentMethod(PaymentMethod.DEBIT_CARD);
+        reservaResponde("A", "CONFIRMADA", null);
+        when(paymentRepository.save(pago)).thenReturn(pago);
+        when(paymentGatewayService.getPaymentStatus("B"))
+                .thenReturn(PaymentGatewayResponse.builder().amount(new BigDecimal("900000")).build());
+        when(paymentGatewayService.refund("B", new BigDecimal("900000.00")))
+                .thenReturn(RefundGatewayResponse.builder().approved(true).build());
+
+        service.reembolsarCobroDuplicado(pago, "A", TOTAL, PaymentMethod.CREDIT_CARD);
+
+        verify(paymentGatewayService).refund("B", new BigDecimal("900000.00"));
+        assertThat(pago.getPaymentMethod()).isEqualTo(PaymentMethod.CREDIT_CARD);
+        assertThat(pago.getPaymentDate()).isNotNull();
+    }
+
+    @Test
+    void siNoSePuedeConsultarElCobroAnteriorSeUsaElMontoDelPago() {
+        pago.setStatus(PaymentStatus.APPROVED);
+        pago.setTransactionId("B");
+        reservaResponde("A", "CONFIRMADA", null);
+        when(paymentRepository.save(pago)).thenReturn(pago);
+        when(paymentGatewayService.getPaymentStatus("B")).thenThrow(new RuntimeException("caido"));
+        when(paymentGatewayService.refund("B", TOTAL))
+                .thenReturn(RefundGatewayResponse.builder().approved(true).build());
+
+        service.reembolsarCobroDuplicado(pago, "A", TOTAL, PaymentMethod.CREDIT_CARD);
+
+        verify(paymentGatewayService).refund("B", TOTAL);
+    }
+
+    @Test
     void siReservasNoRespondeAlVerificarElOtroCobroNoSeReembolsaNada() {
         pago.setStatus(PaymentStatus.APPROVED);
         pago.setTransactionId("B");
         when(reservationClient.confirmarPago(12L, 7L, "A", TOTAL)).thenThrow(new ReservationClientException("caido"));
 
-        assertThatThrownBy(() -> service.reembolsarCobroDuplicado(pago, "A", TOTAL))
+        assertThatThrownBy(() -> service.reembolsarCobroDuplicado(pago, "A", TOTAL, PaymentMethod.CREDIT_CARD))
                 .isInstanceOf(ReservationClientException.class);
         verify(paymentGatewayService, never()).refund(any(), any());
     }
