@@ -29,4 +29,8 @@ public interface PaymentRepository extends JpaRepository<Payment, UUID> {
     @Query("select p from Payment p where p.id = :id")
     Optional<Payment> findByIdParaActualizar(@Param("id") UUID id);
 
+    /** Pagos de partes de un grupo, en orden fijo de id (se bloquean de a uno en ese orden). */
+    @Query("select p.id from Payment p where p.reservationId = :reservationId and p.parteNumero is not null order by p.id")
+    List<UUID> idsDePartes(@Param("reservationId") Long reservationId);
+
 }
