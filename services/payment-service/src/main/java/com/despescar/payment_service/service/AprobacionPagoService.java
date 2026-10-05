@@ -24,6 +24,9 @@ import lombok.extern.slf4j.Slf4j;
  * simulador del mock): queda APPROVED, se confirma la reserva y, si reservation-service no la
  * confirma (pago tardio sin lugar, monto distinto, reserva cancelada; D6 y D7), se reembolsa el
  * total. Si el reembolso no sale, el pago queda APPROVED con "Reembolso manual pendiente".
+ * Con un pago de parte se confirma la parte: PARTE_PAGADA (faltan partes) y CONFIRMADA (era la
+ * última) son éxito; CANCELADA (grupo cerrado, vencido o sin lugar) y RECHAZADA se reembolsan igual
+ * que en D6.
  */
 @Service
 @RequiredArgsConstructor
@@ -63,10 +66,9 @@ public class AprobacionPagoService {
         paymentHistoryService.saveHistory(aprobado, PaymentStatus.APPROVED,
                 "Pago aprobado por " + aprobado.getProvider() + ".");
 
-        ConfirmacionReservaResponse confirmacion = reservationClient.confirmarPago(
-                aprobado.getReservationId(), aprobado.getUserId(), transactionId, monto);
+        ConfirmacionReservaResponse confirmacion = confirmarEnReservas(aprobado, transactionId, monto);
 
-        if (confirmacion.confirmada()) {
+        if (confirmacion.exito()) {
             return aprobado;
         }
         if ("PAGO_DUPLICADO".equals(confirmacion.motivo())) {
@@ -89,10 +91,9 @@ public class AprobacionPagoService {
             Payment payment, String transactionId, BigDecimal montoPagado, PaymentMethod metodo) {
         BigDecimal monto = (montoPagado != null ? montoPagado : payment.getAmount()).setScale(2, RoundingMode.HALF_UP);
 
-        ConfirmacionReservaResponse confirmacion = reservationClient.confirmarPago(
-                payment.getReservationId(), payment.getUserId(), transactionId, monto);
+        ConfirmacionReservaResponse confirmacion = confirmarEnReservas(payment, transactionId, monto);
 
-        if (confirmacion.confirmada()) {
+        if (confirmacion.exito()) {
             adoptarCobroConfirmado(payment, transactionId, metodo);
             return;
         }
@@ -101,6 +102,18 @@ public class AprobacionPagoService {
             paymentHistoryService.saveHistory(payment, payment.getStatus(), recortar(
                     "Cobro duplicado " + transactionId + " reembolsado (PAGO_DUPLICADO)."));
         }
+    }
+
+    /**
+     * Un pago sin parte confirma la reserva entera (C3); un pago de parte confirma su parte (CB3), y
+     * reservation-service decide si con ella la reserva queda confirmada (D-b10, D-b11).
+     */
+    private ConfirmacionReservaResponse confirmarEnReservas(Payment payment, String transactionId, BigDecimal monto) {
+        if (payment.esDeParte()) {
+            return reservationClient.confirmarPagoParte(
+                    payment.getReservationId(), payment.getParteNumero(), payment.getUserId(), transactionId, monto);
+        }
+        return reservationClient.confirmarPago(payment.getReservationId(), payment.getUserId(), transactionId, monto);
     }
 
     /**
