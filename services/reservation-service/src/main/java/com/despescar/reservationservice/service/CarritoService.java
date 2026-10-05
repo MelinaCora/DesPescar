@@ -64,9 +64,10 @@ public class CarritoService {
         this.transacciones = transacciones;
     }
 
+    /** El carrito activo o, si el usuario está pagando en grupo, ese carrito congelado (D-b17). */
     @Transactional(readOnly = true)
     public Optional<ReservationResponse> obtenerCarrito(Long usuarioId) {
-        return soporte.carritoActivo(usuarioId).map(mapper::toResponse);
+        return soporte.carritoActivo(usuarioId).or(() -> soporte.grupoEnCurso(usuarioId)).map(mapper::toResponse);
     }
 
     /**
@@ -77,6 +78,7 @@ public class CarritoService {
      * retención se libera (mejor esfuerzo).
      */
     public ReservationResponse agregarEstadia(AgregarEstadiaRequest pedido, Long usuarioId) {
+        soporte.exigirSinGrupoEnCurso(usuarioId);
         boolean carritoNuevo = soporte.carritoActivo(usuarioId).isEmpty();
         Reservation carrito = carritoNuevo ? soporte.crearCarrito(usuarioId) : soporte.carritoActivo(usuarioId).orElseThrow();
         Long carritoId = carrito.getId();
@@ -187,6 +189,10 @@ public class CarritoService {
     @Transactional
     public void abandonar(Long reservaId, Long usuarioId) {
         Reservation reserva = soporte.reservaDelUsuarioBloqueada(reservaId, usuarioId);
+        if (reserva.getEstado() == ReservationStatus.ESPERANDO_PAGADORES) {
+            throw new BookingException("USAR_CANCELACION_DEL_GRUPO",
+                    "Este carrito se está pagando en grupo: cancelá el pago en grupo para soltarlo.", HttpStatus.CONFLICT);
+        }
         if (reserva.getEstado() == ReservationStatus.CONFIRMADA) {
             throw new BookingException("USAR_CANCELACION_POR_ITEM",
                     "La reserva ya está pagada: se cancela por ítem desde Mis reservas.", HttpStatus.CONFLICT);
@@ -206,8 +212,10 @@ public class CarritoService {
     }
 
     private Reservation carritoAbierto(Long usuarioId) {
-        Reservation carrito = soporte.carritoAbiertoBloqueado(usuarioId).orElseThrow(() -> new BookingException(
-                "CARRITO_NO_ENCONTRADO", "No tenés un carrito activo.", HttpStatus.NOT_FOUND));
+        Reservation carrito = soporte.carritoAbiertoBloqueado(usuarioId).orElseThrow(() -> {
+            soporte.exigirSinGrupoEnCurso(usuarioId); // 409 si lo que hay es un carrito congelado
+            return new BookingException("CARRITO_NO_ENCONTRADO", "No tenés un carrito activo.", HttpStatus.NOT_FOUND);
+        });
         soporte.verificarModificable(carrito); // vencido: 410 CARRITO_EXPIRADO
         return carrito;
     }

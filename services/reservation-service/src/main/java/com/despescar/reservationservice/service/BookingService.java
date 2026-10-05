@@ -5,13 +5,11 @@ import com.despescar.reservationservice.client.PackageClient;
 import com.despescar.reservationservice.dto.packagecatalog.response.PackageLookupResponse;
 import com.despescar.reservationservice.dto.reservation.request.BookingInitRequest;
 import com.despescar.reservationservice.dto.reservation.request.PaymentConfirmationRequest;
-import com.despescar.reservationservice.dto.reservation.request.SplitPaymentSetupRequest;
 import com.despescar.reservationservice.dto.reservation.response.BookingInitResponse;
 import com.despescar.reservationservice.dto.reservation.response.ConfirmacionPagoResponse;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
 import com.despescar.reservationservice.entity.EstadiaHotel;
 import com.despescar.reservationservice.entity.Reservation;
-import com.despescar.reservationservice.entity.ReservationDetail;
 import com.despescar.reservationservice.enums.PaymentStatus;
 import com.despescar.reservationservice.enums.PaymentType;
 import com.despescar.reservationservice.enums.ReservationStatus;
@@ -30,7 +28,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -76,6 +73,7 @@ public class BookingService {
             throw new BookingException("PAGO_DIVIDIDO_NO_DISPONIBLE",
                     "El pago dividido todavía no está disponible.", HttpStatus.BAD_REQUEST);
         }
+        soporte.exigirSinGrupoEnCurso(authenticatedUserId);
         Optional<Long> activo = transaccion.execute(status -> soporte.carritoActivo(authenticatedUserId).map(r -> {
             verificarSinVuelo(r);
             return r.getId();
@@ -463,39 +461,5 @@ public class BookingService {
         } catch (RuntimeException ex) {
             log.warn("No se pudo avisar el cambio de la reserva {}: {}", id, ex.getMessage());
         }
-    }
-
-    @Transactional
-    public void setupSplitPayment(Long id, SplitPaymentSetupRequest request, Long authenticatedUserId) {
-        Reservation reserva = bookingRepository.findById(id)
-                .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
-
-        if (!reserva.getCreadorId().equals(authenticatedUserId)) {
-            throw new BookingException("ACCESO_DENEGADO", "Solo el creador puede configurar el pago compartido.", HttpStatus.FORBIDDEN);
-        }
-
-        if (!ReservationStatus.ESPERANDO_PAGADORES.equals(reserva.getEstado())) {
-            throw new BookingException("ESTADO_INVALIDO", "La reserva no está en fase de configuración de pago.", HttpStatus.BAD_REQUEST);
-        }
-
-        List<ReservationDetail> detalles = detailRepository.findByReservation_Id(id);
-
-        for (SplitPaymentSetupRequest.PayerAssignationDTO asignacion : request.getAsignaciones()) {
-            // Buscar el detalle correspondiente al asiento
-            ReservationDetail detalleAsignado = detalles.stream()
-                    .filter(d -> d.getOutboundSeatNumber().equals(asignacion.getAsientoIda()))
-                    .findFirst()
-                    .orElseThrow(() -> new BookingException("ASIENTO_INVALIDO", "El asiento " + asignacion.getAsientoIda() + " no pertenece a esta reserva.", HttpStatus.BAD_REQUEST));
-
-            // Asignar el pagador
-            detalleAsignado.setPayerUserId(asignacion.getPagadorId());
-            detalleAsignado.setPayerEmail(asignacion.getPagadorEmail());
-        }
-
-        detailRepository.saveAll(detalles);
-
-        // Avanzar el estado para habilitar los pagos
-        reserva.setEstado(ReservationStatus.PENDIENTE_PAGO);
-        bookingRepository.save(reserva);
     }
 }

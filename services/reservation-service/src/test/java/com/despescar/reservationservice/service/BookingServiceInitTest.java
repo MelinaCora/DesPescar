@@ -277,4 +277,16 @@ class BookingServiceInitTest {
         orden.verify(bookingRepository).save(deHotel);
         orden.verify(inventario).alinearBloqueos(deHotel);
     }
+
+    @Test
+    void conUnPagoEnGrupoEnCursoNoSeArmaOtroCarritoNiSeCotiza() {
+        carritoActual(carrito(12L, ReservationStatus.ESPERANDO_PAGADORES, AHORA.plusHours(20)));
+
+        BookingException ex = assertThrows(BookingException.class,
+                () -> service.initializeBooking(pedido(PaymentType.SINGLE_PAYMENT), null, 7L));
+
+        assertEquals("PAGO_EN_GRUPO_EN_CURSO", ex.getCodigo());
+        assertEquals(HttpStatus.CONFLICT, ex.getStatus());
+        verifyNoInteractions(flightClient);
+    }
 }

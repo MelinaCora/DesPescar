@@ -638,8 +638,9 @@ class CarritoServiceTest {
 
     @Test
     void siOtroPedidoCreoElCarritoPrimeroSeReutilizaEse() {
+        // Antes de crear se consulta dos veces (grupo en curso y carrito activo); recién después existe el otro carrito
         when(bookingRepository.findFirstByCreadorIdAndEstadoInOrderByIdDesc(eq(7L), any()))
-                .thenReturn(Optional.empty(), Optional.of(carrito));
+                .thenReturn(Optional.empty(), Optional.empty(), Optional.of(carrito));
         when(bookingRepository.saveAndFlush(any(Reservation.class)))
                 .thenThrow(new org.springframework.dao.DataIntegrityViolationException("carrito_abierto_de duplicado"))
                 .thenAnswer(inv -> inv.getArgument(0));

@@ -73,6 +73,25 @@ public class CarritoSoporte {
     }
 
     /**
+     * La reserva del usuario que se está pagando en grupo (D-b17), venza cuando venza: la cierra
+     * GrupoPagoScheduler. El filtro por estado es a propósito redundante con la consulta.
+     */
+    public Optional<Reservation> grupoEnCurso(Long usuarioId) {
+        return bookingRepository
+                .findFirstByCreadorIdAndEstadoInOrderByIdDesc(usuarioId, List.of(ReservationStatus.ESPERANDO_PAGADORES))
+                .filter(r -> r.getEstado() == ReservationStatus.ESPERANDO_PAGADORES);
+    }
+
+    /** Con un pago en grupo en curso no se arma otro carrito ni se le agregan ítems. */
+    public void exigirSinGrupoEnCurso(Long usuarioId) {
+        if (grupoEnCurso(usuarioId).isPresent()) {
+            throw new BookingException("PAGO_EN_GRUPO_EN_CURSO",
+                    "Tenés un pago en grupo en curso. Esperá a que termine o cancelalo desde tu carrito.",
+                    HttpStatus.CONFLICT);
+        }
+    }
+
+    /**
      * Crea y guarda un carrito vacío: dura 15 minutos desde ahora. Se hace en su propia transacción:
      * un usuario tiene un solo carrito abierto (índice único), así que si otro pedido lo creó primero
      * (doble clic) se reutiliza ese. Un carrito abierto pero vencido, que el scheduler todavía no
@@ -82,6 +101,7 @@ public class CarritoSoporte {
      * pasajeros quedan PENDIENTE, como en el scheduler: un pago tardío todavía coincide con el total (D6).
      */
     public Reservation crearCarrito(Long usuarioId) {
+        exigirSinGrupoEnCurso(usuarioId);
         TransactionTemplate nueva = new TransactionTemplate(gestor);
         nueva.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         try {

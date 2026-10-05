@@ -4,7 +4,6 @@ import com.despescar.reservationservice.dto.carrito.TitularRequest;
 import com.despescar.reservationservice.dto.passengers.request.PassengerAssignationRequest;
 import com.despescar.reservationservice.dto.reservation.request.BookingInitRequest;
 import com.despescar.reservationservice.dto.reservation.request.PaymentConfirmationRequest;
-import com.despescar.reservationservice.dto.reservation.request.SplitPaymentSetupRequest;
 import com.despescar.reservationservice.dto.reservation.response.BookingInitResponse;
 import com.despescar.reservationservice.dto.reservation.response.ConfirmacionPagoResponse;
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
@@ -65,16 +64,6 @@ public class BookingController {
             @RequestBody List<TitularRequest> titulares,
             Authentication authentication) {
         return ResponseEntity.ok(carritoService.cargarTitulares(id, titulares, usuario(authentication)));
-    }
-
-    @PostMapping("/{id}/split-setup")
-    @PreAuthorize("hasRole('ROLE_CLIENTE')")
-    public ResponseEntity<Void> setupSplitPayment(
-            @PathVariable Long id,
-            @RequestBody SplitPaymentSetupRequest dto,
-            Authentication authentication) {
-        bookingService.setupSplitPayment(id, dto, usuario(authentication));
-        return ResponseEntity.ok().build();
     }
 
     @PostMapping("/{id}/pay")

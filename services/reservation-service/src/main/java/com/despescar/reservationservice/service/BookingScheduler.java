@@ -26,8 +26,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Slf4j
 public class BookingScheduler {
 
-    static final List<ReservationStatus> ABIERTOS = List.of(
-            ReservationStatus.INICIADA, ReservationStatus.PENDIENTE_PAGO, ReservationStatus.ESPERANDO_PAGADORES);
+    /** Los carritos que se pagan en grupo (ESPERANDO_PAGADORES) los cierra GrupoPagoScheduler (D-b14). */
+    static final List<ReservationStatus> ABIERTOS = CarritoSoporte.ABIERTOS;
 
     private final BookingRepository bookingRepository;
     private final SimpMessagingTemplate messagingTemplate;

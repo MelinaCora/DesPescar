@@ -26,12 +26,14 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -124,5 +126,21 @@ class BookingSchedulerTest {
 
         assertEquals(ReservationStatus.EXPIRADA, vencida.getEstado());
         verify(inventario).liberarRetenciones(vencida);
+    }
+
+    @Test
+    void losCarritosQueSePaganEnGrupoNoLosCierraEsteScheduler() {
+        vencida.setEstado(ReservationStatus.ESPERANDO_PAGADORES);
+        when(bookingRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(vencida));
+
+        scheduler.verificarCarritosExpirados();
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Collection<ReservationStatus>> estados = ArgumentCaptor.forClass(Collection.class);
+        verify(bookingRepository).findByEstadoInAndLimiteTiempoBefore(estados.capture(), eq(AHORA));
+        assertEquals(List.of(ReservationStatus.INICIADA, ReservationStatus.PENDIENTE_PAGO), List.copyOf(estados.getValue()));
+        // Aunque la consulta la devolviera, releída con lock no se expira: la cierra GrupoPagoScheduler
+        assertEquals(ReservationStatus.ESPERANDO_PAGADORES, vencida.getEstado());
+        verifyNoInteractions(inventario);
     }
 }
