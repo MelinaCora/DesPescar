@@ -1,9 +1,9 @@
 package com.despescar.koiiaservice.enums;
 
+/** Qué quiere armar el usuario. UNKNOWN se trata como COMBO al decidir qué falta. */
 public enum UserIntent {
-    VACATION,
-    FLIGHT_SEARCH,
-    HOTEL_SEARCH,
-    PACKAGE_SEARCH,
+    COMBO,
+    SOLO_VUELO,
+    SOLO_HOTEL,
     UNKNOWN
 }

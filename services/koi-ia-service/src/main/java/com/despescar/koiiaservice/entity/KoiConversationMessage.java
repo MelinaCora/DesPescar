@@ -40,6 +40,10 @@ public class KoiConversationMessage {
     @Column(nullable = false, length = 4000)
     private String content;
 
+    /** Opciones que KOI mostró con este mensaje (JSON de KoiRecommendationResponse), o null. */
+    @Column(name = "opciones_json", length = 20000)
+    private String opcionesJson;
+
     private LocalDateTime createdAt;
 
     @PrePersist

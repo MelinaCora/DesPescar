@@ -141,11 +141,18 @@ def grant_super_admin(email):
         f"WHERE u.email = '{email}' AND NOT EXISTS (SELECT 1 FROM despescar_identity.user_roles ur "
         "WHERE ur.user_id = u.id AND ur.role_id = r.id);"
     )
-    cmd = ["docker", "exec", "-e", f"MYSQL_PWD={DB_PASSWORD}", DB_CONTAINER, "mysql", "-uroot", "-e", sql]
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    if os.environ.get("MYSQL_LOCAL") == "1":
+        # MySQL instalado en la maquina (sin Docker): usa el cliente mysql local.
+        user = os.environ.get("DB_USER", "root")
+        cmd = ["mysql", f"-u{user}", "-e", sql]
+        env = {**os.environ, "MYSQL_PWD": DB_PASSWORD}
+    else:
+        cmd = ["docker", "exec", "-e", f"MYSQL_PWD={DB_PASSWORD}", DB_CONTAINER, "mysql", "-uroot", "-e", sql]
+        env = None
+    res = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if res.returncode != 0:
         sys.exit(
-            "No pude asignar el rol SUPER_ADMIN con docker exec:\n"
+            "No pude asignar el rol SUPER_ADMIN con el cliente mysql:\n"
             f"{res.stderr.strip()}\n"
             "Hacelo a mano (ver docs/INSTRUCTIVO-DOCKER.md, seccion 'Usuario administrador') y volve a correr el script."
         )
@@ -245,12 +252,26 @@ def main():
                 "wifi": wifi, "seatSelection": seat, "currency": "ARS", "baseFare": base, "taxesAndFees": tax,
                 "transparentFinalPrice": base + tax}, token)
             fares.append(f["id"])
-
-        crear_vuelos(token, by_code, airlines, fares, flight_numbers)
-
-    if solo_vuelos:
-        print("\nListo (solo vuelos: no se cargaron hoteles ni paquetes).")
-        return
+        routes = (  # aerolinea, origen, destino, precio por pasajero en ARS (tarifa Light), minutos
+            ("AR", "EZE", "COR", 95000, 90), ("AR", "AEP", "BRC", 160000, 150), ("AR", "AEP", "MDZ", 120000, 120),
+            ("AR", "EZE", "MAD", 1150000, 780), ("LA", "EZE", "SCL", 260000, 130), ("LA", "EZE", "MIA", 980000, 540),
+            ("LA", "AEP", "SLA", 140000, 130), ("FO", "AEP", "COR", 70000, 85), ("FO", "AEP", "BRC", 130000, 150),
+        )
+        n = 0
+        for i, (al, o, d, price, mins) in enumerate(routes):
+            for offset in (0, 3, 7):
+                for back in (False, True):
+                    a, b = (d, o) if back else (o, d)
+                    dep = start + dt.timedelta(days=offset, hours=i % 6 * 2 + (5 if back else 0))
+                    n += 1
+                    number = f"{al}{1000 + n}"
+                    flight_numbers[(al, a, b, offset)] = number
+                    call("POST", FLIGHT + "/api/flights", {
+                        "flightNumber": number, "airlineId": airlines[al], "originAirportId": by_code[a],
+                        "destinationAirportId": by_code[b], "departureTime": dep.isoformat(),
+                        "arrivalTime": (dep + dt.timedelta(minutes=mins)).isoformat(), "price": price,
+                        "availableSeats": 150, "status": "SCHEDULED", "faresId": fares}, token)
+        print(f"vuelos: {n} creados, salidas {', '.join((start + dt.timedelta(days=d)).strftime('%d/%m/%Y') for d in (0, 3, 7))}")
 
     # --- hoteles ---
     _, hotels = call("GET", HOTEL + "/hoteles", token=token)
@@ -266,8 +287,10 @@ def main():
             ("Hotel Sheraton Mendoza", "Mendoza", "Primitivo de la Reta 989", 4, 140, 50, False),
         ):
             _, h = call("POST", HOTEL + "/hoteles", {
-                "nombre": nombre, "ciudad": ciudad, "direccion": direccion, "estrellas": estrellas,
-                "precioPorNoche": precio, "habitacionesDisponibles": hab, "allInclusive": todo}, token)
+                "nombre": nombre, "ciudad": ciudad, "pais": pais, "direccion": direccion, "estrellas": estrellas,
+                "descripcion": desc, "allInclusive": todo, "imagenes": [img[i % 3], img[(i + 1) % 3]],
+                "servicios": servicios, "politicaCancelacion": politica, "zonaHoraria": zona,
+                "habitaciones": habs}, token)
             hotel_by_city[ciudad] = h["id"]
         print(f"hoteles: {len(hotel_by_city)} creados")
 

@@ -1,30 +1,22 @@
 package com.despescar.koiiaservice.dto.response;
 
-import lombok.Builder;
-import lombok.Data;
-
+import com.despescar.koiiaservice.enums.TipoOpcion;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.UUID;
 
-@Data
-@Builder
-public class KoiRecommendationResponse {
-
-    private String type;
-    private String title;
-    private String summary;
-    private BigDecimal price;
-    private String destination;
-    private String flightNumber;
-    private UUID hotelId;
-    private String hotelName;
-    private String hotelCity;
-    private Integer hotelStars;
-    private Double hotelPricePerNight;
-    private Integer availableSeats;
-    private LocalDateTime departureTime;
-    private LocalDateTime arrivalTime;
-    private Integer durationNights;
-    private String whyItFits;
+/**
+ * Una opción que propone KOI (spec 3.7). Los precios son orientativos: el carrito los recalcula
+ * al agregar. excedeEn solo aparece cuando ninguna opción entra en el presupuesto.
+ */
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public record KoiRecommendationResponse(
+        String optionId,
+        TipoOpcion tipo,
+        KoiVueloOpcion vuelo,
+        KoiHotelOpcion hotel,
+        int viajeros,
+        BigDecimal total,
+        String moneda,
+        BigDecimal excedeEn,
+        String motivo) {
 }

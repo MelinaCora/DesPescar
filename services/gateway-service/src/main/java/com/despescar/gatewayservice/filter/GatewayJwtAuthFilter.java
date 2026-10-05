@@ -22,6 +22,10 @@ import java.util.Set;
 public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
 
     private static final String BEARER_PREFIX = "Bearer ";
+    static final String USER_HEADER = "X-Authenticated-User";
+    static final String ROLE_HEADER = "X-Authenticated-Role";
+    // Token compartido entre servicios: nunca debe venir de afuera
+    static final String INTERNAL_TOKEN_HEADER = "X-Internal-Service-Token";
     private static final Set<String> HOTEL_ROLES = Set.of("SUPER_ADMIN", "HOTEL_ADMIN");
     private static final Set<String> AIRLINE_ROLES = Set.of("SUPER_ADMIN", "AIRLINE_ADMIN");
     private static final Set<String> SUPER_ADMIN_ROLE = Set.of("SUPER_ADMIN");
@@ -34,6 +38,9 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        // La identidad solo la pone el gateway a partir del token (spec 3.6): lo que mande el
+        // cliente se borra en todas las rutas, públicas incluidas (antes /api/koi la dejaba pasar).
+        exchange = sinIdentidadDelCliente(exchange);
         HttpMethod method = exchange.getRequest().getMethod();
         String path = exchange.getRequest().getPath().value();
 
@@ -46,7 +53,8 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
             );
         }
 
-        if (method == HttpMethod.OPTIONS || isPublicPath(path) || isPublicFlightRead(method, path)) {
+        if (method == HttpMethod.OPTIONS || isPublicPath(path) || isPublicFlightRead(method, path)
+                || isPublicHotelRead(method, path)) {
             return chain.filter(exchange);
         }
 
@@ -99,11 +107,27 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
         }
 
         ServerHttpRequest requestWithClaims = exchange.getRequest().mutate()
-                .header("X-Authenticated-User", username)
-                .header("X-Authenticated-Role", role)
+                .header(USER_HEADER, username)
+                .header(ROLE_HEADER, role)
                 .build();
 
         return chain.filter(exchange.mutate().request(requestWithClaims).build());
+    }
+
+    private static ServerWebExchange sinIdentidadDelCliente(ServerWebExchange exchange) {
+        HttpHeaders headers = exchange.getRequest().getHeaders();
+        if (!headers.containsKey(USER_HEADER) && !headers.containsKey(ROLE_HEADER)
+                && !headers.containsKey(INTERNAL_TOKEN_HEADER)) {
+            return exchange;
+        }
+        ServerHttpRequest limpio = exchange.getRequest().mutate()
+                .headers(h -> {
+                    h.remove(USER_HEADER);
+                    h.remove(ROLE_HEADER);
+                    h.remove(INTERNAL_TOKEN_HEADER);
+                })
+                .build();
+        return exchange.mutate().request(limpio).build();
     }
 
     private boolean isPublicPath(String path) {
@@ -118,15 +142,28 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
 
     // Rutas que solo usan los servicios entre si (payment-service llama directo a reservation-service).
     // No deben alcanzarse desde el exterior: solo las protege un token compartido.
+    // Cualquier segmento /internal queda cerrado, aunque hoy no haya una ruta del gateway que lo alcance.
     // Tambien el ajuste de inventario (asientos y habitaciones) que reservation-service hace directo.
-    private boolean isInternalOnlyPath(HttpMethod method, String path) {
-        if (path.equals("/api/bookings/internal") || path.startsWith("/api/bookings/internal/")) {
+    // Se normaliza antes de comparar: sin parametros de matriz (;x) en cada segmento y en minusculas.
+    private boolean isInternalOnlyPath(HttpMethod method, String rawPath) {
+        String path = normalizeSegments(rawPath);
+        if (path.contains("/internal/") || path.endsWith("/internal")) {
             return true;
         }
         return method == HttpMethod.PATCH
                 && (path.matches("/api/flights/number/[^/]+/seats")
                 || path.matches("/api/hotels/[^/]+/rooms")
                 || path.matches("/hoteles/[^/]+/rooms"));
+    }
+
+    private static String normalizeSegments(String path) {
+        String[] segmentos = path.split("/", -1);
+        for (int i = 0; i < segmentos.length; i++) {
+            int matriz = segmentos[i].indexOf(';');
+            String limpio = matriz >= 0 ? segmentos[i].substring(0, matriz) : segmentos[i];
+            segmentos[i] = limpio.toLowerCase(java.util.Locale.ROOT);
+        }
+        return String.join("/", segmentos);
     }
 
     // Consulta de vuelos sin sesion; mismas rutas que flightservice deja en permitAll.
@@ -140,6 +177,16 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
                 || path.equals("/api/airports")
                 || path.matches("/api/airports/code/[^/]+")
                 || path.equals("/api/fares");
+    }
+
+    // Catalogo de hoteles sin sesion; mismas rutas que hotel-service deja en permitAll.
+    private boolean isPublicHotelRead(HttpMethod method, String path) {
+        if (method != HttpMethod.GET) {
+            return false;
+        }
+        return path.equals("/api/hotels")
+                || path.equals("/api/hotels/destinos")
+                || path.matches("/api/hotels/[^/]+");
     }
 
     private boolean requiresAuthentication(String path) {

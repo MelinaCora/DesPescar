@@ -13,11 +13,12 @@ import java.util.stream.Collectors;
 public class SeatMapMapper {
 
     // Diccionario estático en memoria: Centralizado y eficiente
+    // Elegir asiento no se cobra (D3): las clases se conservan para los colores del mapa, con precio 0
     private static final Map<String, FlightSeatMapResponse.FareClassDTO> FARE_CLASSES = Map.of(
-            "economy", FlightSeatMapResponse.FareClassDTO.builder().name("Estándar").price(BigDecimal.valueOf(5581)).colorKey("slate").build(),
-            "preferred", FlightSeatMapResponse.FareClassDTO.builder().name("Salida Rápida").price(BigDecimal.valueOf(9302)).colorKey("emerald").build(),
-            "exit_row", FlightSeatMapResponse.FareClassDTO.builder().name("Salida de Emergencia").price(BigDecimal.valueOf(9302)).colorKey("blue").build(),
-            "vip", FlightSeatMapResponse.FareClassDTO.builder().name("Primera Fila").price(BigDecimal.valueOf(12403)).colorKey("gold").build()
+            "economy", FlightSeatMapResponse.FareClassDTO.builder().name("Estándar").price(BigDecimal.ZERO).colorKey("slate").build(),
+            "preferred", FlightSeatMapResponse.FareClassDTO.builder().name("Salida Rápida").price(BigDecimal.ZERO).colorKey("emerald").build(),
+            "exit_row", FlightSeatMapResponse.FareClassDTO.builder().name("Salida de Emergencia").price(BigDecimal.ZERO).colorKey("blue").build(),
+            "vip", FlightSeatMapResponse.FareClassDTO.builder().name("Primera Fila").price(BigDecimal.ZERO).colorKey("gold").build()
     );
 
     public FlightSeatMapResponse toSeatMapResponse(List<Seat> seats, int limiteSeleccion) {

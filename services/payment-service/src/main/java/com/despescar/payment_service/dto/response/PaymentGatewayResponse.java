@@ -1,5 +1,7 @@
 package com.despescar.payment_service.dto.response;
 
+import java.math.BigDecimal;
+
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -22,6 +24,9 @@ public class PaymentGatewayResponse {
     private String status;
 
     private String currency;
+
+    /** Monto cobrado por el proveedor (Mercado Pago: transaction_amount). */
+    private BigDecimal amount;
 
     private String paymentTypeId;
 

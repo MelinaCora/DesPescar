@@ -1,6 +1,5 @@
 package com.despescar.payment_service.controller;
 
-import static org.hamcrest.Matchers.containsString;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -25,7 +24,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
-import com.despescar.payment_service.dto.response.RefundGatewayResponse;
 import com.despescar.payment_service.entity.Payment;
 import com.despescar.payment_service.entity.Refund;
 import com.despescar.payment_service.enums.PaymentMethod;
@@ -84,16 +82,8 @@ class RefundControllerIntegrationTest {
     }
 
     @Test
-    void createRefundShouldPersistApprovedRefundAndHistory() throws Exception {
-        Payment payment = approvedPayment();
-        payment = paymentRepository.save(payment);
-
-        Mockito.when(paymentGatewayService.refund("mp-123", new BigDecimal("35.00")))
-                .thenReturn(RefundGatewayResponse.builder()
-                        .approved(true)
-                        .refundTransactionId("refund-123")
-                        .message("ok")
-                        .build());
+    void crearReembolsosDesdeLaApiQuedaCerradoHastaE4() throws Exception {
+        Payment payment = paymentRepository.save(approvedPayment());
 
         String body = """
                 {
@@ -106,45 +96,10 @@ class RefundControllerIntegrationTest {
         mockMvc.perform(post("/api/refunds")
                         .contentType(APPLICATION_JSON)
                         .content(body))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.paymentId").value(payment.getId().toString()))
-                .andExpect(jsonPath("$.status").value("APPROVED"))
-                .andExpect(jsonPath("$.refundTransactionId").value("refund-123"));
+                .andExpect(status().isForbidden());
 
-        Refund refund = refundRepository.findAll().get(0);
-        org.assertj.core.api.Assertions.assertThat(refundHistoryRepository.findByRefund_IdOrderByChangedAtAsc(refund.getId()))
-                .extracting(com.despescar.payment_service.entity.RefundHistory::getStatus)
-                .containsExactly(RefundStatus.PENDING, RefundStatus.APPROVED);
-    }
-
-    @Test
-    void createRefundShouldRejectAmountThatExceedsAvailableBalance() throws Exception {
-        Payment payment = approvedPayment();
-        payment = paymentRepository.save(payment);
-
-        refundRepository.save(Refund.builder()
-                .payment(payment)
-                .amount(new BigDecimal("90.00"))
-                .reason("Previous refund")
-                .status(RefundStatus.APPROVED)
-                .refundTransactionId("refund-prev")
-                .createdAt(LocalDateTime.now())
-                .processedAt(LocalDateTime.now())
-                .build());
-
-        String body = """
-                {
-                  "paymentId": "%s",
-                  "amount": 20.00,
-                  "reason": "Customer requested cancellation"
-                }
-                """.formatted(payment.getId());
-
-        mockMvc.perform(post("/api/refunds")
-                        .contentType(APPLICATION_JSON)
-                        .content(body))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message", containsString("Available amount: 10.00")));
+        org.assertj.core.api.Assertions.assertThat(refundRepository.findAll()).isEmpty();
+        Mockito.verifyNoInteractions(paymentGatewayService);
     }
 
     @Test

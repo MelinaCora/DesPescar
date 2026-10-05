@@ -1,98 +1,141 @@
 package com.despescar.payment_service.service;
 
-import java.time.LocalDateTime;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.despescar.payment_service.client.ReservationClient;
 import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
 import com.despescar.payment_service.entity.Payment;
 import com.despescar.payment_service.enums.PaymentMethod;
+import com.despescar.payment_service.enums.PaymentProvider;
 import com.despescar.payment_service.enums.PaymentStatus;
-import com.despescar.payment_service.exception.PaymentNotFoundException;
 import com.despescar.payment_service.repository.PaymentRepository;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+/**
+ * Notificaciones de Mercado Pago (la firma ya la valido el controller). Consulta el pago en
+ * Mercado Pago y aplica su estado; la conciliacion de /pago/resultado reutiliza aplicarEstado.
+ */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class MercadoPagoWebhookService {
 
     private final PaymentRepository paymentRepository;
     private final PaymentGatewayService paymentGatewayService;
     private final PaymentHistoryService paymentHistoryService;
-    private final ReservationClient reservationClient;
+    private final AprobacionPagoService aprobacionPagoService;
 
     @Transactional
-    public void processPaymentNotification(
-            String mercadoPagoPaymentId,
-            String notificationType) {
+    public void processPaymentNotification(String mercadoPagoPaymentId, String notificationType) {
 
         if (notificationType != null && !"payment".equalsIgnoreCase(notificationType)) {
             return;
         }
-
-        PaymentGatewayResponse gatewayResponse =
-                paymentGatewayService.getPaymentStatus(
-                        mercadoPagoPaymentId
-                );
-
-        UUID paymentId =
-                UUID.fromString(
-                        gatewayResponse.getExternalReference()
-                );
-
-        Payment payment =
-                paymentRepository.findById(paymentId)
-                        .orElseThrow(() ->
-                                new PaymentNotFoundException(
-                                        "Payment not found with id: "
-                                                + paymentId
-                                )
-                        );
-
-        PaymentStatus newStatus =
-                mapPaymentStatus(
-                        gatewayResponse.getStatus()
-                );
-
-        PaymentMethod confirmedMethod = resolvePaymentMethod(gatewayResponse);
-        boolean alreadyProcessed = payment.getStatus() == newStatus
-                && equalsOrNull(payment.getTransactionId(), gatewayResponse.getTransactionId())
-                && payment.getPaymentMethod() == confirmedMethod;
-
-        if (alreadyProcessed) {
+        if (paymentGatewayService.provider() != PaymentProvider.MERCADO_PAGO) {
+            log.warn("Notificacion de Mercado Pago ignorada: el proveedor activo es {}.", paymentGatewayService.provider());
+            return;
+        }
+        if (mercadoPagoPaymentId == null || mercadoPagoPaymentId.isBlank()) {
             return;
         }
 
-        payment.setStatus(newStatus);
-        payment.setTransactionId(gatewayResponse.getTransactionId());
-        payment.setPaymentMethod(confirmedMethod);
+        PaymentGatewayResponse gatewayResponse = paymentGatewayService.getPaymentStatus(mercadoPagoPaymentId);
 
-        if (newStatus == PaymentStatus.APPROVED) {
-            payment.setPaymentDate(
-                    LocalDateTime.now()
-            );
+        Optional<Payment> payment = parseUuid(gatewayResponse.getExternalReference())
+                .flatMap(paymentRepository::findByIdParaActualizar)
+                .filter(p -> p.getProvider() == PaymentProvider.MERCADO_PAGO);
+        if (payment.isEmpty()) {
+            log.warn("Pago {} de Mercado Pago con referencia desconocida: {}",
+                    mercadoPagoPaymentId, gatewayResponse.getExternalReference());
+            return;
         }
 
-        Payment updatedPayment =
-                paymentRepository.save(payment);
+        aplicarEstado(payment.get(), gatewayResponse);
+    }
 
-        if (newStatus == PaymentStatus.APPROVED) {
-            reservationClient.markReservationPaymentPaid(
-                    updatedPayment.getReservationId(),
-                    updatedPayment.getUserId(),
-                    gatewayResponse.getTransactionId()
-            );
+    /**
+     * Llamar con el pago leido por {@code PaymentRepository.findByIdParaActualizar}, dentro de la
+     * transaccion que lo bloqueo.
+     * Aplica al pago el estado informado por Mercado Pago. approved confirma la reserva (una sola
+     * vez); refunded lo marca REFUNDED; rejected/cancelled solo cambian un pago que no se cobro;
+     * pending, in_process y authorized no cambian nada.
+     */
+    @Transactional
+    public Payment aplicarEstado(Payment payment, PaymentGatewayResponse gatewayResponse) {
+        PaymentStatus nuevo = mapPaymentStatus(gatewayResponse.getStatus());
+        PaymentStatus actual = payment.getStatus();
+
+        switch (nuevo) {
+            case APPROVED -> {
+                String monedaCobrada = gatewayResponse.getCurrency();
+                if (monedaCobrada != null && !"ARS".equalsIgnoreCase(monedaCobrada)) {
+                    log.warn("Mercado Pago aprobo el pago {} en {}: no se aprueba solo, requiere revision manual.",
+                            payment.getId(), monedaCobrada);
+                    String nota = "Revision manual: moneda " + monedaCobrada + " en lugar de ARS (cobro "
+                            + gatewayResponse.getTransactionId() + ").";
+                    if (!paymentHistoryService.existe(payment.getId(), nota)) {
+                        paymentHistoryService.saveHistory(payment, actual, nota);
+                    }
+                    return payment;
+                }
+                if ((actual == PaymentStatus.APPROVED || actual == PaymentStatus.REFUNDED)
+                        && esOtroCobro(payment, gatewayResponse)) {
+                    log.warn("Segundo cobro {} aprobado para el pago {}: se adopta si confirmo la reserva, si no se reembolsa.",
+                            gatewayResponse.getTransactionId(), payment.getId());
+                    aprobacionPagoService.reembolsarCobroDuplicado(
+                            payment, gatewayResponse.getTransactionId(), gatewayResponse.getAmount(),
+                            resolvePaymentMethod(gatewayResponse));
+                    return payment;
+                }
+                if (gatewayResponse.getAmount() != null
+                        && gatewayResponse.getAmount().compareTo(payment.getAmount()) != 0) {
+                    log.warn("Mercado Pago cobro {} por el pago {} de {}; lo decide reservation-service.",
+                            gatewayResponse.getAmount(), payment.getId(), payment.getAmount());
+                }
+                return aprobacionPagoService.aprobar(payment, gatewayResponse.getTransactionId(),
+                        resolvePaymentMethod(gatewayResponse), gatewayResponse.getAmount());
+            }
+            case REFUNDED -> {
+                boolean delMismoCobro = payment.getTransactionId() == null
+                        || payment.getTransactionId().equals(gatewayResponse.getTransactionId());
+                if (actual == PaymentStatus.REFUNDED || !delMismoCobro) {
+                    return payment;
+                }
+                payment.setStatus(PaymentStatus.REFUNDED);
+                Payment guardado = paymentRepository.save(payment);
+                paymentHistoryService.saveHistory(guardado, PaymentStatus.REFUNDED,
+                        "Mercado Pago informo el pago como reembolsado.");
+                return guardado;
+            }
+            case REJECTED, CANCELLED -> {
+                boolean sinCobrar = actual == PaymentStatus.PENDING || actual == PaymentStatus.REJECTED;
+                boolean mismo = actual == nuevo
+                        && Objects.equals(payment.getTransactionId(), gatewayResponse.getTransactionId());
+                if (!sinCobrar || mismo) {
+                    return payment;
+                }
+                payment.setStatus(nuevo);
+                payment.setTransactionId(gatewayResponse.getTransactionId());
+                Payment guardado = paymentRepository.save(payment);
+                paymentHistoryService.saveHistory(guardado, nuevo,
+                        "Mercado Pago informo el pago como " + gatewayResponse.getStatus() + ".");
+                return guardado;
+            }
+            default -> {
+                return payment;
+            }
         }
+    }
 
-        paymentHistoryService.saveHistory(
-                updatedPayment,
-                newStatus,
-                "Payment status updated from Mercado Pago."
-        );
+    private static boolean esOtroCobro(Payment payment, PaymentGatewayResponse gatewayResponse) {
+        return payment.getTransactionId() != null && gatewayResponse.getTransactionId() != null
+                && !payment.getTransactionId().equals(gatewayResponse.getTransactionId());
     }
 
     private PaymentStatus mapPaymentStatus(String mercadoPagoStatus) {
@@ -102,26 +145,12 @@ public class MercadoPagoWebhookService {
         }
 
         return switch (mercadoPagoStatus.toLowerCase()) {
-
-            case "approved" ->
-                    PaymentStatus.APPROVED;
-
-            case "rejected" ->
-                    PaymentStatus.REJECTED;
-
-            case "cancelled" ->
-                    PaymentStatus.CANCELLED;
-
-            case "authorized" ->
-                    PaymentStatus.AUTHORIZED;
-
-            case "pending",
-                 "in_process",
-                 "in_mediation" ->
-                    PaymentStatus.PENDING;
-
-            default ->
-                    PaymentStatus.PENDING;
+            case "approved" -> PaymentStatus.APPROVED;
+            case "rejected" -> PaymentStatus.REJECTED;
+            case "cancelled" -> PaymentStatus.CANCELLED;
+            case "refunded", "charged_back" -> PaymentStatus.REFUNDED;
+            case "authorized" -> PaymentStatus.AUTHORIZED;
+            default -> PaymentStatus.PENDING;
         };
     }
 
@@ -139,10 +168,11 @@ public class MercadoPagoWebhookService {
         };
     }
 
-    private boolean equalsOrNull(String left, String right) {
-        if (left == null) {
-            return right == null;
+    private static Optional<UUID> parseUuid(String value) {
+        try {
+            return value == null ? Optional.empty() : Optional.of(UUID.fromString(value));
+        } catch (IllegalArgumentException ex) {
+            return Optional.empty();
         }
-        return left.equals(right);
     }
 }

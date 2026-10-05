@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -128,11 +129,10 @@ public class FlightService {
     }
 
     private DetailedFlightResponseDto mapToDetailedFlightDto(Flight flight, String origin, String destination) {
-        BigDecimal basePrice = flight.getPrice() != null ? flight.getPrice() : BigDecimal.ZERO;
-        BigDecimal taxes = new BigDecimal("15000.0");
-        BigDecimal finalPrice = basePrice.add(taxes);
+        BigDecimal basePrice = (flight.getPrice() != null ? flight.getPrice() : BigDecimal.ZERO)
+                .setScale(2, RoundingMode.HALF_UP);
 
-        List<FareResponse> fareDtos = flight.getFares().stream().map(fare -> FareResponse.builder()
+        List<FareResponse> fareDtos = (flight.getFares() != null ? flight.getFares() : List.<Fare>of()).stream().map(fare -> FareResponse.builder()
                 .id(fare.getId())
                 .name(fare.getName())
                 .type(fare.getType())
@@ -152,8 +152,12 @@ public class FlightService {
                 .build()).toList();
 
         FareResponse baseFare = fareDtos.stream()
-                .min(Comparator.comparing(f -> f.getPrice().getTransparentFinalPrice()))
+                .min(Comparator.comparing(FlightService::precioDeTarifa))
                 .orElse(null);
+        // Precio final por pasajero con la tarifa más barata: el mismo que cobra el carrito.
+        BigDecimal cheapestFarePrice = (baseFare != null ? precioDeTarifa(baseFare) : BigDecimal.ZERO)
+                .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal finalPrice = basePrice.add(cheapestFarePrice);
 
         return DetailedFlightResponseDto.builder()
                 .id(flight.getId())
@@ -172,19 +176,26 @@ public class FlightService {
                                 .iata(flight.getDestinationAirport() != null ? flight.getDestinationAirport().getCode() : destination)
                                 .dateTime(flight.getArrivalTime().toString())
                                 .build())
-                        .durationMinutes(120)
+                        .durationMinutes((int) java.time.Duration.between(flight.getDepartureTime(), flight.getArrivalTime()).toMinutes())
                         .flightType("DIRECTO")
                         .build())
                 .scales(List.of())
                 .includedServices(baseFare != null ? baseFare.getIncludedServices() : null)
                 .price(PriceDto.builder()
+                        // El carrito es siempre ARS (D20): las tarifas en otra moneda se rechazan al reservar.
                         .currency("ARS")
                         .baseFare(basePrice)
-                        .taxesAndFees(taxes)
+                        .taxesAndFees(cheapestFarePrice)
                         .transparentFinalPrice(finalPrice)
                         .build())
                 .fares(fareDtos)
                 .build();
+    }
+
+    private static BigDecimal precioDeTarifa(FareResponse fare) {
+        return fare.getPrice() != null && fare.getPrice().getTransparentFinalPrice() != null
+                ? fare.getPrice().getTransparentFinalPrice()
+                : BigDecimal.ZERO;
     }
 
     /**

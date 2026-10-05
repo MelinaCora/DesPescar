@@ -10,7 +10,7 @@ Con Docker corre **solo la base de datos**. Los microservicios se arrancan con M
 | Adminer (ver las tablas desde el navegador) | http://localhost:8090 |
 | Archivos | carpeta [`database/`](../database): `docker-compose.yml`, `init/01_create_databases.sql`, `.env.example` |
 
-Las bases son `despescar_identity`, `despescar_flight`, `despescar_hotel`, `despescar_package`, `despescar_reservation`, `despescar_payment` y `despescar_koiia`. Las tablas las crea Hibernate cuando arranca cada servicio.
+Las bases son `despescar_identity`, `despescar_flight`, `despescar_hotel`, `despescar_package`, `despescar_reservation`, `despescar_payment` y `despescar_koiia`. Las tablas las crea Hibernate cuando arranca cada servicio. Los datos de ejemplo se cargan con el [seed](datos-de-ejemplo.md), que usa `docker` para asignar el rol de administrador; con un MySQL instalado sin Docker se corre con `MYSQL_LOCAL=1`.
 
 > La teoría de Docker y la instalación paso a paso en Linux están en [`../database/README.md`](../database/README.md).
 

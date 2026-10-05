@@ -22,5 +22,19 @@ public interface SeatRepository extends JpaRepository<Seat, UUID> {
     @Query("SELECT s FROM Seat s WHERE s.seatUuid = :seatUuid")
     Optional<Seat> findByIdForUpdate(@Param("seatUuid") UUID seatUuid);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT s FROM Seat s WHERE s.flightId = :flightId AND s.numberSeat = :numberSeat")
+    Optional<Seat> findByFlightIdAndNumberSeatForUpdate(@Param("flightId") UUID flightId,
+                                                        @Param("numberSeat") String numberSeat);
+
     List<Seat> findByStatusSeatAndBloqueadoHastaBefore(String statusSeat, LocalDateTime time);
+
+    /** Solo los ids, ordenados (vuelo, número) como el resto de los flujos que bloquean asientos: cada asiento se relee bloqueado (FOR UPDATE) antes de soltarlo. */
+    @Query("SELECT s.seatUuid FROM Seat s WHERE s.statusSeat = :statusSeat AND s.bloqueadoHasta < :limite ORDER BY s.flightId, s.numberSeat")
+    List<UUID> findIdsByStatusSeatAndBloqueadoHastaBefore(@Param("statusSeat") String statusSeat,
+                                                         @Param("limite") LocalDateTime limite);
+
+    /** Ids de los asientos de un vuelo atados a un carrito; cada uno se relee bloqueado antes de tocarlo. */
+    @Query("SELECT s.seatUuid FROM Seat s WHERE s.flightId = :flightId AND s.reservaId = :reservaId ORDER BY s.numberSeat")
+    List<UUID> findIdsByFlightIdAndReservaId(@Param("flightId") UUID flightId, @Param("reservaId") Long reservaId);
 }

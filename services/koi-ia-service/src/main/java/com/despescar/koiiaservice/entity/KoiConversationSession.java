@@ -52,6 +52,9 @@ public class KoiConversationSession {
 
     private String origin;
 
+    /** El usuario pidió opciones sin elegir destino: KOI propone destinos en vez de preguntar. */
+    private Boolean openDestination;
+
     private String travelStyle;
 
     private Integer nights;

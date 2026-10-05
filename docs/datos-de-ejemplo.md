@@ -24,7 +24,7 @@ El proyecto arranca con las bases **vacías**: sin aeropuertos no hay nada que e
 
 - MySQL levantado ([`mysql-docker.md`](mysql-docker.md)).
 - En marcha: [`identity-service`](identity-service.md), [`flightservice`](flightservice.md), [`hotel-service`](hotel-service.md) y [`package-service`](package-service.md).
-- `docker` disponible en la terminal (el script lo usa para darle el rol de administrador al usuario `admin`).
+- `docker` disponible en la terminal (el script lo usa para darle el rol de administrador al usuario `admin`). Si usás un MySQL instalado sin Docker, ver [Sin Docker](#sin-docker-mysql-instalado).
 - Python 3.
 
 ## Cómo ejecutarlo
@@ -55,6 +55,25 @@ paquetes: 5 creados
 
 Tarda menos de un minuto. Si un servicio no está arriba, el script espera hasta 5 minutos a que abra su puerto y avisa cuál falta.
 
+## Sin Docker (MySQL instalado)
+
+Con `MYSQL_LOCAL=1` el script asigna el rol de administrador con el cliente `mysql` de tu equipo en lugar de `docker exec`. Hace falta tener `mysql` en el `PATH`; `DB_USER` (por defecto `root`) y `DB_PASSWORD` son el usuario y la clave de tu MySQL.
+
+**Linux**
+```bash
+MYSQL_LOCAL=1 DB_USER=<usuario> DB_PASSWORD=<clave> ./database/seed/seed.sh
+```
+
+**Windows (PowerShell)**
+```powershell
+$env:MYSQL_LOCAL = '1'; $env:DB_USER = '<usuario>'; $env:DB_PASSWORD = '<clave>'
+py -3 database\seed\seed.py
+```
+
+## Hoteles
+
+Los hoteles se crean con el modelo completo (país, descripción, servicios, política de cancelación y tipos de habitación) llamando a `POST /hoteles`. Si venís de una versión anterior del catálogo, recreá antes `despescar_hotel` y `despescar_package`: ver [Migración](hotel-service.md#migración).
+
 ## Usuarios de ejemplo
 
 | Correo | Contraseña | Rol |
@@ -75,7 +94,7 @@ $env:ADMIN_EMAIL = 'otro@mail.com'; $env:ADMIN_PASSWORD = 'OtraClave1!'
 py -3 database\seed\seed.py
 ```
 
-También se pueden cambiar `CLIENT_EMAIL`, `CLIENT_PASSWORD`, las direcciones de los servicios (`IDENTITY_URL`, `FLIGHT_URL`, `HOTEL_URL`, `PACKAGE_URL`), `DB_CONTAINER` (por defecto `despescar-mysql`) y `DB_PASSWORD`.
+También se pueden cambiar `CLIENT_EMAIL`, `CLIENT_PASSWORD`, las direcciones de los servicios (`IDENTITY_URL`, `FLIGHT_URL`, `HOTEL_URL`, `PACKAGE_URL`), `DB_CONTAINER` (por defecto `despescar-mysql`), `DB_PASSWORD`, y con `MYSQL_LOCAL=1`, `DB_USER`.
 
 ## Si no pudo asignar el rol de administrador
 
@@ -96,7 +115,7 @@ Luego volvé a correr el script. Los roles existen solo después de que `identit
 | Síntoma | Causa y solución |
 |---|---|
 | `... no responde en localhost:PUERTO` | Falta arrancar ese servicio. Ver su guía en el [índice](README.md). |
-| `No pude asignar el rol SUPER_ADMIN con docker exec` | Docker apagado, contenedor con otro nombre o contraseña distinta. Revisá `DB_CONTAINER` y `DB_PASSWORD`, o usá la sentencia SQL de arriba. |
+| `No pude asignar el rol SUPER_ADMIN con docker exec` | Docker apagado (o no instalado: usá `MYSQL_LOCAL=1`), contenedor con otro nombre o contraseña distinta. Revisá `DB_CONTAINER` y `DB_PASSWORD`, o usá la sentencia SQL de arriba. |
 | `ERROR POST ... -> 403` al crear vuelos o paquetes | El rol de administrador no se aplicó antes del login. Corré el script otra vez. |
 | **Windows:** `py` / `python` no se reconoce | Python no está en el `PATH`. Reinstalalo marcando **Add python.exe to PATH**, o desactivá el alias de la Tienda en *Configuración → Aplicaciones → Alias de ejecución de aplicaciones*. |
 | **Linux:** `Permission denied` al ejecutar `seed.sh` | Usá `bash database/seed/seed.sh` o `python3 database/seed/seed.py`. |

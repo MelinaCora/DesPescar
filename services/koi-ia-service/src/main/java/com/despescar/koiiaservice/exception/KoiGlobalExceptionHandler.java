@@ -18,6 +18,11 @@ public class KoiGlobalExceptionHandler {
         return build(HttpStatus.NOT_FOUND, "Session Not Found", ex.getMessage());
     }
 
+    @ExceptionHandler(KoiSessionForbiddenException.class)
+    public ResponseEntity<Map<String, Object>> handleForbidden(KoiSessionForbiddenException ex) {
+        return build(HttpStatus.FORBIDDEN, "Forbidden", ex.getMessage());
+    }
+
     @ExceptionHandler(KoiCatalogUnavailableException.class)
     public ResponseEntity<Map<String, Object>> handleCatalog(KoiCatalogUnavailableException ex) {
         return build(HttpStatus.SERVICE_UNAVAILABLE, "Upstream Service Unavailable", ex.getMessage());

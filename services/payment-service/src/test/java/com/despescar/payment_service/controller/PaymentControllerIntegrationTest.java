@@ -34,6 +34,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import com.despescar.payment_service.client.ReservationClient;
+import com.despescar.payment_service.client.dto.ConfirmacionReservaResponse;
 import com.despescar.payment_service.client.dto.ReservationResponse;
 import com.despescar.payment_service.dto.response.PaymentCheckoutResponse;
 import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
@@ -229,15 +230,19 @@ class PaymentControllerIntegrationTest {
         Payment payment = payment(77L, 88L, PaymentStatus.PENDING);
         payment = paymentRepository.save(payment);
 
+        Mockito.when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MERCADO_PAGO);
         Mockito.when(paymentGatewayService.getPaymentStatus("445"))
                 .thenReturn(PaymentGatewayResponse.builder()
                         .approved(true)
                         .transactionId("445")
                         .externalReference(payment.getId().toString())
                         .status("approved")
+                        .amount(new BigDecimal("1250.50"))
                         .paymentTypeId("credit_card")
                         .message("approved")
                         .build());
+        Mockito.when(reservationClient.confirmarPago(77L, 88L, "445", new BigDecimal("1250.50")))
+                .thenReturn(new ConfirmacionReservaResponse("CONFIRMADA", null, "Reserva confirmada."));
 
         String requestId = "req-1";
         String timestamp = "1727401800";
@@ -264,7 +269,36 @@ class PaymentControllerIntegrationTest {
         org.assertj.core.api.Assertions.assertThat(paymentHistoryRepository.findByPayment_IdOrderByChangedAtAsc(payment.getId()))
                 .extracting(PaymentHistory::getStatus)
                 .containsExactly(PaymentStatus.APPROVED);
-        Mockito.verify(reservationClient).markReservationPaymentPaid(77L, 88L, "445");
+        Mockito.verify(reservationClient).confirmarPago(77L, 88L, "445", new BigDecimal("1250.50"));
+    }
+
+    @Test
+    void siReservationServiceFallaElPagoVuelveAPendienteSinHistorial() throws Exception {
+        Payment payment = paymentRepository.save(payment(77L, 88L, PaymentStatus.PENDING));
+        Mockito.when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MERCADO_PAGO);
+        Mockito.when(paymentGatewayService.getPaymentStatus("445"))
+                .thenReturn(PaymentGatewayResponse.builder()
+                        .approved(true).transactionId("445").externalReference(payment.getId().toString())
+                        .status("approved").amount(new BigDecimal("1250.50")).paymentTypeId("credit_card").build());
+        Mockito.when(reservationClient.confirmarPago(77L, 88L, "445", new BigDecimal("1250.50")))
+                .thenThrow(new com.despescar.payment_service.exception.ReservationClientException("caido"));
+
+        String requestId = "req-2";
+        String timestamp = "1727401800";
+        String signature = signWebhook(timestamp, requestId, "445");
+
+        mockMvc.perform(post("/api/payments/mercadopago/webhook?data.id=445&type=payment")
+                        .contentType(APPLICATION_JSON)
+                        .header("x-signature", "ts=" + timestamp + ",v1=" + signature)
+                        .header("x-request-id", requestId)
+                        .content("{\"type\":\"payment\",\"data\":{\"id\":\"445\"}}"))
+                .andExpect(status().isBadGateway());
+
+        Payment sinCambios = paymentRepository.findById(payment.getId()).orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(sinCambios.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        org.assertj.core.api.Assertions.assertThat(sinCambios.getTransactionId()).isNull();
+        org.assertj.core.api.Assertions.assertThat(paymentHistoryRepository.findByPayment_IdOrderByChangedAtAsc(payment.getId()))
+                .isEmpty();
     }
 
     private Payment payment(Long reservationId, Long userId, PaymentStatus status) {
@@ -282,15 +316,11 @@ class PaymentControllerIntegrationTest {
     private ReservationResponse reservationResponse(Long userId, String currency) {
         ReservationResponse response = new ReservationResponse();
         response.setIdCarrito(91L);
+        response.setCreadorId(userId);
+        response.setEstadoGeneral("PENDIENTE_PAGO");
+        response.setSegundosRestantes(600L);
         response.setMoneda(currency);
         response.setMontoTotal(new BigDecimal("1250.50"));
-
-        ReservationResponse.SeatDetail seat = new ReservationResponse.SeatDetail();
-        seat.setPagadorId(userId);
-        seat.setPrecioCobrado(new BigDecimal("1250.50"));
-        seat.setEstadoPago("PENDIENTE");
-
-        response.setAsientos(List.of(seat));
         return response;
     }
 

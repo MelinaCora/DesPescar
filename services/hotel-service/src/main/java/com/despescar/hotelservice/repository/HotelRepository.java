@@ -1,13 +1,14 @@
 package com.despescar.hotelservice.repository;
 
 import com.despescar.hotelservice.entity.Hotel;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
 
-@Repository
 public interface HotelRepository extends JpaRepository<Hotel, UUID> {
 
-    List<Hotel> findByCiudadIgnoreCase(String ciudad);
+    List<Hotel> findByActivoTrue();
+
+    Optional<Hotel> findByIdAndActivoTrue(UUID id);
 }
