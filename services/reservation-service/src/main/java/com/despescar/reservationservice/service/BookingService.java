@@ -48,7 +48,6 @@ public class BookingService {
     private final FlightClient flightClient;
     private final PackageClient packageClient;
 
-
     /**
      * PASO 1: Iniciar la reserva (Crea el cascarón vacío)
      */
@@ -82,7 +81,6 @@ public class BookingService {
             validarEstadoVueloParaReserva(vuelo.getStatus(), flightId.toString());
             validarAsientosDisponibles(vuelo, request.getCantidadPasajeros());
         }
-
 
         Reservation reserva = Reservation.builder()
             .creadorId(authenticatedUserId)
@@ -223,7 +221,6 @@ public class BookingService {
         notificarCambioEnTiempoReal(reserva);
     }
 
-
     /** Descuenta (sentido -1) o devuelve (sentido 1) asientos de los vuelos. */
     private void ajustarInventario(Reservation reserva, int sentido) {
         for (UUID flightId : reserva.getFlightIds()) {
@@ -257,7 +254,6 @@ public class BookingService {
             throw new BookingException("SIN_DISPONIBILIDAD", "El vuelo no tiene suficientes asientos.", HttpStatus.CONFLICT);
         }
     }
-
 
     private PackageLookupResponse validarYObtenerPaquete(Long packageId, String authHeader) {
         if (authHeader == null || authHeader.isBlank()) {

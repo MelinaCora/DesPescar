@@ -4,9 +4,9 @@ import com.despescar.reservationservice.dto.hotel.RetencionHotelRequest;
 import com.despescar.reservationservice.dto.hotel.RetencionHotelResponse;
 import com.despescar.reservationservice.exception.BookingException;
 import java.util.Map;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,8 +32,7 @@ import org.springframework.web.client.RestTemplate;
 public class HotelClient {
 
     static final String INTERNAL_TOKEN_HEADER = "X-Internal-Service-Token";
-    private static final Pattern CAMPO_ERROR = Pattern.compile("\"error\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
-    private static final Pattern CAMPO_CODIGO = Pattern.compile("\"codigo\"\\s*:\\s*\"([A-Z_]+)\"");
+    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final RestTemplate restTemplate;
     private final String hotelServiceUrl;
@@ -46,13 +45,25 @@ public class HotelClient {
         this.restTemplate = restTemplate;
         this.hotelServiceUrl = sanitizeBaseUrl(hotelServiceUrl);
         this.inventoryToken = inventoryToken;
+        if (inventoryToken == null || inventoryToken.isBlank()) {
+            log.warn("inventory.sync-token esta vacio: hotel-service va a rechazar con 401 todas las retenciones. "
+                    + "Configurar INVENTORY_SERVICE_TOKEN.");
+        }
     }
 
+    /**
+     * Si la llamada termina en timeout, la retencion pudo haberse creado igual: queda huerfana y vence sola
+     * por expiraEn. Por eso no se reintenta a ciegas.
+     */
     public RetencionHotelResponse crearRetencion(RetencionHotelRequest pedido) {
         return llamar(hotelServiceUrl + "/internal/retenciones", pedido, RetencionHotelResponse.class);
     }
 
     public RetencionHotelResponse confirmarRetencion(UUID retencionId, String nombreTitular) {
+        if (nombreTitular == null || nombreTitular.isBlank()) {
+            throw new BookingException("SOLICITUD_HOTEL_INVALIDA",
+                    "El nombre del titular es obligatorio para confirmar la estadía.", HttpStatus.BAD_REQUEST);
+        }
         return llamar(hotelServiceUrl + "/internal/retenciones/" + retencionId + "/confirmar",
                 Map.of("nombreTitular", nombreTitular), RetencionHotelResponse.class);
     }
@@ -89,10 +100,11 @@ public class HotelClient {
 
     private BookingException traducir(HttpClientErrorException ex) {
         String cuerpo = ex.getResponseBodyAsString();
-        String mensaje = extraer(CAMPO_ERROR, cuerpo);
+        JsonNode json = leer(cuerpo);
+        String mensaje = texto(json, "error");
         int status = ex.getStatusCode().value();
         if (status == 409) {
-            if ("RETENCION_LIBERADA".equals(extraer(CAMPO_CODIGO, cuerpo))) {
+            if ("RETENCION_LIBERADA".equals(texto(json, "codigo"))) {
                 return new BookingException("RETENCION_LIBERADA",
                         conDefecto(mensaje, "La retención ya fue liberada."), HttpStatus.CONFLICT);
             }
@@ -101,23 +113,38 @@ public class HotelClient {
         }
         if (status == 404) {
             return new BookingException("HOTEL_NO_ENCONTRADO",
-                    conDefecto(mensaje, "La habitación elegida no existe."), HttpStatus.NOT_FOUND);
+                    conDefecto(mensaje, "No se encontró la habitación o la retención en el hotel."), HttpStatus.NOT_FOUND);
         }
         if (status == 400) {
             return new BookingException("SOLICITUD_HOTEL_INVALIDA",
                     conDefecto(mensaje, "Los datos de la estadía no son válidos."), HttpStatus.BAD_REQUEST);
         }
-        log.error("Hotel-Service rechazo el pedido interno con estado {}", status);
+        if (status == 401 || status == 403) {
+            log.error("Hotel-Service rechazo el token interno con estado {}: probablemente INVENTORY_SERVICE_TOKEN "
+                    + "no coincide con el de hotel-service.", status);
+        } else {
+            log.error("Hotel-Service rechazo el pedido interno con estado {}", status);
+        }
         return new BookingException("HOTEL_SERVICE_CLIENT_ERROR", "Hotel-Service rechazo el pedido.",
                 HttpStatus.BAD_GATEWAY);
     }
 
-    private static String extraer(Pattern patron, String cuerpo) {
-        if (cuerpo == null) {
+    private static JsonNode leer(String cuerpo) {
+        if (cuerpo == null || cuerpo.isBlank()) {
             return null;
         }
-        Matcher m = patron.matcher(cuerpo);
-        return m.find() ? m.group(1).replace("\\\"", "\"") : null;
+        try {
+            return JSON.readTree(cuerpo);
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private static String texto(JsonNode json, String campo) {
+        if (json == null || !json.has(campo) || !json.get(campo).isString()) {
+            return null;
+        }
+        return json.get(campo).asString();
     }
 
     private static String conDefecto(String mensaje, String porDefecto) {
