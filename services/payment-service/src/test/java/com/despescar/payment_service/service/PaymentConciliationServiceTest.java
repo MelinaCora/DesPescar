@@ -109,4 +109,15 @@ class PaymentConciliationServiceTest {
         assertThatThrownBy(() -> service.conciliar(pago.getId(), "123456", 7L))
                 .isInstanceOf(OperacionNoDisponibleException.class);
     }
+
+    @Test
+    void unPagoQueNoEsDeMercadoPagoNoExisteParaLaConciliacion() {
+        pago.setProvider(PaymentProvider.MOCK);
+        when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MERCADO_PAGO);
+        when(paymentRepository.findByIdParaActualizar(pago.getId())).thenReturn(Optional.of(pago));
+
+        assertThatThrownBy(() -> service.conciliar(pago.getId(), "123456", 7L))
+                .isInstanceOf(OperacionNoDisponibleException.class);
+        verify(paymentGatewayService, never()).getPaymentStatus(any());
+    }
 }

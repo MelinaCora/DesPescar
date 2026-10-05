@@ -71,4 +71,35 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.message").value("sin monto"));
     }
+
+    @Test
+    void validacionDeParametrosDeMetodoResponde400() throws Exception {
+        var resultado = mock(org.springframework.validation.method.MethodValidationResult.class);
+        var ex = new org.springframework.web.method.annotation.HandlerMethodValidationException(resultado);
+        when(paymentService.getPaymentById(any(), any())).thenAnswer(i -> { throw ex; });
+
+        mockMvc.perform(consulta())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    void parametroFaltanteResponde400() throws Exception {
+        var ex = new org.springframework.web.bind.MissingServletRequestParameterException("x", "String");
+        when(paymentService.getPaymentById(any(), any())).thenAnswer(i -> { throw ex; });
+
+        mockMvc.perform(consulta())
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    void tipoNoAceptableResponde406() throws Exception {
+        var ex = new org.springframework.web.HttpMediaTypeNotAcceptableException("no");
+        when(paymentService.getPaymentById(any(), any())).thenAnswer(i -> { throw ex; });
+
+        mockMvc.perform(consulta())
+                .andExpect(status().isNotAcceptable())
+                .andExpect(jsonPath("$.status").value(406));
+    }
 }

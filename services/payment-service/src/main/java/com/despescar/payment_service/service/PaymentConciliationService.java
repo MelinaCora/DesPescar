@@ -43,6 +43,9 @@ public class PaymentConciliationService {
         if (!authenticatedUserId.equals(payment.getUserId())) {
             throw new AccessDeniedException("No tienes acceso a este pago.");
         }
+        if (payment.getProvider() != PaymentProvider.MERCADO_PAGO) {
+            throw new OperacionNoDisponibleException("Este pago no se creo con Mercado Pago.");
+        }
 
         PaymentGatewayResponse gatewayResponse = paymentGatewayService.getPaymentStatus(mpPaymentId);
         if (!payment.getId().toString().equals(gatewayResponse.getExternalReference())) {
