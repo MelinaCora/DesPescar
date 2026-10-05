@@ -1,65 +1,85 @@
 package com.despescar.reservationservice.mapper;
 
 import com.despescar.reservationservice.dto.reservation.response.ReservationResponse;
+import com.despescar.reservationservice.entity.EstadiaHotel;
 import com.despescar.reservationservice.entity.Reservation;
+import com.despescar.reservationservice.service.CarritoCalculo;
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-
-import java.math.BigDecimal;
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Objects;
-import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
 public class ReservationMapper {
 
-    // 1. Inyectamos el mapper específico de los detalles que ya arreglamos
     private final ReservationDetailMapper detailMapper;
+    private final Clock clock;
 
     public ReservationResponse toResponse(Reservation reserva) {
-
-        long segundosRestantes = 0;
-        if (reserva.getLimiteTiempo() != null) {
-            segundosRestantes = Duration.between(
-                    LocalDateTime.now(),
-                    reserva.getLimiteTiempo()
-            ).toSeconds();
-        }
-
-        // 2. Delegamos el mapeo de la lista a detailMapper
-        List<ReservationResponse.AsientoDetalleDTO> asientos = reserva.getDetalles()
-                .stream()
-                .map(detailMapper::toResponse)
-                .collect(Collectors.toList());
-
-        BigDecimal montoTotal = reserva.getDetalles()
-                .stream()
-                .map(detail -> detail.getPriceCharged() == null ? BigDecimal.ZERO : detail.getPriceCharged())
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        List<String> monedas = reserva.getDetalles()
-                .stream()
-                .map(detail -> detail.getFareCurrency() == null ? null : detail.getFareCurrency().trim().toUpperCase())
-                .filter(Objects::nonNull)
-                .filter(currency -> !currency.isBlank())
-                .distinct()
-                .toList();
-
+        boolean conVuelo = CarritoCalculo.tieneVuelo(reserva);
         return ReservationResponse.builder()
                 .idCarrito(reserva.getId())
+                .creadorId(reserva.getCreadorId())
                 .packageId(reserva.getPackageId())
-                // 3. Tomamos el primer vuelo de la lista para no romper la compatibilidad con tu frontend
-                .vueloCodigo(reserva.getFlightIds() != null && !reserva.getFlightIds().isEmpty() ?
-                        reserva.getFlightIds().get(0).toString() : null)
+                .vueloCodigo(conVuelo ? reserva.getFlightIds().get(0).toString() : null)
                 .hotelId(reserva.getHotelId())
                 .estadoGeneral(reserva.getEstado())
-                .segundosRestantes(Math.max(0, segundosRestantes))
-                .montoTotal(montoTotal)
-                .moneda(monedas.size() == 1 ? monedas.get(0) : null)
-                .asientos(asientos)
+                .segundosRestantes(CarritoCalculo.segundosRestantes(reserva, LocalDateTime.now(clock)))
+                .montoTotal(CarritoCalculo.montoTotal(reserva))
+                .moneda(CarritoCalculo.MONEDA)
+                .cantidadItems(CarritoCalculo.cantidadItems(reserva))
+                .datosCompletos(CarritoCalculo.datosCompletos(reserva))
+                .vuelo(conVuelo ? vuelo(reserva) : null)
+                .estadias(lista(reserva.getEstadias()).stream().map(this::estadia).toList())
+                .asientos(lista(reserva.getDetalles()).stream().map(detailMapper::toResponse).toList())
                 .build();
+    }
+
+    private ReservationResponse.VueloCarritoDTO vuelo(Reservation r) {
+        return ReservationResponse.VueloCarritoDTO.builder()
+                .flightIds(new ArrayList<>(r.getFlightIds()))
+                .fareIds(new ArrayList<>(lista(r.getBaggageIds())))
+                .cantidadPasajeros(r.getCantidadPasajeros())
+                .precioPorPasajero(r.getPrecioVueloPorPasajero())
+                .subtotal(CarritoCalculo.subtotalVuelo(r))
+                .salida(r.getSalidaVuelo())
+                .tarifas(r.getTarifasVuelo())
+                .pasajerosCargados(CarritoCalculo.pasajerosCargados(r))
+                .build();
+    }
+
+    private ReservationResponse.EstadiaDTO estadia(EstadiaHotel e) {
+        return ReservationResponse.EstadiaDTO.builder()
+                .id(e.getId())
+                .hotelId(e.getHotelId())
+                .hotelNombre(e.getHotelNombre())
+                .ciudad(e.getCiudad())
+                .tipoHabitacionId(e.getTipoHabitacionId())
+                .tipoHabitacionNombre(e.getTipoHabitacionNombre())
+                .checkIn(e.getCheckIn())
+                .checkOut(e.getCheckOut())
+                .noches(ChronoUnit.DAYS.between(e.getCheckIn(), e.getCheckOut()))
+                .cantidadHabitaciones(e.getCantidadHabitaciones())
+                .huespedes(e.getHuespedes())
+                .precioTotal(e.getPrecioTotal())
+                .moneda(e.getMoneda())
+                .horaCheckIn(e.getHoraCheckIn())
+                .zonaHoraria(e.getZonaHoraria())
+                .politicaCancelacion(lista(e.getPoliticaCancelacion()).stream()
+                        .map(t -> new ReservationResponse.TramoDTO(t.getHorasAntes(), t.getPorcentajeReembolso()))
+                        .toList())
+                .titularNombre(e.getTitularNombre())
+                .titularDni(e.getTitularDni())
+                .titularTelefono(e.getTitularTelefono())
+                .estado(e.getEstado())
+                .build();
+    }
+
+    private static <T> List<T> lista(List<T> valores) {
+        return valores == null ? List.of() : valores;
     }
 }
