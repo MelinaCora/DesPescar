@@ -2,6 +2,11 @@ package com.despescar.payment_service.client;
 
 import java.math.BigDecimal;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -26,18 +31,28 @@ public class ReservationClient {
 
     private static final String INTERNAL_SERVICE_TOKEN_HEADER = "X-Internal-Service-Token";
 
+    private static final Pattern CODIGO = Pattern.compile("\"codigo\"\\s*:\\s*\"([A-Z_]+)\"");
+
     private final RestTemplate restTemplate;
+    private final RestTemplate confirmacionRestTemplate;
     private final String reservationServiceUrl;
     private final String syncToken;
 
+    @Autowired
     public ReservationClient(
-            RestTemplate reservationServiceRestTemplate,
+            @Qualifier("reservationServiceRestTemplate") RestTemplate reservationServiceRestTemplate,
+            @Qualifier("reservationServiceConfirmacionRestTemplate") RestTemplate confirmacionRestTemplate,
             @Value("${reservation-service.url}") String reservationServiceUrl,
             @Value("${reservation-service.sync-token:}") String syncToken) {
 
         this.restTemplate = reservationServiceRestTemplate;
+        this.confirmacionRestTemplate = confirmacionRestTemplate;
         this.reservationServiceUrl = sanitizeBaseUrl(reservationServiceUrl);
         this.syncToken = syncToken;
+    }
+
+    public ReservationClient(RestTemplate restTemplate, String reservationServiceUrl, String syncToken) {
+        this(restTemplate, restTemplate, reservationServiceUrl, syncToken);
     }
 
     public ReservationResponse getReservation(Long reservationId) {
@@ -87,7 +102,7 @@ public class ReservationClient {
                 .build();
 
         try {
-            ResponseEntity<ConfirmacionReservaResponse> response = restTemplate.exchange(
+            ResponseEntity<ConfirmacionReservaResponse> response = confirmacionRestTemplate.exchange(
                     reservationServiceUrl + "/api/bookings/internal/{reservationId}/payment-confirmed",
                     HttpMethod.POST,
                     new HttpEntity<>(request, buildHeaders()),
@@ -100,12 +115,17 @@ public class ReservationClient {
                 throw new ReservationClientException("Reservation-Service no informo el resultado de la confirmacion.");
             }
             return body;
-        } catch (HttpClientErrorException.NotFound ex) {
-            return ConfirmacionReservaResponse.rechazada(
-                    "RESERVA_NO_ENCONTRADA", "La reserva " + reservationId + " no existe.");
-        } catch (HttpClientErrorException.BadRequest ex) {
-            return ConfirmacionReservaResponse.rechazada("PEDIDO_INVALIDO", ex.getResponseBodyAsString());
         } catch (HttpClientErrorException ex) {
+            // Solo los codigos de reservation-service cuentan como rechazo (se reembolsa); cualquier otra
+            // respuesta (otro 404 de una ruta equivocada, 401, 403, 409) es ambigua y no se reembolsa.
+            String codigo = codigoDe(ex);
+            if (ex.getStatusCode().value() == 404 && "RESERVA_NO_ENCONTRADA".equals(codigo)) {
+                return ConfirmacionReservaResponse.rechazada(
+                        "RESERVA_NO_ENCONTRADA", "La reserva " + reservationId + " no existe.");
+            }
+            if (ex.getStatusCode().value() == 400 && ("PAGADOR_INVALIDO".equals(codigo) || "VALIDACION".equals(codigo))) {
+                return ConfirmacionReservaResponse.rechazada("PEDIDO_INVALIDO", ex.getResponseBodyAsString());
+            }
             throw new ReservationClientException(
                     "Reservation-Service rechazo la confirmacion del pago (HTTP " + ex.getStatusCode().value() + ").", ex);
         } catch (HttpServerErrorException ex) {
@@ -115,6 +135,11 @@ public class ReservationClient {
         } catch (RestClientException ex) {
             throw new ReservationClientException("Se produjo un error al confirmar el pago.", ex);
         }
+    }
+
+    private static String codigoDe(HttpClientErrorException ex) {
+        Matcher m = CODIGO.matcher(ex.getResponseBodyAsString());
+        return m.find() ? m.group(1) : null;
     }
 
     private HttpHeaders buildHeaders() {

@@ -60,6 +60,8 @@ public class MercadoPagoWebhookService {
     }
 
     /**
+     * Llamar con el pago leido por {@code PaymentRepository.findByIdParaActualizar}, dentro de la
+     * transaccion que lo bloqueo.
      * Aplica al pago el estado informado por Mercado Pago. approved confirma la reserva (una sola
      * vez); refunded lo marca REFUNDED; rejected/cancelled solo cambian un pago que no se cobro;
      * pending, in_process y authorized no cambian nada.
@@ -71,6 +73,23 @@ public class MercadoPagoWebhookService {
 
         switch (nuevo) {
             case APPROVED -> {
+                String monedaCobrada = gatewayResponse.getCurrency();
+                if (monedaCobrada != null && !"ARS".equalsIgnoreCase(monedaCobrada)) {
+                    log.warn("Mercado Pago aprobo el pago {} en {}: no se aprueba solo, requiere revision manual.",
+                            payment.getId(), monedaCobrada);
+                    paymentHistoryService.saveHistory(payment, actual,
+                            "Revision manual: moneda " + monedaCobrada + " en lugar de ARS (cobro "
+                                    + gatewayResponse.getTransactionId() + ").");
+                    return payment;
+                }
+                if ((actual == PaymentStatus.APPROVED || actual == PaymentStatus.REFUNDED)
+                        && esOtroCobro(payment, gatewayResponse)) {
+                    log.warn("Segundo cobro {} aprobado para el pago {}: se reembolsa.",
+                            gatewayResponse.getTransactionId(), payment.getId());
+                    aprobacionPagoService.reembolsarCobroDuplicado(
+                            payment, gatewayResponse.getTransactionId(), gatewayResponse.getAmount());
+                    return payment;
+                }
                 if (gatewayResponse.getAmount() != null
                         && gatewayResponse.getAmount().compareTo(payment.getAmount()) != 0) {
                     log.warn("Mercado Pago cobro {} por el pago {} de {}; lo decide reservation-service.",
@@ -80,7 +99,9 @@ public class MercadoPagoWebhookService {
                         resolvePaymentMethod(gatewayResponse), gatewayResponse.getAmount());
             }
             case REFUNDED -> {
-                if (actual == PaymentStatus.REFUNDED) {
+                boolean delMismoCobro = payment.getTransactionId() == null
+                        || payment.getTransactionId().equals(gatewayResponse.getTransactionId());
+                if (actual == PaymentStatus.REFUNDED || !delMismoCobro) {
                     return payment;
                 }
                 payment.setStatus(PaymentStatus.REFUNDED);
@@ -107,6 +128,11 @@ public class MercadoPagoWebhookService {
                 return payment;
             }
         }
+    }
+
+    private static boolean esOtroCobro(Payment payment, PaymentGatewayResponse gatewayResponse) {
+        return payment.getTransactionId() != null && gatewayResponse.getTransactionId() != null
+                && !payment.getTransactionId().equals(gatewayResponse.getTransactionId());
     }
 
     private PaymentStatus mapPaymentStatus(String mercadoPagoStatus) {

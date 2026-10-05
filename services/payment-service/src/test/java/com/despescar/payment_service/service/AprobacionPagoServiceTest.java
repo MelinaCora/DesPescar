@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -145,18 +146,60 @@ class AprobacionPagoServiceTest {
     }
 
     @Test
-    void unSegundoPagoAprobadoDeLaMismaReservaSeReembolsaSinConfirmar() {
-        Payment otro = Payment.builder().id(UUID.randomUUID()).reservationId(12L).userId(7L)
+    void unPagoViejoAprobadoConReembolsoPendienteNoImpideConfirmarElCorrecto() {
+        Payment viejo = Payment.builder().id(UUID.randomUUID()).reservationId(12L).userId(7L)
                 .amount(TOTAL).status(PaymentStatus.APPROVED).provider(PaymentProvider.MOCK).build();
+        lenient().when(paymentRepository.findByReservationId(12L)).thenReturn(List.of(viejo, pago));
         guarda();
-        when(paymentRepository.findByReservationId(12L)).thenReturn(List.of(otro, pago));
+        reservaResponde("CONFIRMADA", null);
+
+        Payment r = service.aprobar(pago, "MOCK-1", PaymentMethod.CREDIT_CARD, null);
+
+        assertThat(r.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        verify(reservationClient).confirmarPago(12L, 7L, "MOCK-1", TOTAL);
+        verify(paymentGatewayService, never()).refund(any(), any());
+    }
+
+    @Test
+    void siReservasRespondePagoDuplicadoSeReembolsa() {
+        guarda();
+        reservaResponde("RECHAZADA", "PAGO_DUPLICADO");
         when(paymentGatewayService.refund("MOCK-1", TOTAL))
                 .thenReturn(RefundGatewayResponse.builder().approved(true).build());
 
         Payment r = service.aprobar(pago, "MOCK-1", PaymentMethod.CREDIT_CARD, null);
 
         assertThat(r.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        verify(paymentHistoryService).saveHistory(eq(pago), eq(PaymentStatus.REFUNDED),
+                startsWith("Reembolso automatico (PAGO_DUPLICADO)"));
+    }
+
+    @Test
+    void unCobroDuplicadoDeMercadoPagoSeReembolsaSinTocarElPago() {
+        pago.setStatus(PaymentStatus.APPROVED);
+        pago.setTransactionId("445");
+        when(paymentGatewayService.refund("999", TOTAL))
+                .thenReturn(RefundGatewayResponse.builder().approved(true).build());
+
+        service.reembolsarCobroDuplicado(pago, "999", new BigDecimal("1060000"));
+
+        assertThat(pago.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        verify(paymentHistoryService).saveHistory(eq(pago), eq(PaymentStatus.APPROVED),
+                startsWith("Cobro duplicado 999 reembolsado (PAGO_DUPLICADO)"));
         verifyNoInteractions(reservationClient);
+    }
+
+    @Test
+    void siElReembolsoDelCobroDuplicadoNoSaleQuedaPendienteManual() {
+        pago.setStatus(PaymentStatus.APPROVED);
+        pago.setTransactionId("445");
+        when(paymentGatewayService.refund("999", TOTAL))
+                .thenReturn(RefundGatewayResponse.builder().approved(false).message("HTTP 400").build());
+
+        service.reembolsarCobroDuplicado(pago, "999", TOTAL);
+
+        verify(paymentHistoryService).saveHistory(pago, PaymentStatus.APPROVED,
+                "Reembolso manual pendiente del cobro duplicado 999 (PAGO_DUPLICADO): HTTP 400");
     }
 
     @Test
