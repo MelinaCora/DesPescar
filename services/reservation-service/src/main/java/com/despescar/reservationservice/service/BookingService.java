@@ -27,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -35,6 +36,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 @Service
@@ -153,8 +156,60 @@ public class BookingService {
      * reintenta con el mismo tokenPago.
      */
     public ConfirmacionPagoResponse confirmarPago(Long id, PaymentConfirmationRequest pedido) {
+        return confirmar(id, new Criterio(
+                pedido.getTokenPago(),
+                reserva -> controlDeUnPagador(reserva, pedido),
+                reserva -> yaConfirmada(reserva, pedido.getTokenPago()),
+                reserva -> coincideElMonto(reserva, pedido.getMonto())));
+    }
+
+    /**
+     * Confirma una reserva que ya está pagada completa por su grupo (D-b11): el mismo camino que
+     * confirmarPago (estadías por HTTP sin transacción → asientos en transacción corta → cancelar y
+     * liberar si no hay lugar), sin controles de pagador ni de monto, que PagoParteService ya hizo
+     * parte por parte y con la suma bajo el lock del grupo. Sin @Transactional. Idempotente: una
+     * reserva dividida ya CONFIRMADA responde CONFIRMADA (solo su grupo puede confirmarla, D-b12).
+     */
+    public ConfirmacionPagoResponse confirmarReservaPagada(Long id, String tokenConfirmacion) {
+        return confirmar(id, new Criterio(
+                tokenConfirmacion,
+                BookingService::controlDeGrupo,
+                reserva -> ConfirmacionPagoResponse.confirmada(),
+                reserva -> true));
+    }
+
+    /**
+     * Lo que distingue al pago de un solo pagador del de un grupo. `previo` corre antes de mirar el
+     * estado: lanza si el pedido no corresponde o devuelve la respuesta final (null para seguir).
+     */
+    private record Criterio(String token,
+                            Function<Reservation, ConfirmacionPagoResponse> previo,
+                            Function<Reservation, ConfirmacionPagoResponse> yaConfirmada,
+                            Predicate<Reservation> montoCorrecto) {
+    }
+
+    private static ConfirmacionPagoResponse controlDeUnPagador(Reservation reserva, PaymentConfirmationRequest pedido) {
+        if (!Objects.equals(reserva.getCreadorId(), pedido.getPagadorId())) {
+            throw new BookingException("PAGADOR_INVALIDO", "El pagador no es el creador de la reserva.", HttpStatus.BAD_REQUEST);
+        }
+        if (reserva.getTipoPago() == PaymentType.SPLIT_PAYMENT) {
+            // D-b12: en cualquier estado, también CONFIRMADA; ese pago se reembolsa
+            return ConfirmacionPagoResponse.rechazada(ConfirmacionPagoResponse.PAGO_EN_GRUPO,
+                    "La reserva se está pagando en grupo.");
+        }
+        return null;
+    }
+
+    private static ConfirmacionPagoResponse controlDeGrupo(Reservation reserva) {
+        if (reserva.getTipoPago() != PaymentType.SPLIT_PAYMENT) {
+            throw new BookingException("ESTADO_INVALIDO", "La reserva no se paga en grupo.", HttpStatus.CONFLICT);
+        }
+        return null;
+    }
+
+    private ConfirmacionPagoResponse confirmar(Long id, Criterio criterio) {
         for (int intento = 1; intento <= INTENTOS_CONFIRMACION; intento++) {
-            Evaluacion evaluacion = transaccion.execute(status -> evaluar(id, pedido));
+            Evaluacion evaluacion = transaccion.execute(status -> evaluar(id, criterio));
             if (evaluacion.respuesta() != null) {
                 return evaluacion.respuesta();
             }
@@ -170,7 +225,7 @@ public class BookingService {
             // 2. Base: transacción corta con la reserva bloqueada
             Cierre cierre;
             try {
-                cierre = transaccion.execute(status -> cerrarEnBase(id, leida, evaluacion, pedido, conLugar));
+                cierre = transaccion.execute(status -> cerrarEnBase(id, leida, evaluacion, criterio, conLugar));
             } catch (RuntimeException ex) {
                 liberarNuevas(leida, previas);
                 throw ex;
@@ -181,7 +236,7 @@ public class BookingService {
             switch (cierre.tipo()) {
                 case CONFIRMADA -> {
                     descontarCupos(leida);
-                    log.info("Reserva {} confirmada con el pago {}", id, pedido.getTokenPago());
+                    log.info("Reserva {} confirmada con el pago {}", id, criterio.token());
                     return cierre.respuesta();
                 }
                 case SIN_LUGAR -> {
@@ -194,7 +249,7 @@ public class BookingService {
                 }
                 default -> {
                     liberarNuevas(leida, previas);
-                    log.warn("La reserva {} cambió mientras se confirmaba el pago {} (intento {})", id, pedido.getTokenPago(), intento);
+                    log.warn("La reserva {} cambió mientras se confirmaba el pago {} (intento {})", id, criterio.token(), intento);
                 }
             }
         }
@@ -203,14 +258,15 @@ public class BookingService {
     }
 
     /** Lectura y controles. Deja inicializados vuelos, pasajeros y estadías para usarlos después del commit. */
-    private Evaluacion evaluar(Long id, PaymentConfirmationRequest pedido) {
+    private Evaluacion evaluar(Long id, Criterio criterio) {
         Reservation reserva = bookingRepository.findById(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
-        if (!Objects.equals(reserva.getCreadorId(), pedido.getPagadorId())) {
-            throw new BookingException("PAGADOR_INVALIDO", "El pagador no es el creador de la reserva.", HttpStatus.BAD_REQUEST);
+        ConfirmacionPagoResponse previa = criterio.previo().apply(reserva);
+        if (previa != null) {
+            return Evaluacion.fin(previa);
         }
         if (reserva.getEstado() == ReservationStatus.CONFIRMADA) {
-            return Evaluacion.fin(yaConfirmada(reserva, pedido));
+            return Evaluacion.fin(criterio.yaConfirmada().apply(reserva));
         }
         if (reserva.getEstado() == ReservationStatus.CANCELADA) {
             return Evaluacion.fin(ConfirmacionPagoResponse.cancelada(motivoDeCancelada(reserva), "La reserva ya estaba cancelada."));
@@ -219,7 +275,7 @@ public class BookingService {
             return Evaluacion.fin(ConfirmacionPagoResponse.rechazada(ConfirmacionPagoResponse.DATOS_INCOMPLETOS,
                     "Faltan datos de pasajeros o titulares."));
         }
-        if (!coincideElMonto(reserva, pedido)) {
+        if (!criterio.montoCorrecto().test(reserva)) {
             return Evaluacion.fin(ConfirmacionPagoResponse.rechazada(ConfirmacionPagoResponse.MONTO_NO_COINCIDE,
                     "El monto pagado no coincide con el total del carrito."));
         }
@@ -234,14 +290,14 @@ public class BookingService {
      * Con la reserva bloqueada: si otro pago la confirmó, responde según el token; si cambió desde la
      * lectura, pide reintentar; si hay lugar ocupa los asientos y la confirma; si no, la cancela.
      */
-    private Cierre cerrarEnBase(Long id, Reservation leida, Evaluacion evaluacion, PaymentConfirmationRequest pedido,
+    private Cierre cerrarEnBase(Long id, Reservation leida, Evaluacion evaluacion, Criterio criterio,
                                 boolean conLugar) {
         Reservation reserva = bookingRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
         if (reserva.getEstado() == ReservationStatus.CONFIRMADA) {
-            return new Cierre(Cierre.Tipo.RESUELTA, yaConfirmada(reserva, pedido), null);
+            return new Cierre(Cierre.Tipo.RESUELTA, criterio.yaConfirmada().apply(reserva), null);
         }
-        if (cambio(leida, reserva, pedido)) {
+        if (cambio(leida, reserva, criterio)) {
             return new Cierre(Cierre.Tipo.CAMBIO, null, null);
         }
         if (conLugar) {
@@ -251,7 +307,7 @@ public class BookingService {
                 CarritoCalculo.estadiasActivas(reserva).forEach(e -> e.setEstadoPago(PaymentStatus.PAGADO));
                 reserva.setEstado(ReservationStatus.CONFIRMADA);
                 reserva.setMotivoCancelacion(null);
-                reserva.setTokenPagoConfirmacion(pedido.getTokenPago());
+                reserva.setTokenPagoConfirmacion(criterio.token());
                 bookingRepository.save(reserva);
                 return new Cierre(Cierre.Tipo.CONFIRMADA, ConfirmacionPagoResponse.confirmada(),
                         reservationMapper.toResponse(reserva));
@@ -266,7 +322,7 @@ public class BookingService {
         reserva.setEstado(ReservationStatus.CANCELADA);
         reserva.setMotivoCancelacion(motivo);
         bookingRepository.save(reserva);
-        log.warn("Reserva {} cancelada al confirmar el pago {}: {}", id, pedido.getTokenPago(), motivo);
+        log.warn("Reserva {} cancelada al confirmar el pago {}: {}", id, criterio.token(), motivo);
         return new Cierre(Cierre.Tipo.SIN_LUGAR, ConfirmacionPagoResponse.cancelada(motivo,
                 ConfirmacionPagoResponse.PAGO_TARDIO_SIN_DISPONIBILIDAD.equals(motivo)
                         ? "El pago llegó después del vencimiento y ya no hay lugar para todo el carrito."
@@ -278,24 +334,24 @@ public class BookingService {
      * Una reserva CONFIRMADA sin token guardado (anterior a la columna) también responde PAGO_DUPLICADO:
      * es seguro solo porque esas bases se recrean (D21) y todas las confirmaciones nuevas guardan el token.
      */
-    private static ConfirmacionPagoResponse yaConfirmada(Reservation reserva, PaymentConfirmationRequest pedido) {
-        return Objects.equals(reserva.getTokenPagoConfirmacion(), pedido.getTokenPago())
+    private static ConfirmacionPagoResponse yaConfirmada(Reservation reserva, String tokenPago) {
+        return Objects.equals(reserva.getTokenPagoConfirmacion(), tokenPago)
                 ? ConfirmacionPagoResponse.confirmada()
                 : ConfirmacionPagoResponse.duplicado();
     }
 
     /** Exacto, sin redondear lo que llega: 819999.995 no paga 820000.00. La escala no importa. */
-    private static boolean coincideElMonto(Reservation reserva, PaymentConfirmationRequest pedido) {
-        return pedido.getMonto() != null && CarritoCalculo.montoTotal(reserva).compareTo(pedido.getMonto()) == 0;
+    private static boolean coincideElMonto(Reservation reserva, BigDecimal monto) {
+        return monto != null && CarritoCalculo.montoTotal(reserva).compareTo(monto) == 0;
     }
 
     /** Lo que se leyó antes de llamar al hotel ya no es lo que hay en la base. */
-    private static boolean cambio(Reservation leida, Reservation actual, PaymentConfirmationRequest pedido) {
+    private static boolean cambio(Reservation leida, Reservation actual, Criterio criterio) {
         return actual.getEstado() != leida.getEstado()
                 || !idsEstadias(actual).equals(idsEstadias(leida))
                 || !new ArrayList<>(actual.getFlightIds()).equals(new ArrayList<>(leida.getFlightIds()))
                 || !CarritoCalculo.datosCompletos(actual)
-                || !coincideElMonto(actual, pedido)
+                || !criterio.montoCorrecto().test(actual)
                 || !titulares(actual).equals(titulares(leida));
     }
 
@@ -342,6 +398,8 @@ public class BookingService {
         String motivo = reserva.getMotivoCancelacion();
         return ConfirmacionPagoResponse.PAGO_TARDIO_SIN_DISPONIBILIDAD.equals(motivo)
                 || ConfirmacionPagoResponse.SIN_DISPONIBILIDAD.equals(motivo)
+                || GrupoCierre.MOTIVO_CANCELADO.equals(motivo)
+                || GrupoCierre.MOTIVO_VENCIDO.equals(motivo)
                 ? motivo : ConfirmacionPagoResponse.RESERVA_CANCELADA;
     }
 
