@@ -20,3 +20,7 @@ database/.env
 .project
 .settings/
 *.iml
+
+# Python
+__pycache__/
+*.pyc
