@@ -21,6 +21,7 @@ public class PaymentMapper {
         return Payment.builder()
                 .reservationId(request.getReservationId())
                 .userId(userId)
+                .parteNumero(request.getParteNumero())
                 .amount(amount)
                 .currency(currency)
                 .provider(PaymentProvider.MERCADO_PAGO)
@@ -42,6 +43,7 @@ public class PaymentMapper {
                 .paymentDate(payment.getPaymentDate())
                 .currency(payment.getCurrency())
                 .createdAt(payment.getCreatedAt())
+                .parteNumero(payment.getParteNumero())
                 .build();
     }
 }

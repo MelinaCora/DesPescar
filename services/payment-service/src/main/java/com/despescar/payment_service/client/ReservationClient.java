@@ -1,6 +1,7 @@
 package com.despescar.payment_service.client;
 
 import java.math.BigDecimal;
+import java.util.Optional;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -22,6 +23,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import com.despescar.payment_service.client.dto.ConfirmacionReservaResponse;
+import com.despescar.payment_service.client.dto.ParteReservaResponse;
 import com.despescar.payment_service.client.dto.ProcessPaymentRequest;
 import com.despescar.payment_service.client.dto.ReservationResponse;
 import com.despescar.payment_service.exception.ReservationClientException;
@@ -81,6 +83,37 @@ public class ReservationClient {
             throw new ReservationClientException("No fue posible comunicarse con Reservation-Service. Estado sugerido: " + status.value(), ex);
         } catch (RestClientException ex) {
             throw new ReservationClientException("Se produjo un error al consultar la reserva.", ex);
+        }
+    }
+
+    /**
+     * Una parte de un pago en grupo (contrato CB3). Vacío si reservation-service responde 404 (la
+     * reserva no tiene grupo o el grupo no tiene esa parte). Cualquier otra falla es
+     * ReservationClientException (502 para el cliente): no se cobra sin saber la parte.
+     */
+    public Optional<ParteReservaResponse> getParte(Long reservationId, int numero) {
+        try {
+            ResponseEntity<ParteReservaResponse> response = restTemplate.exchange(
+                    reservationServiceUrl + "/api/bookings/internal/{reservationId}/partes/{numero}",
+                    HttpMethod.GET,
+                    new HttpEntity<>(buildHeaders()),
+                    ParteReservaResponse.class,
+                    reservationId, numero
+            );
+            if (response.getBody() == null) {
+                throw new ReservationClientException("Reservation-Service devolvio una parte vacia.");
+            }
+            return Optional.of(response.getBody());
+        } catch (HttpClientErrorException.NotFound ex) {
+            return Optional.empty();
+        } catch (HttpClientErrorException ex) {
+            throw new ReservationClientException("Reservation-Service rechazo la consulta de la parte.", ex);
+        } catch (HttpServerErrorException ex) {
+            throw new ReservationClientException("Reservation-Service no pudo procesar la consulta de la parte.", ex);
+        } catch (ResourceAccessException ex) {
+            throw new ReservationClientException("No fue posible comunicarse con Reservation-Service.", ex);
+        } catch (RestClientException ex) {
+            throw new ReservationClientException("Se produjo un error al consultar la parte.", ex);
         }
     }
 

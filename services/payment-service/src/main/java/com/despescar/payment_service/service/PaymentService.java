@@ -3,6 +3,8 @@ package com.despescar.payment_service.service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.dao.DataIntegrityViolationException;
@@ -12,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.despescar.payment_service.client.ReservationClient;
+import com.despescar.payment_service.client.dto.ParteReservaResponse;
 import com.despescar.payment_service.client.dto.ReservationResponse;
 import com.despescar.payment_service.dto.request.PaymentRequest;
 import com.despescar.payment_service.dto.response.PaymentCheckoutResponse;
@@ -33,6 +36,10 @@ public class PaymentService {
 
     private static final String PENDIENTE_PAGO = "PENDIENTE_PAGO";
     private static final String MONEDA = "ARS";
+    private static final String GRUPO_ABIERTO = "ABIERTO";
+    private static final String PARTE_TOMADA = "TOMADA";
+    private static final String PARTE_LIBRE = "LIBRE";
+    private static final String PARTE_PAGADA = "PAGADA";
 
     private final PaymentRepository paymentRepository;
     private final PaymentMapper paymentMapper;
@@ -47,12 +54,15 @@ public class PaymentService {
      * Un doble clic en Pagar devuelve el mismo pago PENDING (D19), tambien si los dos pedidos llegan
      * a la vez: el indice unico de pendienteDeReserva deja pasar un solo insert y el otro relee el
      * pago ganador. El pago se confirma en la base antes de llamar al proveedor, asi la llamada
-     * remota no sostiene una transaccion.
+     * remota no sostiene una transaccion. Con parteNumero se cobra esa parte del pago en grupo: el
+     * monto es el de la parte, solo la paga su dueño y solo con el grupo ABIERTO y en plazo (D-b9).
      */
     public PaymentResponse createPayment(PaymentRequest request, Long authenticatedUserId) {
         Long reservationId = request.getReservationId();
-        ReservationResponse reservation = reservationClient.getReservation(reservationId);
-        BigDecimal amount = montoAPagar(reservation, reservationId, authenticatedUserId);
+        BigDecimal amount = request.getParteNumero() == null
+                ? montoAPagar(reservationClient.getReservation(reservationId), reservationId, authenticatedUserId)
+                : montoDeParte(reservationClient.getParte(reservationId, request.getParteNumero()),
+                        request.getParteNumero(), authenticatedUserId);
         PaymentProvider provider = paymentGatewayService.provider();
 
         Preparado preparado;
@@ -90,7 +100,8 @@ public class PaymentService {
     private Preparado reservarPago(
             PaymentRequest request, Long userId, BigDecimal amount, PaymentProvider provider) {
 
-        Payment reusable = descartarPendientesAnteriores(request.getReservationId(), userId, amount, provider);
+        Payment reusable = descartarPendientesAnteriores(
+                request.getReservationId(), userId, request.getParteNumero(), amount, provider);
         if (reusable != null) {
             // Sin checkoutUrl es un pago cuyo checkout no llego a pedirse (caida entre los dos pasos).
             return new Preparado(reusable, reusable.getCheckoutUrl() == null);
@@ -198,29 +209,68 @@ public class PaymentService {
         return reservation.getMontoTotal().setScale(2, RoundingMode.HALF_UP);
     }
 
+    /** Valida que la parte se pueda pagar por este usuario y devuelve su monto en escala 2 (D-b9). */
+    private BigDecimal montoDeParte(Optional<ParteReservaResponse> consulta, int numero, Long payerUserId) {
+        ParteReservaResponse parte = consulta.orElseThrow(() -> new InvalidPaymentStateException(
+                "La parte " + numero + " no existe en este pago en grupo."));
+        if (!GRUPO_ABIERTO.equals(parte.getEstadoGrupo())) {
+            throw new InvalidPaymentStateException(
+                    "El pago en grupo ya no esta abierto (estado " + parte.getEstadoGrupo() + ").");
+        }
+        if (parte.getSegundosRestantes() == null || parte.getSegundosRestantes() <= 0) {
+            throw new InvalidPaymentStateException("El plazo del pago en grupo vencio.");
+        }
+        if (PARTE_PAGADA.equals(parte.getEstadoParte())) {
+            throw new InvalidPaymentStateException("Esta parte ya está pagada.");
+        }
+        // Una parte LIBRE tiene usuarioId null: responde 409 (sumarse), no 403.
+        if (PARTE_LIBRE.equals(parte.getEstadoParte()) || !PARTE_TOMADA.equals(parte.getEstadoParte())) {
+            throw new InvalidPaymentStateException("Primero tenés que sumarte al grupo para pagar esta parte.");
+        }
+        if (!payerUserId.equals(parte.getUsuarioId())) {
+            throw new AccessDeniedException("Esta parte es de otra persona.");
+        }
+        if (parte.getMoneda() == null || !MONEDA.equalsIgnoreCase(parte.getMoneda().trim())) {
+            throw new ReservationAmountResolutionException("Solo se cobra en pesos argentinos (ARS).");
+        }
+        if (parte.getMonto() == null || parte.getMonto().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ReservationAmountResolutionException("La parte no tiene un importe para pagar.");
+        }
+        return parte.getMonto().setScale(2, RoundingMode.HALF_UP);
+    }
+
     /**
-     * Devuelve el pago PENDING del usuario con el mismo monto y proveedor, si existe. Los demas
-     * PENDING del usuario para esa reserva (el carrito cambio de total) pasan a CANCELLED.
+     * Devuelve el pago PENDING del usuario con la misma parte (o sin parte), monto y proveedor, si
+     * existe. Los demás PENDING del usuario para esa reserva pasan a CANCELLED: el carrito cambió de
+     * total, o el organizador había abierto un pago entero antes de dividir (D-b12). Los PENDING de
+     * otras partes del mismo usuario no se tocan: no pueden existir (una parte por usuario, D-b7),
+     * salvo que el organizador libere una parte y la tome otro; ese caso lo rechaza reservation-service
+     * al confirmar y se reembolsa (D-b8).
      */
     private Payment descartarPendientesAnteriores(
-            Long reservationId, Long userId, BigDecimal amount, PaymentProvider provider) {
+            Long reservationId, Long userId, Integer parteNumero, BigDecimal amount, PaymentProvider provider) {
 
         Payment reusable = null;
         for (Payment previo : paymentRepository.findByReservationId(reservationId)) {
             if (previo.getStatus() != PaymentStatus.PENDING || !userId.equals(previo.getUserId())) {
                 continue;
             }
-            boolean mismoPago = previo.getProvider() == provider
+            boolean mismaParte = Objects.equals(previo.getParteNumero(), parteNumero);
+            boolean mismoPago = mismaParte && previo.getProvider() == provider
                     && previo.getAmount() != null && previo.getAmount().compareTo(amount) == 0;
             if (mismoPago && reusable == null) {
                 reusable = previo;
                 continue;
             }
+            if (previo.esDeParte() && !mismaParte) {
+                continue;
+            }
             previo.setStatus(PaymentStatus.CANCELLED);
-            // flush: el indice de pendienteDeReserva tiene que quedar libre antes de insertar el nuevo
+            // flush: el índice de pendienteDeReserva/pendienteDeParte tiene que quedar libre antes de insertar
             paymentRepository.saveAndFlush(previo);
-            paymentHistoryService.saveHistory(previo, PaymentStatus.CANCELLED,
-                    "Reemplazado por un pago nuevo: cambio el total del carrito.");
+            paymentHistoryService.saveHistory(previo, PaymentStatus.CANCELLED, previo.esDeParte() || parteNumero == null
+                    ? "Reemplazado por un pago nuevo: cambio el total del carrito."
+                    : "Reemplazado: la reserva ahora se paga en grupo.");
         }
         return reusable;
     }

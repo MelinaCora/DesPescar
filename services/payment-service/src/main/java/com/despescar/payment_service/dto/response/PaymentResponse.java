@@ -44,4 +44,7 @@ public class PaymentResponse {
 
     private LocalDateTime createdAt;
 
+    /** Número de parte si el pago es de un pago en grupo; null si es de un solo pagador. */
+    private Integer parteNumero;
+
 }

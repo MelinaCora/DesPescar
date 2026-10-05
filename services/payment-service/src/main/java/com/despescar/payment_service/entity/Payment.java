@@ -70,6 +70,16 @@ public class Payment {
     @Column(unique = true)
     private Long pendienteDeReserva;
 
+    /** Número de parte de un pago en grupo (1..10); null en los pagos de un solo pagador (D-b9). */
+    private Integer parteNumero;
+
+    /**
+     * "<reservationId>:<parteNumero>" mientras el pago de una parte está PENDING y NULL en cualquier
+     * otro caso. Su índice único impide dos PENDING de la misma parte aunque lleguen a la vez.
+     */
+    @Column(unique = true, length = 40)
+    private String pendienteDeParte;
+
     @OneToMany(
             mappedBy = "payment",
             cascade = CascadeType.ALL,
@@ -83,7 +93,13 @@ public class Payment {
     }
 
     private void sincronizarPendiente() {
-        pendienteDeReserva = status == PaymentStatus.PENDING ? reservationId : null;
+        boolean pendiente = status == PaymentStatus.PENDING;
+        pendienteDeReserva = pendiente && parteNumero == null ? reservationId : null;
+        pendienteDeParte = pendiente && parteNumero != null ? reservationId + ":" + parteNumero : null;
+    }
+
+    public boolean esDeParte() {
+        return parteNumero != null;
     }
 
     @PrePersist
