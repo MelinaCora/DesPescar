@@ -69,10 +69,17 @@ public class GrupoPago {
     @Column(name = "actualizado_en", nullable = false)
     private LocalDateTime actualizadoEn;
 
+    /** Desde cuándo está COMPLETO (todas las partes pagadas) esperando la confirmación de la reserva. */
+    @Column(name = "completo_desde")
+    private LocalDateTime completoDesde;
+
     @Column(name = "motivo_cierre", length = 60)
     private String motivoCierre;
 
-    /** Hay partes pagadas que payment-service todavía no confirmó haber reembolsado (D-b13). */
+    /**
+     * El grupo se cerró y payment-service todavía no confirmó haber reembolsado las partes pagadas y
+     * cancelado los pagos pendientes (D-b13). Se marca en todo cierre, haya o no partes pagadas.
+     */
     @Column(name = "reembolsos_pendientes", nullable = false)
     private boolean reembolsosPendientes;
 

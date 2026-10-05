@@ -71,8 +71,10 @@ public class GrupoPagoService {
     /**
      * Sin @Transactional a propósito: lectura y controles (transacción corta) → retenciones al plazo
      * nuevo por HTTP → transacción corta que relee con lock y crea el grupo. Si la última falla, las
-     * retenciones vuelven a su vencimiento, salvo que otro pedido ya haya creado el grupo (en ese caso
-     * las retenciones son de ese grupo y no se tocan).
+     * retenciones vuelven a su vencimiento solo si siguen siendo de un carrito abierto: no se tocan si
+     * otro pedido ya creó el grupo (son de ese grupo) ni si la reserva ya no está abierta (un pago del
+     * carrito entero pudo confirmarla recién). Si el vencimiento anterior ya pasó tampoco se liberan
+     * acá: lo hace BookingScheduler al marcar la reserva EXPIRADA con la fila bloqueada.
      */
     public GrupoResponse iniciar(Long reservaId, int cantidadPartes, Long usuarioId) {
         Preparacion prep = transaccion.execute(estado -> preparar(reservaId, cantidadPartes, usuarioId));
@@ -81,11 +83,30 @@ public class GrupoPagoService {
         try {
             return transaccion.execute(estado -> crear(reservaId, usuarioId, prep));
         } catch (RuntimeException ex) {
-            if (grupoRepository.findByReservation_Id(reservaId).isEmpty()) {
+            if (hayQueCompensar(reservaId, prep)) {
                 inventario.volverAlVencimiento(prep.reserva(), anterior);
             }
             throw ex;
         }
+    }
+
+    private boolean hayQueCompensar(Long reservaId, Preparacion prep) {
+        if (grupoRepository.findByReservation_Id(reservaId).isPresent()) {
+            return false;
+        }
+        ReservationStatus actual = transaccion.execute(estado -> bookingRepository.findById(reservaId)
+                .map(Reservation::getEstado).orElse(null));
+        if (actual == null || !CarritoSoporte.ABIERTOS.contains(actual)) {
+            log.warn("La reserva {} quedó {} mientras se preparaba el pago en grupo: sus retenciones no se tocan.",
+                    reservaId, actual);
+            return false;
+        }
+        if (!soporte.ahora().isBefore(prep.limiteAnterior())) {
+            log.warn("La reserva {} venció mientras se preparaba el pago en grupo: sus retenciones las libera el vencimiento.",
+                    reservaId);
+            return false;
+        }
+        return true;
     }
 
     private Preparacion preparar(Long reservaId, int cantidadPartes, Long usuarioId) {

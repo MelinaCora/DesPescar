@@ -398,6 +398,8 @@ public class BookingService {
                 || ConfirmacionPagoResponse.SIN_DISPONIBILIDAD.equals(motivo)
                 || GrupoCierre.MOTIVO_CANCELADO.equals(motivo)
                 || GrupoCierre.MOTIVO_VENCIDO.equals(motivo)
+                || GrupoCierre.MOTIVO_SIN_CONFIRMAR.equals(motivo)
+                || ConfirmacionPagoResponse.MONTO_NO_COINCIDE.equals(motivo)
                 ? motivo : ConfirmacionPagoResponse.RESERVA_CANCELADA;
     }
 

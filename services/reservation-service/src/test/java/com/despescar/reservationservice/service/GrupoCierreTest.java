@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.despescar.reservationservice.entity.EstadiaHotel;
@@ -109,11 +111,12 @@ class GrupoCierreTest {
     }
 
     @Test
-    void sinPartesPagadasNoHayNadaQueReembolsar() {
+    void sinPartesPagadasIgualSePideCancelarLosPagosPendientes() {
         assertTrue(cierre.cerrar(30L, EstadoGrupo.CANCELADO, GrupoCierre.MOTIVO_CANCELADO, false));
 
         assertEquals(EstadoGrupo.CANCELADO, grupo.getEstado());
-        assertFalse(grupo.isReembolsosPendientes());
+        // payment-service cancela los pagos PENDING de las partes aunque no haya nada que reembolsar
+        assertTrue(grupo.isReembolsosPendientes());
     }
 
     @Test
@@ -153,5 +156,78 @@ class GrupoCierreTest {
         cierre.marcarCanceladoTrasConfirmar(30L, "SIN_DISPONIBILIDAD");
 
         assertEquals(EstadoGrupo.ABIERTO, grupo.getEstado());
+    }
+
+    @Test
+    void unaReservaQueNoEsperaPagadoresNoSeCancelaAlCerrarElGrupo() {
+        reserva.setEstado(ReservationStatus.CONFIRMADA);
+
+        assertFalse(cierre.cerrar(30L, EstadoGrupo.VENCIDO, GrupoCierre.MOTIVO_VENCIDO, true));
+
+        assertEquals(ReservationStatus.CONFIRMADA, reserva.getEstado());
+        assertEquals(PaymentStatus.PENDIENTE, reserva.getDetalles().get(0).getPaymentStatus());
+        assertEquals(EstadoGrupo.ABIERTO, grupo.getEstado());
+        assertFalse(grupo.isReembolsosPendientes());
+        verifyNoInteractions(inventario);
+    }
+
+    @Test
+    void elGrupoCompletoQueNoSePudoConfirmarCancelaLaReservaLiberaTodoYReembolsa() {
+        grupo.setEstado(EstadoGrupo.COMPLETO);
+        grupo.setCompletoDesde(AHORA.minusMinutes(31));
+
+        assertTrue(cierre.cancelarSinConfirmar(30L, GrupoCierre.MOTIVO_SIN_CONFIRMAR));
+
+        assertEquals(EstadoGrupo.CANCELADO, grupo.getEstado());
+        assertEquals("CONFIRMACION_FALLIDA", grupo.getMotivoCierre());
+        assertTrue(grupo.isReembolsosPendientes());
+        assertEquals(AHORA, grupo.getActualizadoEn());
+        assertEquals(ReservationStatus.CANCELADA, reserva.getEstado());
+        assertEquals("CONFIRMACION_FALLIDA", reserva.getMotivoCancelacion());
+        assertEquals(PaymentStatus.CANCELADO, reserva.getDetalles().get(0).getPaymentStatus());
+        // grupo y reserva bloqueados → asientos en la transacción → commit → retenciones por HTTP
+        InOrder orden = inOrder(grupoRepository, bookingRepository, inventario, transactionManager);
+        orden.verify(grupoRepository).findByIdForUpdate(30L);
+        orden.verify(bookingRepository).findByIdForUpdate(12L);
+        orden.verify(inventario).liberarAsientos(reserva);
+        orden.verify(transactionManager).commit(any());
+        orden.verify(inventario).liberarRetenciones(reserva);
+    }
+
+    @Test
+    void siUnaConfirmacionEnCursoGanoNoSeCancelaNiSeReembolsa() {
+        grupo.setEstado(EstadoGrupo.COMPLETO);
+        reserva.setEstado(ReservationStatus.CONFIRMADA);
+
+        assertFalse(cierre.cancelarSinConfirmar(30L, GrupoCierre.MOTIVO_SIN_CONFIRMAR));
+
+        assertEquals(ReservationStatus.CONFIRMADA, reserva.getEstado());
+        assertEquals(EstadoGrupo.COMPLETO, grupo.getEstado());
+        assertFalse(grupo.isReembolsosPendientes());
+        verifyNoInteractions(inventario);
+    }
+
+    @Test
+    void conLaReservaYaCanceladaSoloSeCierraElGrupoYSeReembolsa() {
+        grupo.setEstado(EstadoGrupo.COMPLETO);
+        reserva.setEstado(ReservationStatus.CANCELADA);
+        reserva.setMotivoCancelacion("SIN_DISPONIBILIDAD");
+
+        assertTrue(cierre.cancelarSinConfirmar(30L, GrupoCierre.MOTIVO_SIN_CONFIRMAR));
+
+        assertEquals(EstadoGrupo.CANCELADO, grupo.getEstado());
+        assertTrue(grupo.isReembolsosPendientes());
+        assertEquals("SIN_DISPONIBILIDAD", reserva.getMotivoCancelacion());
+        verifyNoInteractions(inventario);
+    }
+
+    @Test
+    void cancelarSinConfirmarNoTocaUnGrupoQueNoEstaCompleto() {
+        assertFalse(cierre.cancelarSinConfirmar(30L, GrupoCierre.MOTIVO_SIN_CONFIRMAR));
+
+        assertEquals(EstadoGrupo.ABIERTO, grupo.getEstado());
+        assertEquals(ReservationStatus.ESPERANDO_PAGADORES, reserva.getEstado());
+        verify(bookingRepository, never()).findByIdForUpdate(12L);
+        verifyNoInteractions(inventario);
     }
 }

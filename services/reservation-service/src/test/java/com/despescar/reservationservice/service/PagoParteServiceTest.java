@@ -263,4 +263,45 @@ class PagoParteServiceTest {
         assertEquals("PARTE_NO_ENCONTRADA", service.confirmarPago(99L, 1, pago(9L, "MOCK-2", "300000")).motivo());
         verify(cierre, never()).cerrar(anyLong(), any(), anyString(), anyBoolean());
     }
+
+    @Test
+    void alPagarseLaUltimaParteElGrupoRecuerdaDesdeCuandoEstaCompleto() {
+        grupo.getPartes().get(0).pagar("MOCK-1", AHORA);
+        grupo.getPartes().get(1).pagar("MOCK-2", AHORA);
+        when(bookingService.confirmarReservaPagada(12L, "GRUPO-30"))
+                .thenThrow(new BookingException("HOTEL_SERVICE_UNAVAILABLE", "caido", HttpStatus.SERVICE_UNAVAILABLE));
+
+        assertThrows(BookingException.class, () -> service.confirmarPago(12L, 3, pago(10L, "MOCK-3", "300000.00")));
+
+        assertEquals(EstadoGrupo.COMPLETO, grupo.getEstado());
+        assertEquals(AHORA, grupo.getCompletoDesde());
+    }
+
+    @Test
+    void unRechazoDefinitivoAlConfirmarCancelaElGrupoParaReembolsar() {
+        grupo.getPartes().get(0).pagar("MOCK-1", AHORA);
+        grupo.getPartes().get(1).pagar("MOCK-2", AHORA);
+        when(bookingService.confirmarReservaPagada(12L, "GRUPO-30"))
+                .thenReturn(ConfirmacionPagoResponse.rechazada("DATOS_INCOMPLETOS", "Faltan datos de pasajeros o titulares."));
+        when(cierre.cancelarSinConfirmar(30L, GrupoCierre.MOTIVO_SIN_CONFIRMAR)).thenReturn(true);
+
+        ConfirmacionPagoResponse r = service.confirmarPago(12L, 3, pago(10L, "MOCK-3", "300000.00"));
+
+        assertEquals("CANCELADA", r.estado());
+        assertEquals("CONFIRMACION_FALLIDA", r.motivo());
+    }
+
+    @Test
+    void siElRechazoNoPudoCerrarElGrupoSeSigueReintentando() {
+        grupo.getPartes().get(0).pagar("MOCK-1", AHORA);
+        grupo.getPartes().get(1).pagar("MOCK-2", AHORA);
+        when(bookingService.confirmarReservaPagada(12L, "GRUPO-30"))
+                .thenReturn(ConfirmacionPagoResponse.rechazada("DATOS_INCOMPLETOS", "Faltan datos de pasajeros o titulares."));
+
+        BookingException ex = assertThrows(BookingException.class,
+                () -> service.confirmarPago(12L, 3, pago(10L, "MOCK-3", "300000.00")));
+
+        assertEquals("CONFIRMACION_DE_GRUPO_FALLIDA", ex.getCodigo());
+        verify(cierre).cancelarSinConfirmar(30L, GrupoCierre.MOTIVO_SIN_CONFIRMAR);
+    }
 }

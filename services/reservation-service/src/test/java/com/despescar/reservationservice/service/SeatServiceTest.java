@@ -6,10 +6,15 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.despescar.reservationservice.entity.Reservation;
 import com.despescar.reservationservice.entity.Seat;
+import com.despescar.reservationservice.enums.ReservationStatus;
+import com.despescar.reservationservice.exception.BookingException;
+import com.despescar.reservationservice.repository.BookingRepository;
 import com.despescar.reservationservice.repository.SeatRepository;
 import java.time.Clock;
 import java.time.Instant;
@@ -23,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
 /** Bloqueos de asientos con la hora de Argentina y sin liberar asientos pagados. */
@@ -38,13 +44,15 @@ class SeatServiceTest {
     @Mock
     private SeatRepository seatRepository;
     @Mock
+    private BookingRepository bookingRepository;
+    @Mock
     private SimpMessagingTemplate messagingTemplate;
 
     private SeatService service;
 
     @BeforeEach
     void setUp() {
-        service = new SeatService(seatRepository, RELOJ);
+        service = new SeatService(seatRepository, bookingRepository, RELOJ);
         lenient().when(seatRepository.save(any(Seat.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -204,6 +212,36 @@ class SeatServiceTest {
 
         service.unblockSeat(s.getSeatUuid(), 7L);
 
+        assertNull(s.getReservaId());
+    }
+
+    @Test
+    void mientrasElGrupoEstaPagandoNoSeSueltanLosAsientosDeSuReserva() {
+        Seat s = asiento("RESERVADO_TEMPORAL", 7L);
+        s.setReservaId(12L);
+        when(bookingRepository.findById(12L)).thenReturn(Optional.of(
+                Reservation.builder().id(12L).creadorId(7L).estado(ReservationStatus.ESPERANDO_PAGADORES).build()));
+
+        BookingException ex = assertThrows(BookingException.class, () -> service.unblockSeat(s.getSeatUuid(), 7L));
+
+        assertEquals("PAGO_EN_GRUPO_EN_CURSO", ex.getCodigo());
+        assertEquals(HttpStatus.CONFLICT, ex.getStatus());
+        assertEquals("No podés cambiar los asientos mientras el grupo está pagando.", ex.getMessage());
+        assertEquals("RESERVADO_TEMPORAL", s.getStatusSeat());
+        assertEquals(12L, s.getReservaId());
+        verify(seatRepository, never()).save(any(Seat.class));
+    }
+
+    @Test
+    void elAsientoDeUnCarritoQueTodaviaNoSeDivideSeSigueSoltando() {
+        Seat s = asiento("RESERVADO_TEMPORAL", 7L);
+        s.setReservaId(12L);
+        when(bookingRepository.findById(12L)).thenReturn(Optional.of(
+                Reservation.builder().id(12L).creadorId(7L).estado(ReservationStatus.PENDIENTE_PAGO).build()));
+
+        service.unblockSeat(s.getSeatUuid(), 7L);
+
+        assertEquals("DISPONIBLE", s.getStatusSeat());
         assertNull(s.getReservaId());
     }
 }

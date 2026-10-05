@@ -150,4 +150,34 @@ class BookingServiceGrupoTest {
         assertEquals("PAGO_EN_GRUPO", confirmada.motivo());
         verifyNoInteractions(inventario);
     }
+
+    @Test
+    void unaReservaCanceladaPorMontoRespondeEseMismoMotivo() {
+        reserva.setEstado(ReservationStatus.CANCELADA);
+        reserva.setMotivoCancelacion("MONTO_NO_COINCIDE");
+
+        ConfirmacionPagoResponse r = service.confirmarReservaPagada(12L, "GRUPO-30");
+
+        assertEquals("CANCELADA", r.estado());
+        assertEquals("MONTO_NO_COINCIDE", r.motivo());
+    }
+
+    @Test
+    void unaConfirmacionEnCursoNoConfirmaSiElGrupoSeCanceloPorNoPoderConfirmar() {
+        Reservation cancelada = Reservation.builder().id(12L).creadorId(7L).cantidadPasajeros(0)
+                .tipoPago(PaymentType.SPLIT_PAYMENT).estado(ReservationStatus.CANCELADA)
+                .motivoCancelacion(GrupoCierre.MOTIVO_SIN_CONFIRMAR).limiteTiempo(AHORA.plusHours(3)).build();
+        cancelada.getEstadias().add(estadia);
+        // se leyó ESPERANDO_PAGADORES; mientras se llamaba al hotel el plazo de confirmación la canceló
+        when(bookingRepository.findById(12L)).thenReturn(Optional.of(reserva), Optional.of(cancelada));
+        when(bookingRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(cancelada));
+        when(inventario.confirmarEstadias(reserva)).thenReturn(true);
+
+        ConfirmacionPagoResponse r = service.confirmarReservaPagada(12L, "GRUPO-30");
+
+        assertEquals("CANCELADA", r.estado());
+        assertEquals("CONFIRMACION_FALLIDA", r.motivo());
+        assertEquals(ReservationStatus.CANCELADA, cancelada.getEstado());
+        verify(inventario, org.mockito.Mockito.never()).confirmarAsientos(any());
+    }
 }

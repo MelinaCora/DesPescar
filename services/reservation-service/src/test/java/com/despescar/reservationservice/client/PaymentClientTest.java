@@ -2,6 +2,7 @@ package com.despescar.reservationservice.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
@@ -11,12 +12,17 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.despescar.reservationservice.config.PaymentClientConfig;
 import com.despescar.reservationservice.dto.pagos.ReembolsoGrupoResponse;
 import com.despescar.reservationservice.exception.BookingException;
 import java.io.IOException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -81,5 +87,31 @@ class PaymentClientTest {
         BookingException ex = assertThrows(BookingException.class, () -> client.reembolsarGrupo(12L, "GRUPO_CANCELADO"));
 
         assertEquals(HttpStatus.BAD_GATEWAY, ex.getStatus());
+    }
+
+    @Test
+    void sinTokenCadaPedidoFallidoQuedaComoErrorConLaVariableQueFalta() {
+        RestTemplate restTemplate = new PaymentClientConfig().paymentServiceRestTemplate(3000, 10000);
+        server = MockRestServiceServer.bindTo(restTemplate).build();
+        client = new PaymentClient(restTemplate, BASE, " ");
+        Logger logger = (Logger) LoggerFactory.getLogger(PaymentClient.class);
+        ListAppender<ILoggingEvent> registro = new ListAppender<>();
+        registro.start();
+        logger.addAppender(registro);
+        try {
+            server.expect(requestTo(URL)).andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+            assertThrows(BookingException.class, () -> client.reembolsarGrupo(12L, "GRUPO_CANCELADO"));
+            server.reset();
+            server.expect(requestTo(URL)).andRespond(withException(new IOException("Connection refused")));
+            assertThrows(BookingException.class, () -> client.reembolsarGrupo(12L, "GRUPO_CANCELADO"));
+        } finally {
+            logger.detachAppender(registro);
+        }
+
+        long errores = registro.list.stream()
+                .filter(e -> e.getLevel() == Level.ERROR && e.getFormattedMessage().contains("PAYMENT_SERVICE_SYNC_TOKEN"))
+                .count();
+        assertEquals(2, errores);
+        assertTrue(registro.list.stream().noneMatch(e -> e.getLevel() == Level.WARN));
     }
 }

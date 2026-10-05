@@ -26,8 +26,6 @@ public class BookingWebSocketController {
 
     @MessageMapping("/select-seat/{flightId}")
     public void processSeatSelection(@DestinationVariable UUID flightId, SeatMessageRequest request, Principal principal) {
-        System.out.println("📥 [WebSocket] Recibida selección para vuelo: " + flightId + " asiento ID: " + request.getSeatUuid());
-
         Long userId = Long.valueOf(principal.getName());
 
         // Ahora el servicio bloquea usando el ID del asiento directamente
@@ -44,8 +42,6 @@ public class BookingWebSocketController {
                 .build();
 
         String destination = "/topic/flight/" + flightId;
-        System.out.println("📡 [WebSocket] Haciendo broadcast a: " + destination);
-
         messagingTemplate.convertAndSend(destination, response);
     }
 
@@ -68,8 +64,6 @@ public class BookingWebSocketController {
     public void processSeatDeselection(@DestinationVariable UUID flightId, SeatMessageRequest request, Principal principal) {
 
         Long userId = Long.valueOf(principal.getName());
-
-        System.out.println("🔥 BACKEND RECIBIÓ DESELECCIÓN: Asiento ID=" + request.getSeatUuid() + ", Usuario=" + userId);
 
         // Desbloquear usando el ID único
         Seat seatUpdated = seatService.unblockSeat(

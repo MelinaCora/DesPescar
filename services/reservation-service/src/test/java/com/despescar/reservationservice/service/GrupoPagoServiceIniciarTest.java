@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
@@ -27,12 +28,14 @@ import com.despescar.reservationservice.repository.BookingRepository;
 import com.despescar.reservationservice.repository.GrupoPagoRepository;
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -245,5 +248,56 @@ class GrupoPagoServiceIniciarTest {
 
         assertEquals(new BigDecimal("120000.00"), grupo.partes().get(1).monto());
         assertNull(grupo.motivoCierre());
+    }
+
+    @Test
+    void siUnPagoConfirmoLaReservaMientrasSeAlargabaNoSeTocanSusRetenciones() {
+        Reservation confirmada = carrito(new BigDecimal("900000.00"));
+        confirmada.setEstado(ReservationStatus.CONFIRMADA);
+        when(bookingRepository.findById(12L)).thenReturn(Optional.of(reserva), Optional.of(confirmada));
+        when(bookingRepository.findByIdForUpdate(12L)).thenReturn(Optional.of(confirmada));
+
+        BookingException ex = assertThrows(BookingException.class, () -> service.iniciar(12L, 3, 7L));
+
+        assertEquals("ESTADO_INVALIDO", ex.getCodigo());
+        verify(inventario, never()).volverAlVencimiento(any(Reservation.class), any());
+        verify(inventario, never()).liberarRetenciones(any());
+    }
+
+    @Test
+    void siElPlazoAnteriorYaPasoLaCompensacionNoLiberaLasRetenciones() {
+        AtomicReference<Instant> ahora = new AtomicReference<>(RELOJ.instant());
+        Clock reloj = new Clock() {
+            @Override
+            public ZoneId getZone() {
+                return ZONA;
+            }
+
+            @Override
+            public Clock withZone(ZoneId zona) {
+                return this;
+            }
+
+            @Override
+            public Instant instant() {
+                return ahora.get();
+            }
+        };
+        service = new GrupoPagoService(bookingRepository, grupoRepository,
+                new CarritoSoporte(bookingRepository, reloj, transactionManager, inventario), inventario, new GrupoMapper(reloj),
+                new TokenEnlace(), new TransactionTemplate(transactionManager), cierre);
+        // el hotel tarda y el carrito vence mientras tanto
+        doAnswer(inv -> {
+            ahora.set(RELOJ.instant().plus(Duration.ofMinutes(11)));
+            return null;
+        }).when(inventario).cambiarVencimientoRetenciones(any(), any(), any());
+
+        BookingException ex = assertThrows(BookingException.class, () -> service.iniciar(12L, 3, 7L));
+
+        assertEquals("CARRITO_EXPIRADO", ex.getCodigo());
+        // las libera BookingScheduler al marcarla EXPIRADA con la fila bloqueada
+        verify(inventario, never()).volverAlVencimiento(any(Reservation.class), any());
+        verify(inventario, never()).liberarRetenciones(any());
+        verify(inventario, never()).liberarRetencion(any());
     }
 }

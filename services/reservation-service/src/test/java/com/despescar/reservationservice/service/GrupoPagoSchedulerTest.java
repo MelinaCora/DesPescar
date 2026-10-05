@@ -19,6 +19,7 @@ import com.despescar.reservationservice.exception.BookingException;
 import com.despescar.reservationservice.repository.BookingRepository;
 import com.despescar.reservationservice.repository.GrupoPagoRepository;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -61,7 +62,8 @@ class GrupoPagoSchedulerTest {
     @BeforeEach
     void setUp() {
         scheduler = new GrupoPagoScheduler(grupoRepository, cierre, pagoParteService, paymentClient,
-                new CarritoSoporte(bookingRepository, RELOJ, transactionManager, inventario), new TransactionTemplate(transactionManager));
+                new CarritoSoporte(bookingRepository, RELOJ, transactionManager, inventario), new TransactionTemplate(transactionManager),
+                Duration.ofMinutes(30));
         grupo = new GrupoPago();
         grupo.setId(30L);
         grupo.setReservation(Reservation.builder().id(12L).creadorId(7L).build());
@@ -140,5 +142,57 @@ class GrupoPagoSchedulerTest {
         scheduler.pedirReembolsos();
 
         verifyNoInteractions(cierre, pagoParteService, paymentClient);
+    }
+
+    private void completoSinPoderConfirmar() {
+        grupo.setEstado(EstadoGrupo.COMPLETO);
+        grupo.setMotivoCierre(null);
+        grupo.setReembolsosPendientes(false);
+        when(grupoRepository.idsSinCambiosDesde(EstadoGrupo.COMPLETO, AHORA.minusMinutes(2))).thenReturn(List.of(30L));
+        when(pagoParteService.finalizar(30L, 12L))
+                .thenThrow(new BookingException("HOTEL_SERVICE_UNAVAILABLE", "caido", HttpStatus.SERVICE_UNAVAILABLE));
+    }
+
+    @Test
+    void unGrupoCompletoQueNoSePudoConfirmarEnElPlazoSeCancelaParaReembolsar() {
+        completoSinPoderConfirmar();
+        grupo.setCompletoDesde(AHORA.minusMinutes(30));
+
+        scheduler.reintentarConfirmaciones();
+
+        verify(pagoParteService).finalizar(30L, 12L);
+        verify(cierre).cancelarSinConfirmar(30L, GrupoCierre.MOTIVO_SIN_CONFIRMAR);
+    }
+
+    @Test
+    void dentroDelPlazoElGrupoCompletoSoloSeReintenta() {
+        completoSinPoderConfirmar();
+        grupo.setCompletoDesde(AHORA.minusMinutes(29));
+
+        scheduler.reintentarConfirmaciones();
+
+        verifyNoInteractions(cierre);
+    }
+
+    @Test
+    void sinLaFechaDeCompletoElPlazoSeCuentaDesdeElUltimoCambio() {
+        completoSinPoderConfirmar();
+        grupo.setActualizadoEn(AHORA.minusHours(2));
+
+        scheduler.reintentarConfirmaciones();
+
+        verify(cierre).cancelarSinConfirmar(30L, GrupoCierre.MOTIVO_SIN_CONFIRMAR);
+    }
+
+    @Test
+    void siElUltimoReintentoConfirmaNoSeCancelaAunquePasoElPlazo() {
+        grupo.setEstado(EstadoGrupo.COMPLETO);
+        grupo.setCompletoDesde(AHORA.minusHours(2));
+        when(grupoRepository.idsSinCambiosDesde(EstadoGrupo.COMPLETO, AHORA.minusMinutes(2))).thenReturn(List.of(30L));
+
+        scheduler.reintentarConfirmaciones();
+
+        verify(pagoParteService).finalizar(30L, 12L);
+        verifyNoInteractions(cierre);
     }
 }

@@ -1,7 +1,9 @@
 package com.despescar.reservationservice.service;
 
 import com.despescar.reservationservice.entity.Seat;
+import com.despescar.reservationservice.enums.ReservationStatus;
 import com.despescar.reservationservice.exception.BookingException;
+import com.despescar.reservationservice.repository.BookingRepository;
 import com.despescar.reservationservice.repository.SeatRepository;
 import java.time.Clock;
 import java.time.Duration;
@@ -22,6 +24,7 @@ public class SeatService {
     private static final Duration BLOQUEO = Duration.ofMinutes(15);
 
     private final SeatRepository seatRepository;
+    private final BookingRepository bookingRepository;
     private final Clock clock;
 
     public List<Seat> fetchSeatByFlight(UUID flightId) {
@@ -62,7 +65,10 @@ public class SeatService {
         return seatRepository.save(seat);
     }
 
-    /** Solo se suelta un bloqueo temporal propio: un asiento pagado (OCUPADO) no se libera desde el mapa. */
+    /**
+     * Solo se suelta un bloqueo temporal propio: un asiento pagado (OCUPADO) no se libera desde el mapa,
+     * y tampoco el de una reserva que se está pagando en grupo (queda congelada hasta que el grupo cierre).
+     */
     @Transactional
     public Seat unblockSeat(UUID seatUuid, Long userId) {
         Seat seat = buscar(seatUuid);
@@ -73,6 +79,11 @@ public class SeatService {
         if (!InventarioCarrito.RESERVADO_TEMPORAL.equals(seat.getStatusSeat())) {
             throw new BookingException("ASIENTO_OCUPADO",
                     "El asiento ya está pagado y no se puede liberar.", HttpStatus.CONFLICT);
+        }
+        if (seat.getReservaId() != null && bookingRepository.findById(seat.getReservaId())
+                .filter(r -> r.getEstado() == ReservationStatus.ESPERANDO_PAGADORES).isPresent()) {
+            throw new BookingException("PAGO_EN_GRUPO_EN_CURSO",
+                    "No podés cambiar los asientos mientras el grupo está pagando.", HttpStatus.CONFLICT);
         }
         seat.setStatusSeat(InventarioCarrito.DISPONIBLE);
         seat.setBlockedByUserId(null);

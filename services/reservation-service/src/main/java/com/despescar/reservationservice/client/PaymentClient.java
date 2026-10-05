@@ -40,8 +40,8 @@ public class PaymentClient {
         this.paymentServiceUrl = paymentServiceUrl.endsWith("/")
                 ? paymentServiceUrl.substring(0, paymentServiceUrl.length() - 1) : paymentServiceUrl;
         this.syncToken = syncToken;
-        if (syncToken == null || syncToken.isBlank()) {
-            log.warn("payment-service.sync-token esta vacio: payment-service va a rechazar con 401 los reembolsos "
+        if (sinToken()) {
+            log.error("payment-service.sync-token esta vacio: payment-service va a rechazar con 401 los reembolsos "
                     + "de pagos en grupo. Configurar PAYMENT_SERVICE_SYNC_TOKEN.");
         }
     }
@@ -65,6 +65,7 @@ public class PaymentClient {
             }
             return respuesta.getBody();
         } catch (HttpStatusCodeException ex) {
+            avisarSiFaltaElToken(reservaId);
             int status = ex.getStatusCode().value();
             if (status == 401 || status == 403) {
                 log.error("Payment-Service rechazo el token interno con estado {}: probablemente PAYMENT_SERVICE_SYNC_TOKEN "
@@ -73,9 +74,11 @@ public class PaymentClient {
             throw new BookingException("PAYMENT_SERVICE_ERROR",
                     "Payment-Service rechazo el pedido de reembolsos (HTTP " + status + ").", HttpStatus.BAD_GATEWAY);
         } catch (ResourceAccessException ex) {
+            avisarSiFaltaElToken(reservaId);
             throw new BookingException("PAYMENT_SERVICE_UNAVAILABLE",
                     "No fue posible comunicarse con Payment-Service.", HttpStatus.SERVICE_UNAVAILABLE);
         } catch (RestClientException ex) {
+            avisarSiFaltaElToken(reservaId);
             log.error("Error inesperado llamando a Payment-Service", ex);
             throw new BookingException("PAYMENT_SERVICE_ERROR",
                     "Se produjo un error al comunicarse con Payment-Service.", HttpStatus.BAD_GATEWAY);
@@ -85,9 +88,22 @@ public class PaymentClient {
     private HttpHeaders headers() {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        if (syncToken != null && !syncToken.isBlank()) {
+        if (!sinToken()) {
             headers.set(INTERNAL_TOKEN_HEADER, syncToken);
         }
         return headers;
+    }
+
+    private boolean sinToken() {
+        return syncToken == null || syncToken.isBlank();
+    }
+
+    /** Sin token los reembolsos no salen nunca: cada pedido fallido lo deja a la vista como error. */
+    private void avisarSiFaltaElToken(Long reservaId) {
+        if (sinToken()) {
+            log.error("El pedido de reembolsos de la reserva {} fallo y payment-service.sync-token esta vacio: sin ese token "
+                    + "payment-service rechaza todos los pedidos. Configurar PAYMENT_SERVICE_SYNC_TOKEN (el mismo valor "
+                    + "en los dos servicios).", reservaId);
+        }
     }
 }

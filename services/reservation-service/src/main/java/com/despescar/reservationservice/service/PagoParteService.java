@@ -138,6 +138,7 @@ public class PagoParteService {
                     Siguiente.CERRAR_POR_MONTO, grupo.getId());
         }
         grupo.setEstado(EstadoGrupo.COMPLETO);
+        grupo.setCompletoDesde(soporte.ahora());
         grupo.setActualizadoEn(soporte.ahora());
         return new Registro(null, Siguiente.CONFIRMAR, grupo.getId());
     }
@@ -150,7 +151,8 @@ public class PagoParteService {
     /**
      * Confirma la reserva de un grupo COMPLETO (D-b11) y cierra el grupo según el resultado. Sin
      * transacción abierta. La usan la última parte, su reintento y el scheduler (D-b15). Si
-     * hotel-service falla, la excepción se propaga y el grupo sigue COMPLETO para reintentar.
+     * hotel-service falla, la excepción se propaga y el grupo sigue COMPLETO para reintentar (el
+     * scheduler deja de reintentar al pasar el plazo de confirmación y lo cancela).
      */
     public ConfirmacionPagoResponse finalizar(Long grupoId, Long reservaId) {
         ConfirmacionPagoResponse resultado = bookingService.confirmarReservaPagada(reservaId, "GRUPO-" + grupoId);
@@ -169,10 +171,15 @@ public class PagoParteService {
             cierre.marcarCanceladoTrasConfirmar(grupoId, resultado.motivo());
             return resultado;
         }
-        // RECHAZADA no debería pasar (el carrito está congelado con sus datos completos): no se cierra
-        // nada a ciegas; el grupo queda COMPLETO, se reintenta y queda en el log para revisarlo.
+        // RECHAZADA no debería pasar (el carrito está congelado con sus datos completos) y reintentar no la
+        // cambia: se cancela la reserva y se reembolsa a todos. Si justo otra confirmación la confirmó, el
+        // cierre no hace nada y el reintento encuentra la reserva CONFIRMADA.
         log.error("La reserva {} del pago en grupo {} no se pudo confirmar: {} {}", reservaId, grupoId,
                 resultado.estado(), resultado.motivo());
+        if (cierre.cancelarSinConfirmar(grupoId, GrupoCierre.MOTIVO_SIN_CONFIRMAR)) {
+            return ConfirmacionPagoResponse.cancelada(GrupoCierre.MOTIVO_SIN_CONFIRMAR,
+                    "No se pudo confirmar la reserva. Se reembolsa a todos.");
+        }
         throw new BookingException("CONFIRMACION_DE_GRUPO_FALLIDA",
                 "No se pudo confirmar la reserva del pago en grupo.", HttpStatus.SERVICE_UNAVAILABLE);
     }
