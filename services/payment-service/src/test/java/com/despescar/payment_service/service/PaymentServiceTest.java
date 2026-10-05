@@ -3,7 +3,9 @@ package com.despescar.payment_service.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.AccessDeniedException;
 
 import com.despescar.payment_service.client.ReservationClient;
 import com.despescar.payment_service.client.dto.ReservationResponse;
@@ -36,6 +39,8 @@ import com.despescar.payment_service.repository.PaymentRepository;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentServiceTest {
+
+    private static final BigDecimal TOTAL = new BigDecimal("1060000.00");
 
     @Mock
     private PaymentRepository paymentRepository;
@@ -56,61 +61,125 @@ class PaymentServiceTest {
     private PaymentService paymentService;
 
     @Test
-    void createPaymentShouldPersistPendingPaymentAndReturnCheckoutUrl() {
+    void cobraElMontoTotalDelCarritoEnPesosYDevuelveElCheckout() {
         PaymentRequest request = paymentRequest();
-        ReservationResponse reservation = reservationResponse(55L, "ARS");
-        Payment mappedPayment = payment(request.getReservationId(), 55L);
-        PaymentResponse mappedResponse = PaymentResponse.builder()
-                .id(UUID.randomUUID())
-                .reservationId(request.getReservationId())
-                .userId(55L)
-                .amount(new BigDecimal("15000.00"))
-                .status(PaymentStatus.PENDING)
-                .preferenceId("pref-123")
-                .checkoutUrl("https://checkout.test/payments/123")
-                .currency("ARS")
-                .createdAt(LocalDateTime.now())
-                .build();
-
-        when(reservationClient.getReservation(request.getReservationId())).thenReturn(reservation);
-        when(paymentMapper.toEntity(request, new BigDecimal("15000.00"), "ARS", 55L)).thenReturn(mappedPayment);
-        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
-            Payment payment = invocation.getArgument(0);
-            if (payment.getId() == null) {
-                payment.setId(UUID.randomUUID());
-            }
-            return payment;
-        });
-        when(paymentGatewayService.createCheckout(any(), eq(new BigDecimal("15000.00")), eq("ARS")))
-                .thenReturn(PaymentCheckoutResponse.builder()
-                        .preferenceId("pref-123")
-                        .checkoutUrl("https://checkout.test/payments/123")
-                        .message("ok")
-                        .build());
-        when(paymentMapper.toResponse(any(Payment.class))).thenReturn(mappedResponse);
-
+        Payment mapped = payment(77L, 55L, PaymentStatus.PENDING, TOTAL);
+        when(reservationClient.getReservation(77L)).thenReturn(carrito(55L, "PENDIENTE_PAGO", 600L, TOTAL, "ARS"));
         when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MOCK);
-        PaymentResponse response = paymentService.createPayment(request, 55L);
+        when(paymentRepository.findByReservationId(77L)).thenReturn(List.of());
+        when(paymentMapper.toEntity(request, TOTAL, "ARS", 55L)).thenReturn(mapped);
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
+            Payment p = invocation.getArgument(0);
+            if (p.getId() == null) {
+                p.setId(UUID.randomUUID());
+            }
+            return p;
+        });
+        when(paymentGatewayService.createCheckout(anyString(), eq(TOTAL), eq("ARS")))
+                .thenAnswer(inv -> PaymentCheckoutResponse.builder()
+                        .preferenceId("MOCK-PREF-" + inv.getArgument(0))
+                        .checkoutUrl("/pago/simulado?pago=" + inv.getArgument(0))
+                        .build());
+        when(paymentMapper.toResponse(any(Payment.class))).thenReturn(PaymentResponse.builder().build());
 
-        assertThat(response.getCheckoutUrl()).isEqualTo("https://checkout.test/payments/123");
-        assertThat(mappedPayment.getStatus()).isEqualTo(PaymentStatus.PENDING);
-        assertThat(mappedPayment.getProvider()).isEqualTo(PaymentProvider.MOCK);
-        assertThat(mappedPayment.getPreferenceId()).isEqualTo("pref-123");
-        assertThat(mappedPayment.getCheckoutUrl()).isEqualTo("https://checkout.test/payments/123");
+        paymentService.createPayment(request, 55L);
+
+        assertThat(mapped.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(mapped.getProvider()).isEqualTo(PaymentProvider.MOCK);
+        assertThat(mapped.getCheckoutUrl()).isEqualTo("/pago/simulado?pago=" + mapped.getId());
         verify(paymentRepository, times(2)).save(any(Payment.class));
-        verify(paymentHistoryService).saveHistory(mappedPayment, PaymentStatus.PENDING, "Payment created and is pending.");
+        verify(paymentHistoryService).saveHistory(mapped, PaymentStatus.PENDING, "Payment created and is pending.");
     }
 
     @Test
-    void createPaymentShouldRejectReservationWithoutCurrency() {
-        PaymentRequest request = paymentRequest();
-        ReservationResponse reservation = reservationResponse(55L, null);
+    void soloPagaElCreadorDelCarrito() {
+        when(reservationClient.getReservation(77L)).thenReturn(carrito(99L, "PENDIENTE_PAGO", 600L, TOTAL, "ARS"));
 
-        when(reservationClient.getReservation(request.getReservationId())).thenReturn(reservation);
+        assertThatThrownBy(() -> paymentService.createPayment(paymentRequest(), 55L))
+                .isInstanceOf(AccessDeniedException.class);
+        verify(paymentRepository, never()).save(any());
+    }
 
-        assertThatThrownBy(() -> paymentService.createPayment(request, 55L))
+    @Test
+    void soloSePagaUnCarritoEnPendientePagoSinVencer() {
+        when(reservationClient.getReservation(77L))
+                .thenReturn(carrito(55L, "INICIADA", 600L, TOTAL, "ARS"))
+                .thenReturn(carrito(55L, "PENDIENTE_PAGO", 0L, TOTAL, "ARS"))
+                .thenReturn(carrito(55L, "CONFIRMADA", 0L, TOTAL, "ARS"));
+
+        assertThatThrownBy(() -> paymentService.createPayment(paymentRequest(), 55L))
+                .isInstanceOf(InvalidPaymentStateException.class).hasMessageContaining("INICIADA");
+        assertThatThrownBy(() -> paymentService.createPayment(paymentRequest(), 55L))
+                .isInstanceOf(InvalidPaymentStateException.class).hasMessageContaining("vencio");
+        assertThatThrownBy(() -> paymentService.createPayment(paymentRequest(), 55L))
+                .isInstanceOf(InvalidPaymentStateException.class);
+        verify(paymentRepository, never()).save(any());
+    }
+
+    @Test
+    void sinMonedaEnPesosOSinMontoResponde422() {
+        when(reservationClient.getReservation(77L))
+                .thenReturn(carrito(55L, "PENDIENTE_PAGO", 600L, TOTAL, null))
+                .thenReturn(carrito(55L, "PENDIENTE_PAGO", 600L, TOTAL, "USD"))
+                .thenReturn(carrito(55L, "PENDIENTE_PAGO", 600L, BigDecimal.ZERO, "ARS"));
+
+        assertThatThrownBy(() -> paymentService.createPayment(paymentRequest(), 55L))
                 .isInstanceOf(ReservationAmountResolutionException.class)
                 .hasMessage("La reserva no define una moneda unica para calcular el pago.");
+        assertThatThrownBy(() -> paymentService.createPayment(paymentRequest(), 55L))
+                .isInstanceOf(ReservationAmountResolutionException.class).hasMessageContaining("ARS");
+        assertThatThrownBy(() -> paymentService.createPayment(paymentRequest(), 55L))
+                .isInstanceOf(ReservationAmountResolutionException.class);
+    }
+
+    @Test
+    void unDobleClicDevuelveElMismoPagoPendiente() {
+        Payment previo = payment(77L, 55L, PaymentStatus.PENDING, TOTAL);
+        previo.setId(UUID.randomUUID());
+        previo.setProvider(PaymentProvider.MOCK);
+        previo.setCheckoutUrl("/pago/simulado?pago=" + previo.getId());
+        PaymentResponse respuesta = PaymentResponse.builder().id(previo.getId()).build();
+        when(reservationClient.getReservation(77L)).thenReturn(carrito(55L, "PENDIENTE_PAGO", 600L, TOTAL, "ARS"));
+        when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MOCK);
+        when(paymentRepository.findByReservationId(77L)).thenReturn(List.of(previo));
+        when(paymentMapper.toResponse(previo)).thenReturn(respuesta);
+
+        PaymentResponse r = paymentService.createPayment(paymentRequest(), 55L);
+
+        assertThat(r.getId()).isEqualTo(previo.getId());
+        verify(paymentGatewayService, never()).createCheckout(any(), any(), any());
+        verify(paymentRepository, never()).save(any());
+    }
+
+    @Test
+    void siCambioElTotalCancelaElPendienteAnteriorYCreaOtro() {
+        PaymentRequest request = paymentRequest();
+        Payment viejo = payment(77L, 55L, PaymentStatus.PENDING, new BigDecimal("480000.00"));
+        viejo.setId(UUID.randomUUID());
+        viejo.setProvider(PaymentProvider.MOCK);
+        viejo.setCheckoutUrl("/pago/simulado?pago=" + viejo.getId());
+        Payment nuevo = payment(77L, 55L, PaymentStatus.PENDING, TOTAL);
+        when(reservationClient.getReservation(77L)).thenReturn(carrito(55L, "PENDIENTE_PAGO", 600L, TOTAL, "ARS"));
+        when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MOCK);
+        when(paymentRepository.findByReservationId(77L)).thenReturn(List.of(viejo));
+        when(paymentMapper.toEntity(request, TOTAL, "ARS", 55L)).thenReturn(nuevo);
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> {
+            Payment p = invocation.getArgument(0);
+            if (p.getId() == null) {
+                p.setId(UUID.randomUUID());
+            }
+            return p;
+        });
+        when(paymentGatewayService.createCheckout(anyString(), eq(TOTAL), eq("ARS")))
+                .thenReturn(PaymentCheckoutResponse.builder().preferenceId("p").checkoutUrl("/pago/simulado?pago=x").build());
+        when(paymentMapper.toResponse(any(Payment.class))).thenReturn(PaymentResponse.builder().build());
+
+        paymentService.createPayment(request, 55L);
+
+        assertThat(viejo.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+        verify(paymentHistoryService).saveHistory(viejo, PaymentStatus.CANCELLED,
+                "Reemplazado por un pago nuevo: cambio el total del carrito.");
+        assertThat(nuevo.getStatus()).isEqualTo(PaymentStatus.PENDING);
     }
 
     @Test
@@ -125,29 +194,25 @@ class PaymentServiceTest {
 
     @Test
     void getPaymentsByReservationShouldReturnAllMatches() {
-        Long reservationId = 99L;
-        Payment firstPayment = payment(reservationId, 11L);
-        firstPayment.setId(UUID.randomUUID());
-        Payment secondPayment = payment(reservationId, 11L);
-        secondPayment.setId(UUID.randomUUID());
+        Payment first = payment(99L, 11L, PaymentStatus.PENDING, TOTAL);
+        first.setId(UUID.randomUUID());
+        Payment second = payment(99L, 11L, PaymentStatus.PENDING, TOTAL);
+        second.setId(UUID.randomUUID());
 
-        when(paymentRepository.findByReservationId(reservationId)).thenReturn(List.of(firstPayment, secondPayment));
-        when(paymentMapper.toResponse(firstPayment)).thenReturn(PaymentResponse.builder().id(firstPayment.getId()).build());
-        when(paymentMapper.toResponse(secondPayment)).thenReturn(PaymentResponse.builder().id(secondPayment.getId()).build());
+        when(paymentRepository.findByReservationId(99L)).thenReturn(List.of(first, second));
+        when(paymentMapper.toResponse(first)).thenReturn(PaymentResponse.builder().id(first.getId()).build());
+        when(paymentMapper.toResponse(second)).thenReturn(PaymentResponse.builder().id(second.getId()).build());
 
-        List<PaymentResponse> responses = paymentService.getPaymentsByReservation(reservationId, 11L);
+        List<PaymentResponse> responses = paymentService.getPaymentsByReservation(99L, 11L);
 
-        assertThat(responses).hasSize(2);
-        assertThat(responses).extracting(PaymentResponse::getId)
-                .containsExactly(firstPayment.getId(), secondPayment.getId());
+        assertThat(responses).extracting(PaymentResponse::getId).containsExactly(first.getId(), second.getId());
     }
 
     @Test
     void cancelPaymentShouldRejectNonPendingPayments() {
         UUID paymentId = UUID.randomUUID();
-        Payment payment = payment(88L, 11L);
+        Payment payment = payment(88L, 11L, PaymentStatus.APPROVED, TOTAL);
         payment.setId(paymentId);
-        payment.setStatus(PaymentStatus.APPROVED);
 
         when(paymentRepository.findById(paymentId)).thenReturn(Optional.of(payment));
 
@@ -159,9 +224,8 @@ class PaymentServiceTest {
     @Test
     void cancelPaymentShouldUpdateStatusAndWriteHistory() {
         UUID paymentId = UUID.randomUUID();
-        Payment payment = payment(88L, 11L);
+        Payment payment = payment(88L, 11L, PaymentStatus.PENDING, TOTAL);
         payment.setId(paymentId);
-        payment.setStatus(PaymentStatus.PENDING);
 
         when(paymentRepository.findById(paymentId)).thenReturn(Optional.of(payment));
         when(paymentRepository.save(payment)).thenReturn(payment);
@@ -178,40 +242,28 @@ class PaymentServiceTest {
     }
 
     private PaymentRequest paymentRequest() {
-        return PaymentRequest.builder()
-                .reservationId(77L)
-                .build();
+        return PaymentRequest.builder().reservationId(77L).build();
     }
 
-    private Payment payment(Long reservationId, Long userId) {
+    private Payment payment(Long reservationId, Long userId, PaymentStatus status, BigDecimal amount) {
         return Payment.builder()
                 .reservationId(reservationId)
                 .userId(userId)
-                .amount(new BigDecimal("15000.00"))
-                .status(PaymentStatus.PENDING)
+                .amount(amount)
+                .status(status)
                 .currency("ARS")
-                .provider(PaymentProvider.MERCADO_PAGO)
                 .createdAt(LocalDateTime.now())
                 .build();
     }
 
-    private ReservationResponse reservationResponse(Long userId, String currency) {
-        ReservationResponse response = new ReservationResponse();
-        response.setIdCarrito(77L);
-        response.setMoneda(currency);
-        response.setMontoTotal(new BigDecimal("15000.00"));
-
-        ReservationResponse.SeatDetail firstSeat = new ReservationResponse.SeatDetail();
-        firstSeat.setPagadorId(userId);
-        firstSeat.setPrecioCobrado(new BigDecimal("10000.00"));
-        firstSeat.setEstadoPago("PENDIENTE");
-
-        ReservationResponse.SeatDetail secondSeat = new ReservationResponse.SeatDetail();
-        secondSeat.setPagadorId(userId);
-        secondSeat.setPrecioCobrado(new BigDecimal("5000.00"));
-        secondSeat.setEstadoPago("PENDIENTE");
-
-        response.setAsientos(List.of(firstSeat, secondSeat));
-        return response;
+    private ReservationResponse carrito(Long creadorId, String estado, Long segundos, BigDecimal monto, String moneda) {
+        ReservationResponse r = new ReservationResponse();
+        r.setIdCarrito(77L);
+        r.setCreadorId(creadorId);
+        r.setEstadoGeneral(estado);
+        r.setSegundosRestantes(segundos);
+        r.setMontoTotal(monto);
+        r.setMoneda(moneda);
+        return r;
     }
 }

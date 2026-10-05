@@ -282,15 +282,11 @@ class PaymentControllerIntegrationTest {
     private ReservationResponse reservationResponse(Long userId, String currency) {
         ReservationResponse response = new ReservationResponse();
         response.setIdCarrito(91L);
+        response.setCreadorId(userId);
+        response.setEstadoGeneral("PENDIENTE_PAGO");
+        response.setSegundosRestantes(600L);
         response.setMoneda(currency);
         response.setMontoTotal(new BigDecimal("1250.50"));
-
-        ReservationResponse.SeatDetail seat = new ReservationResponse.SeatDetail();
-        seat.setPagadorId(userId);
-        seat.setPrecioCobrado(new BigDecimal("1250.50"));
-        seat.setEstadoPago("PENDIENTE");
-
-        response.setAsientos(List.of(seat));
         return response;
     }
 
