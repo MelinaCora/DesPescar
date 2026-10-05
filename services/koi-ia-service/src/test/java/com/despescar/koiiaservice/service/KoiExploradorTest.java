@@ -23,7 +23,6 @@ import com.despescar.koiiaservice.exception.KoiCatalogUnavailableException;
 import com.despescar.koiiaservice.recomendador.HabitacionCandidata;
 import com.despescar.koiiaservice.recomendador.HotelCandidato;
 import com.despescar.koiiaservice.recomendador.VueloCandidato;
-import com.despescar.koiiaservice.recomendador.VueloProgramado;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -72,16 +71,25 @@ class KoiExploradorTest {
                 HOY);
     }
 
+    /** La ruta tiene vuelo ese día: el catálogo lo devuelve si cae en el rango pedido. */
+    private void ruta(String origen, String destino, LocalDate fecha) {
+        when(catalogo.fechasConVuelo(eq(origen), eq(destino), any(), any())).thenAnswer(inv -> {
+            LocalDate desde = inv.getArgument(2);
+            LocalDate hasta = inv.getArgument(3);
+            return fecha.isBefore(desde) || fecha.isAfter(hasta) ? List.<LocalDate>of() : List.of(fecha);
+        });
+    }
+
     @BeforeEach
     void setUp() {
         when(catalogo.destinos()).thenReturn(List.of("Buenos Aires", "Córdoba", "Mendoza", BARILOCHE));
         when(catalogo.aeropuertos()).thenReturn(List.of(aeropuerto("AEP", "Buenos Aires"),
                 aeropuerto("EZE", "Buenos Aires"), aeropuerto("COR", "Córdoba"), aeropuerto("MDZ", "Mendoza"),
                 aeropuerto("BRC", BARILOCHE)));
-        when(catalogo.vuelosProgramados()).thenReturn(List.of(
-                new VueloProgramado("AEP", "COR", D19), new VueloProgramado("COR", "AEP", D22),
-                new VueloProgramado("AEP", "MDZ", D19), new VueloProgramado("MDZ", "AEP", D22),
-                new VueloProgramado("AEP", "BRC", D19), new VueloProgramado("BRC", "AEP", D22)));
+        for (String codigo : List.of("COR", "MDZ", "BRC")) {
+            ruta("AEP", codigo, D19);
+            ruta(codigo, "AEP", D22);
+        }
         // Córdoba 100+100 de vuelo + 3 noches x 1000 = 3200; Mendoza 5100; Bariloche 1.000.400
         doReturn(vuelos("COR", "100")).when(catalogo).vuelos(anyString(), eq("Córdoba"), any(), any(), anyInt());
         doReturn(hoteles("Córdoba", "1000")).when(catalogo).hoteles(eq("Córdoba"), any(), any(), anyInt());
@@ -150,7 +158,7 @@ class KoiExploradorTest {
 
     @Test
     void sinDestinosConVuelosNoHayOpciones() {
-        when(catalogo.vuelosProgramados()).thenReturn(List.of());
+        when(catalogo.fechasConVuelo(anyString(), anyString(), any(), any())).thenReturn(List.of());
 
         assertTrue(explorador.explorar(pedido("10000", 1, null, null)).isEmpty());
         verify(catalogo, never()).vuelos(anyString(), anyString(), any(), any(), anyInt());
@@ -173,5 +181,45 @@ class KoiExploradorTest {
 
         assertEquals(2, opciones.size());
         verify(catalogo).vuelos("Buenos Aires", "Córdoba", D19, D22, 1);
+    }
+
+    @Test
+    void preguntaLasFechasDeCadaRutaEnLaVentanaYLasVueltasCercaDeLasIdas() {
+        explorador.explorar(pedido("10000", 1, null, null));
+
+        // idas: de mañana a 60 días, por cada aeropuerto de origen; vueltas: desde el día siguiente
+        // a la ida encontrada hasta las noches por defecto más el margen
+        verify(catalogo).fechasConVuelo("AEP", "COR", HOY.plusDays(1), HOY.plusDays(60));
+        verify(catalogo).fechasConVuelo("EZE", "COR", HOY.plusDays(1), HOY.plusDays(60));
+        verify(catalogo).fechasConVuelo("COR", "AEP", D19.plusDays(1), D19.plusDays(6));
+        verify(catalogo).fechasConVuelo("COR", "EZE", D19.plusDays(1), D19.plusDays(6));
+    }
+
+    @Test
+    void siUnDestinoNoTieneIdasNoSePreguntanSusVueltas() {
+        when(catalogo.fechasConVuelo(eq("AEP"), eq("MDZ"), any(), any())).thenReturn(List.of());
+
+        explorador.explorar(pedido("10000", 1, null, null));
+
+        verify(catalogo, never()).fechasConVuelo(eq("MDZ"), anyString(), any(), any());
+        verify(catalogo, never()).vuelos(anyString(), eq("Mendoza"), any(), any(), anyInt());
+    }
+
+    @Test
+    void siLasFechasDeUnDestinoNoSePuedenConsultarSeSaltaYSeSigue() {
+        when(catalogo.fechasConVuelo(eq("AEP"), eq("MDZ"), any(), any()))
+                .thenThrow(new KoiCatalogUnavailableException("caído", null));
+
+        List<KoiRecommendationResponse> opciones = explorador.explorar(pedido("10000", 1, null, null));
+
+        assertEquals(List.of("Córdoba"), opciones.stream().map(o -> o.hotel().ciudad()).toList());
+    }
+
+    @Test
+    void siNingunaRutaSePuedeConsultarElCatalogoEstaCaido() {
+        when(catalogo.fechasConVuelo(anyString(), anyString(), any(), any()))
+                .thenThrow(new KoiCatalogUnavailableException("caído", null));
+
+        assertThrows(KoiCatalogUnavailableException.class, () -> explorador.explorar(pedido("10000", 1, null, null)));
     }
 }

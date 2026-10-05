@@ -134,4 +134,28 @@ class CatalogoClientsTest {
 
         assertThrows(KoiCatalogUnavailableException.class, () -> client.detalle(HOTEL, IDA, VUELTA, 2));
     }
+
+    @Test
+    void pideSoloLasFechasConVuelosDeUnaRuta() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://vuelos");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        CatalogoVuelosClient client = new CatalogoVuelosClient(builder);
+        server.expect(requestTo(
+                        "http://vuelos/api/flights/fechas?origin=AEP&destination=COR&desde=2026-11-02&hasta=2026-12-31"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("[\"2026-11-19\",\"2026-11-22\"]", MediaType.APPLICATION_JSON));
+        server.expect(requestTo(
+                        "http://vuelos/api/flights/fechas?origin=AEP&destination=COR&desde=2026-11-02&hasta=2026-12-31"))
+                .andRespond(withSuccess());
+        server.expect(requestTo(
+                        "http://vuelos/api/flights/fechas?origin=AEP&destination=COR&desde=2026-11-02&hasta=2026-12-31"))
+                .andRespond(withServerError());
+        LocalDate desde = LocalDate.of(2026, 11, 2);
+        LocalDate hasta = LocalDate.of(2026, 12, 31);
+
+        assertEquals(List.of(IDA, VUELTA), client.fechas("AEP", "COR", desde, hasta));
+        assertEquals(List.of(), client.fechas("AEP", "COR", desde, hasta));
+        assertThrows(KoiCatalogUnavailableException.class, () -> client.fechas("AEP", "COR", desde, hasta));
+        server.verify();
+    }
 }
