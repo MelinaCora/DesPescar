@@ -1,6 +1,7 @@
 package com.despescar.reservationservice.service;
 
 import com.despescar.reservationservice.entity.Reservation;
+import com.despescar.reservationservice.enums.PaymentStatus;
 import com.despescar.reservationservice.enums.PaymentType;
 import com.despescar.reservationservice.enums.ReservationStatus;
 import com.despescar.reservationservice.exception.BookingException;
@@ -12,6 +13,10 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Lo que comparten el vuelo, las estadías y los titulares: encontrar el carrito activo, crearlo,
@@ -25,10 +30,12 @@ public class CarritoSoporte {
 
     private final BookingRepository bookingRepository;
     private final Clock clock;
+    private final PlatformTransactionManager gestor;
 
-    public CarritoSoporte(BookingRepository bookingRepository, Clock clock) {
+    public CarritoSoporte(BookingRepository bookingRepository, Clock clock, PlatformTransactionManager gestor) {
         this.bookingRepository = bookingRepository;
         this.clock = clock;
+        this.gestor = gestor;
     }
 
     public LocalDateTime ahora() {
@@ -45,15 +52,39 @@ public class CarritoSoporte {
                 .filter(r -> !vencido(r));
     }
 
-    /** Crea y guarda un carrito vacío: dura 15 minutos desde ahora. */
+    /** El carrito abierto del usuario aunque ya haya vencido (lo cierra el scheduler). */
+    public Optional<Reservation> carritoAbierto(Long usuarioId) {
+        return bookingRepository.findFirstByCreadorIdAndEstadoInOrderByIdDesc(usuarioId, ABIERTOS);
+    }
+
+    /**
+     * Crea y guarda un carrito vacío: dura 15 minutos desde ahora. Se hace en su propia transacción:
+     * un usuario tiene un solo carrito abierto (índice único), así que si otro pedido lo creó primero
+     * (doble clic) se reutiliza ese. Un carrito abierto pero vencido, que el scheduler todavía no
+     * cerró, se cierra acá para no impedir el nuevo; sus retenciones y asientos vencen solos.
+     */
     public Reservation crearCarrito(Long usuarioId) {
-        return bookingRepository.save(Reservation.builder()
-                .creadorId(usuarioId)
-                .cantidadPasajeros(0)
-                .tipoPago(PaymentType.SINGLE_PAYMENT)
-                .estado(ReservationStatus.INICIADA)
-                .limiteTiempo(ahora().plus(DURACION))
-                .build());
+        TransactionTemplate nueva = new TransactionTemplate(gestor);
+        nueva.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        try {
+            return nueva.execute(estado -> {
+                carritoAbierto(usuarioId).filter(this::vencido).ifPresent(vencido -> {
+                    vencido.setEstado(ReservationStatus.EXPIRADA);
+                    vencido.getDetalles().forEach(d -> d.setPaymentStatus(PaymentStatus.CANCELADO));
+                    bookingRepository.saveAndFlush(vencido);
+                });
+                return bookingRepository.saveAndFlush(Reservation.builder()
+                        .creadorId(usuarioId)
+                        .cantidadPasajeros(0)
+                        .tipoPago(PaymentType.SINGLE_PAYMENT)
+                        .estado(ReservationStatus.INICIADA)
+                        .limiteTiempo(ahora().plus(DURACION))
+                        .build());
+            });
+        } catch (DataIntegrityViolationException ex) {
+            return carritoActivo(usuarioId).orElseThrow(() -> new BookingException("CARRITO_EN_USO",
+                    "Hay otro pedido sobre tu carrito. Reintentá en unos segundos.", HttpStatus.CONFLICT));
+        }
     }
 
     public Reservation reservaDelUsuario(Long id, Long usuarioId) {

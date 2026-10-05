@@ -94,4 +94,19 @@ public class Reservation {
 
     @Column(name = "motivo_cancelacion", length = 60)
     private String motivoCancelacion;
+
+    /**
+     * Igual a creadorId mientras el carrito esta INICIADA o PENDIENTE_PAGO y null en cualquier otro
+     * estado. Su indice unico garantiza un solo carrito abierto por usuario (NULL no choca en MySQL).
+     */
+    @Column(name = "carrito_abierto_de", unique = true)
+    private Long carritoAbiertoDe;
+
+    /** Unico lugar donde se deriva carritoAbiertoDe: cualquier cambio de estado queda sincronizado. */
+    @PrePersist
+    @PreUpdate
+    void sincronizarCarritoAbierto() {
+        boolean abierto = estado == ReservationStatus.INICIADA || estado == ReservationStatus.PENDIENTE_PAGO;
+        carritoAbiertoDe = abierto ? creadorId : null;
+    }
 }

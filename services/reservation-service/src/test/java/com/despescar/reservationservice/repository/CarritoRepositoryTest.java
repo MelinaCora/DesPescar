@@ -1,7 +1,10 @@
 package com.despescar.reservationservice.repository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import jakarta.persistence.PersistenceException;
 
 import com.despescar.reservationservice.entity.EstadiaHotel;
 import com.despescar.reservationservice.entity.Reservation;
@@ -117,7 +120,7 @@ class CarritoRepositoryTest {
     @Test
     void listaLosVencidosQueSiguenAbiertos() {
         Reservation vencido = em.persist(carrito(7L, ReservationStatus.PENDIENTE_PAGO, AHORA.minusMinutes(1)));
-        em.persist(carrito(7L, ReservationStatus.INICIADA, AHORA.plusMinutes(5)));
+        em.persist(carrito(8L, ReservationStatus.INICIADA, AHORA.plusMinutes(5)));
         em.persist(carrito(7L, ReservationStatus.CONFIRMADA, AHORA.minusMinutes(30)));
         em.flush();
 
@@ -126,5 +129,36 @@ class CarritoRepositoryTest {
                 AHORA);
 
         assertEquals(List.of(vencido.getId()), vencidos.stream().map(Reservation::getId).toList());
+    }
+
+    @Test
+    void dosCarritosAbiertosDelMismoUsuarioViolanElIndiceUnico() {
+        em.persistAndFlush(carrito(7L, ReservationStatus.INICIADA, AHORA.plusMinutes(15)));
+
+        assertThrows(PersistenceException.class,
+                () -> em.persistAndFlush(carrito(7L, ReservationStatus.PENDIENTE_PAGO, AHORA.plusMinutes(15))));
+    }
+
+    @Test
+    void unCarritoAbiertoPorUsuarioPeroVariosCerrados() {
+        em.persist(carrito(7L, ReservationStatus.CONFIRMADA, AHORA.plusMinutes(15)));
+        em.persist(carrito(7L, ReservationStatus.CANCELADA, AHORA.plusMinutes(15)));
+        em.persist(carrito(7L, ReservationStatus.EXPIRADA, AHORA.plusMinutes(15)));
+        em.persist(carrito(7L, ReservationStatus.INICIADA, AHORA.plusMinutes(15)));
+        em.persist(carrito(8L, ReservationStatus.INICIADA, AHORA.plusMinutes(15)));
+        em.flush();
+    }
+
+    @Test
+    void alCerrarseUnCarritoElUsuarioPuedeAbrirOtro() {
+        Reservation primero = em.persistAndFlush(carrito(7L, ReservationStatus.INICIADA, AHORA.plusMinutes(15)));
+        assertEquals(7L, primero.getCarritoAbiertoDe());
+
+        primero.setEstado(ReservationStatus.CANCELADA);
+        em.flush();
+        assertNull(primero.getCarritoAbiertoDe());
+
+        Reservation segundo = em.persistAndFlush(carrito(7L, ReservationStatus.INICIADA, AHORA.plusMinutes(15)));
+        assertEquals(7L, segundo.getCarritoAbiertoDe());
     }
 }

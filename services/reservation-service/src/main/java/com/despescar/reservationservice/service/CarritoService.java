@@ -27,6 +27,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * El carrito visto como ítems: estadías (con retención en hotel-service), quitar el vuelo,
@@ -46,15 +49,18 @@ public class CarritoService {
     private final InventarioCarrito inventario;
     private final ReservationMapper mapper;
     private final Validator validator;
+    private final TransactionTemplate transacciones;
 
     public CarritoService(BookingRepository bookingRepository, CarritoSoporte soporte, HotelClient hotelClient,
-                          InventarioCarrito inventario, ReservationMapper mapper, Validator validator) {
+                          InventarioCarrito inventario, ReservationMapper mapper, Validator validator,
+                          TransactionTemplate transacciones) {
         this.bookingRepository = bookingRepository;
         this.soporte = soporte;
         this.hotelClient = hotelClient;
         this.inventario = inventario;
         this.mapper = mapper;
         this.validator = validator;
+        this.transacciones = transacciones;
     }
 
     @Transactional(readOnly = true)
@@ -63,24 +69,41 @@ public class CarritoService {
     }
 
     /**
-     * Retiene las habitaciones hasta la hora del carrito y copia precio, política y horario. Si no
-     * hay carrito lo crea; si la retención falla, la transacción deshace el carrito recién creado.
+     * Retiene las habitaciones hasta la hora del carrito y copia precio, política y horario. No es
+     * transaccional: la llamada a hotel-service va sin conexión ni transacción abiertas. El carrito se
+     * crea (si no hay) antes, porque la retención lleva su id, y se agrega la estadía en una transacción
+     * corta que revalida que el carrito siga abierto y sin vencer. Si algo falla después de retener, la
+     * retención se libera (mejor esfuerzo).
      */
-    @Transactional
     public ReservationResponse agregarEstadia(AgregarEstadiaRequest pedido, Long usuarioId) {
-        Reservation carrito = soporte.carritoActivo(usuarioId).orElseGet(() -> soporte.crearCarrito(usuarioId));
-        RetencionHotelResponse retencion = hotelClient.crearRetencion(new RetencionHotelRequest(
-                carrito.getId(), usuarioId, pedido.hotelId(), pedido.tipoHabitacionId(), pedido.checkIn(),
-                pedido.checkOut(), pedido.cantidadHabitaciones(), pedido.huespedes(), inventario.vencimiento(carrito)));
+        boolean carritoNuevo = soporte.carritoActivo(usuarioId).isEmpty();
+        Reservation carrito = carritoNuevo ? soporte.crearCarrito(usuarioId) : soporte.carritoActivo(usuarioId).orElseThrow();
+        Long carritoId = carrito.getId();
+        RetencionHotelResponse retencion;
         try {
-            if (!CarritoCalculo.MONEDA.equalsIgnoreCase(retencion.getMoneda())) {
-                throw new BookingException("MONEDA_NO_SOPORTADA", "El carrito solo acepta precios en pesos.", HttpStatus.CONFLICT);
+            retencion = hotelClient.crearRetencion(new RetencionHotelRequest(
+                    carritoId, usuarioId, pedido.hotelId(), pedido.tipoHabitacionId(), pedido.checkIn(),
+                    pedido.checkOut(), pedido.cantidadHabitaciones(), pedido.huespedes(), inventario.vencimiento(carrito)));
+        } catch (RuntimeException ex) {
+            if (carritoNuevo) {
+                descartarCarritoVacio(carritoId);
             }
-            EstadiaHotel estadia = estadiaDesde(retencion, pedido);
-            estadia.setReservation(carrito);
-            carrito.getEstadias().add(estadia);
-            carrito.setEstado(CarritoCalculo.estadoAbierto(carrito));
-            return mapper.toResponse(bookingRepository.saveAndFlush(carrito));
+            throw ex;
+        }
+        try {
+            return transacciones.execute(estado -> {
+                Reservation actual = bookingRepository.findById(carritoId).orElseThrow(() -> new BookingException(
+                        "CARRITO_NO_ENCONTRADO", "El carrito ya no existe.", HttpStatus.NOT_FOUND));
+                soporte.verificarModificable(actual);
+                if (!CarritoCalculo.MONEDA.equalsIgnoreCase(retencion.getMoneda())) {
+                    throw new BookingException("MONEDA_NO_SOPORTADA", "El carrito solo acepta precios en pesos.", HttpStatus.CONFLICT);
+                }
+                EstadiaHotel estadia = estadiaDesde(retencion, pedido);
+                estadia.setReservation(actual);
+                actual.getEstadias().add(estadia);
+                actual.setEstado(CarritoCalculo.estadoAbierto(actual));
+                return mapper.toResponse(bookingRepository.saveAndFlush(actual));
+            });
         } catch (RuntimeException ex) {
             // La retención ya existe en hotel-service: no se deja colgada
             inventario.liberarRetencion(retencion.getRetencionId());
@@ -97,9 +120,11 @@ public class CarritoService {
                 .findFirst()
                 .orElseThrow(() -> new BookingException("ESTADIA_NO_ENCONTRADA",
                         "La estadía no está en tu carrito.", HttpStatus.NOT_FOUND));
-        inventario.liberarRetencion(estadia.getRetencionId());
         carrito.getEstadias().remove(estadia);
-        return cerrarSiVacio(carrito);
+        Optional<ReservationResponse> respuesta = cerrarSiVacio(carrito);
+        // Recién con el commit: si se deshace, la estadía sigue en el carrito y no hay que soltar su retención
+        despuesDelCommit(() -> inventario.liberarRetencion(estadia.getRetencionId()));
+        return respuesta;
     }
 
     /** Quita la parte de vuelo y libera los asientos de los pasajeros cargados (D29). */
@@ -124,8 +149,8 @@ public class CarritoService {
     /** Un titular por cada estadía activa; con los datos completos el carrito pasa a PENDIENTE_PAGO. */
     @Transactional
     public ReservationResponse cargarTitulares(Long reservaId, List<TitularRequest> titulares, Long usuarioId) {
-        validar(titulares);
         Reservation reserva = soporte.reservaDelUsuario(reservaId, usuarioId);
+        validar(titulares);
         soporte.verificarModificable(reserva);
 
         List<EstadiaHotel> activas = CarritoCalculo.estadiasActivas(reserva);
@@ -173,8 +198,38 @@ public class CarritoService {
     }
 
     private Reservation carritoAbierto(Long usuarioId) {
-        return soporte.carritoActivo(usuarioId).orElseThrow(() -> new BookingException("CARRITO_NO_ENCONTRADO",
-                "No tenés un carrito activo.", HttpStatus.NOT_FOUND));
+        Reservation carrito = soporte.carritoAbierto(usuarioId).orElseThrow(() -> new BookingException(
+                "CARRITO_NO_ENCONTRADO", "No tenés un carrito activo.", HttpStatus.NOT_FOUND));
+        soporte.verificarModificable(carrito); // vencido: 410 CARRITO_EXPIRADO
+        return carrito;
+    }
+
+    /** El carrito se creó para esta retención y la retención falló: no queda un carrito vacío abierto. */
+    private void descartarCarritoVacio(Long carritoId) {
+        try {
+            transacciones.executeWithoutResult(estado -> bookingRepository.findById(carritoId)
+                    .filter(c -> CarritoCalculo.cantidadItems(c) == 0)
+                    .ifPresent(c -> {
+                        c.setEstado(ReservationStatus.CANCELADA);
+                        c.setMotivoCancelacion(MOTIVO_CARRITO_VACIO);
+                        bookingRepository.save(c);
+                    }));
+        } catch (RuntimeException ex) {
+            log.warn("No se pudo cerrar el carrito vacío {}: {}", carritoId, ex.getMessage());
+        }
+    }
+
+    private static void despuesDelCommit(Runnable accion) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    accion.run();
+                }
+            });
+        } else {
+            accion.run();
+        }
     }
 
     private Optional<ReservationResponse> cerrarSiVacio(Reservation carrito) {

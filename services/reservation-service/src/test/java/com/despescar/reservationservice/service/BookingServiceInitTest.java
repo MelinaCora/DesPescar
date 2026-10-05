@@ -71,7 +71,7 @@ class BookingServiceInitTest {
     void setUp() {
         service = new BookingService(bookingRepository, detailRepository, messagingTemplate,
                 new ReservationMapper(new ReservationDetailMapper(), RELOJ), flightClient, packageClient,
-                new CarritoSoporte(bookingRepository, RELOJ), new PrecioVuelo(flightClient), inventario);
+                new CarritoSoporte(bookingRepository, RELOJ, org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class)), new PrecioVuelo(flightClient), inventario);
     }
 
     private void vueloDisponible() {
@@ -92,13 +92,15 @@ class BookingServiceInitTest {
     }
 
     private void guardarAsignaId() {
-        when(bookingRepository.save(any(Reservation.class))).thenAnswer(inv -> {
+        org.mockito.stubbing.Answer<Reservation> asignaId = inv -> {
             Reservation r = inv.getArgument(0);
             if (r.getId() == null) {
                 r.setId(12L);
             }
             return r;
-        });
+        };
+        when(bookingRepository.save(any(Reservation.class))).thenAnswer(asignaId);
+        when(bookingRepository.saveAndFlush(any(Reservation.class))).thenAnswer(asignaId); // el carrito nuevo se crea con flush
     }
 
     private static BookingInitRequest pedido(PaymentType tipo) {

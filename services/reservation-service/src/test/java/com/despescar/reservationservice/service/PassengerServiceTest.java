@@ -58,7 +58,7 @@ class PassengerServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new PassengerService(bookingRepository, seatRepository, new CarritoSoporte(bookingRepository, RELOJ), inventario);
+        service = new PassengerService(bookingRepository, seatRepository, new CarritoSoporte(bookingRepository, RELOJ, org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class)), inventario);
         carrito = Reservation.builder().id(12L).creadorId(7L).cantidadPasajeros(2)
                 .tipoPago(PaymentType.SINGLE_PAYMENT).estado(ReservationStatus.INICIADA)
                 .limiteTiempo(AHORA.plusMinutes(10))
