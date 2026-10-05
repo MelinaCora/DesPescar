@@ -204,7 +204,7 @@ public class InventarioCarrito {
     }
 
     /** Avisa recien cuando la transaccion confirma; sin transaccion activa, al instante. */
-    private void avisar(Seat seat) {
+    void avisar(Seat seat) {
         SeatResponse aviso = SeatResponse.builder()
                 .seatNumber(seat.getNumberSeat())
                 .seatUuid(seat.getSeatUuid())

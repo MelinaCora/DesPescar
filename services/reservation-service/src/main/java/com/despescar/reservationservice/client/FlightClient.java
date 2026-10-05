@@ -20,7 +20,6 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-import com.despescar.reservationservice.dto.flight.response.FareLookupResponse;
 import com.despescar.reservationservice.dto.flight.response.FlightLookupResponse;
 import com.despescar.reservationservice.exception.BookingException;
 
@@ -100,62 +99,6 @@ public class FlightClient {
             throw new BookingException(
                     "FLIGHT_SERVICE_ERROR",
                     "Se produjo un error al consultar informacion del vuelo.",
-                    HttpStatus.BAD_GATEWAY
-            );
-        }
-    }
-
-    public FareLookupResponse getFareById(UUID fareId) {
-        String targetUrl = flightServiceUrl + "/api/fares/" + fareId;
-
-        try {
-            ResponseEntity<FareLookupResponse> response = restTemplate.exchange(
-                    targetUrl,
-                    HttpMethod.GET,
-                    new HttpEntity<>(buildHeaders()),
-                    FareLookupResponse.class
-            );
-
-            if (response.getBody() == null) {
-                throw new BookingException(
-                        "TARIFA_VACIA",
-                        "Flight-Service devolvio una tarifa vacia para " + fareId + ".",
-                        HttpStatus.BAD_GATEWAY
-                );
-            }
-
-            return response.getBody();
-        } catch (HttpClientErrorException.NotFound ex) {
-            throw new BookingException(
-                    "TARIFA_NO_ENCONTRADA",
-                    "La tarifa " + fareId + " no existe.",
-                    HttpStatus.NOT_FOUND
-            );
-        } catch (HttpClientErrorException ex) {
-            throw new BookingException(
-                    "FARE_SERVICE_CLIENT_ERROR",
-                    "Flight-Service rechazo la consulta de la tarifa " + fareId + ".",
-                    HttpStatus.BAD_GATEWAY
-            );
-        } catch (HttpServerErrorException ex) {
-            throw new BookingException(
-                    "FARE_SERVICE_SERVER_ERROR",
-                    "Flight-Service no pudo procesar la consulta de la tarifa.",
-                    HttpStatus.SERVICE_UNAVAILABLE
-            );
-        } catch (ResourceAccessException ex) {
-            HttpStatus status = isTimeout(ex) ? HttpStatus.GATEWAY_TIMEOUT : HttpStatus.SERVICE_UNAVAILABLE;
-            String code = isTimeout(ex) ? "FARE_SERVICE_TIMEOUT" : "FARE_SERVICE_UNAVAILABLE";
-            throw new BookingException(
-                    code,
-                    "No fue posible comunicarse con Flight-Service para consultar la tarifa.",
-                    status
-            );
-        } catch (RestClientException ex) {
-            log.error("Error inesperado consultando Flight-Service por tarifa", ex);
-            throw new BookingException(
-                    "FARE_SERVICE_ERROR",
-                    "Se produjo un error al consultar informacion de la tarifa.",
                     HttpStatus.BAD_GATEWAY
             );
         }

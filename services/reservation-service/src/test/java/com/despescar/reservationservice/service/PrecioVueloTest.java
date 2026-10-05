@@ -138,4 +138,12 @@ class PrecioVueloTest {
         assertEquals("SIN_DISPONIBILIDAD", ex.getCodigo());
         assertEquals(HttpStatus.CONFLICT, ex.getStatus());
     }
+
+    @Test
+    void redondeaElPrecioDelVueloYDeCadaTarifaAntesDeSumar() {
+        UUID t = UUID.randomUUID();
+        vuelo(IDA, "85000.005", "SCHEDULED", 10, SALIDA, tarifa(t, "Standard", "ARS", "45000.104"));
+
+        assertEquals(new BigDecimal("130000.11"), precioVuelo.cotizar(List.of(IDA), List.of(t), 1).precioPorPasajero());
+    }
 }

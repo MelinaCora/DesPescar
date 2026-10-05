@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.despescar.reservationservice.dto.passengers.request.PassengerAssignationRequest;
@@ -74,6 +76,7 @@ class PassengerServiceTest {
         s.setStatusSeat(estado);
         s.setBlockedByUserId(bloqueadoPor);
         s.setBloqueadoHasta(AHORA.plusMinutes(10));
+        lenient().when(seatRepository.findById(s.getSeatUuid())).thenReturn(Optional.of(s));
         lenient().when(seatRepository.findByIdForUpdate(s.getSeatUuid())).thenReturn(Optional.of(s));
         lenient().when(seatRepository.findByFlightIdAndNumberSeatForUpdate(vuelo, numero)).thenReturn(Optional.of(s));
         return s;
@@ -216,5 +219,77 @@ class PassengerServiceTest {
     @Test
     void soloElCreadorCargaPasajeros() {
         assertEquals(HttpStatus.FORBIDDEN, falla(pedido(mio("1A"), mio("1B")), 9L).getStatus());
+    }
+
+    @Test
+    void elOrdenDeBloqueoNoDependeDelOrdenDelPedido() {
+        Seat a = mio("1A");
+        Seat b = mio("1B");
+        Seat c = mio("1C");
+        service.assignPassengersToSeats(12L, pedido(c, a), 7L);
+        org.mockito.InOrder orden = inOrder(seatRepository);
+        orden.verify(seatRepository).findByIdForUpdate(a.getSeatUuid());
+        orden.verify(seatRepository).findByIdForUpdate(c.getSeatUuid());
+
+        org.mockito.Mockito.clearInvocations(seatRepository);
+        carrito.getDetalles().clear();
+        service.assignPassengersToSeats(12L, pedido(a, c), 7L);
+        orden = inOrder(seatRepository);
+        orden.verify(seatRepository).findByIdForUpdate(a.getSeatUuid());
+        orden.verify(seatRepository).findByIdForUpdate(c.getSeatUuid());
+        assertEquals("RESERVADO_TEMPORAL", b.getStatusSeat());
+    }
+
+    @Test
+    void losAsientosPedidosYLosASoltarSeBloqueanEnUnSoloOrden() {
+        Seat a = mio("1A");
+        Seat b = mio("1B");
+        Seat c = mio("1C");
+        service.assignPassengersToSeats(12L, pedido(a, c), 7L);
+        org.mockito.Mockito.clearInvocations(seatRepository);
+
+        service.assignPassengersToSeats(12L, pedido(a, b), 7L); // suelta 1C, que ordena después de 1B
+
+        org.mockito.InOrder orden = inOrder(seatRepository);
+        orden.verify(seatRepository).findByIdForUpdate(a.getSeatUuid());
+        orden.verify(seatRepository).findByIdForUpdate(b.getSeatUuid());
+        orden.verify(seatRepository).findByFlightIdAndNumberSeatForUpdate(VUELO, "1C");
+    }
+
+    @Test
+    void alSoltarUnAsientoElMapaSeAvisa() {
+        Seat a = mio("1A");
+        Seat b = mio("1B");
+        Seat c = mio("1C");
+        service.assignPassengersToSeats(12L, pedido(a, b), 7L);
+
+        service.assignPassengersToSeats(12L, pedido(a, c), 7L);
+
+        verify(inventario).avisar(b);
+        verify(inventario, never()).avisar(a);
+    }
+
+    @Test
+    void unPutRepetidoConElMismoAsientoLoConservaSinSoltarlo() {
+        Seat a = mio("1A");
+        Seat b = mio("1B");
+        service.assignPassengersToSeats(12L, pedido(a, b), 7L);
+
+        service.assignPassengersToSeats(12L, pedido(a, b), 7L);
+
+        assertEquals(2, carrito.getDetalles().size());
+        assertEquals("RESERVADO_TEMPORAL", a.getStatusSeat());
+        assertEquals(7L, a.getBlockedByUserId());
+        verify(inventario, never()).avisar(any());
+    }
+
+    @Test
+    void unCarritoPendienteDePagoSigueAceptandoCambiosDePasajeros() {
+        carrito.setEstado(ReservationStatus.PENDIENTE_PAGO);
+
+        service.assignPassengersToSeats(12L, pedido(mio("1A"), mio("1B")), 7L);
+
+        assertEquals(2, carrito.getDetalles().size());
+        assertEquals(ReservationStatus.PENDIENTE_PAGO, carrito.getEstado());
     }
 }

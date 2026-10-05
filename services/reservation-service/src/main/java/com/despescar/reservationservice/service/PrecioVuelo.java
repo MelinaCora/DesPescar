@@ -55,7 +55,7 @@ public class PrecioVuelo {
             if (!CarritoCalculo.MONEDA.equalsIgnoreCase(tarifa.getPrice().getCurrency())) {
                 throw new BookingException("MONEDA_NO_SOPORTADA", "El carrito solo acepta tarifas en pesos.", HttpStatus.CONFLICT);
             }
-            total = total.add(vuelo.getPrice()).add(tarifa.getPrice().getTransparentFinalPrice());
+            total = total.add(redondear(vuelo.getPrice())).add(redondear(tarifa.getPrice().getTransparentFinalPrice()));
             if (i == 0) {
                 salida = vuelo.getDepartureTime();
             }
@@ -65,6 +65,10 @@ public class PrecioVuelo {
         }
         return new Cotizacion(total.setScale(2, RoundingMode.HALF_UP),
                 nombres.isEmpty() ? null : String.join(" / ", nombres), salida);
+    }
+
+    private static BigDecimal redondear(BigDecimal valor) {
+        return valor.setScale(2, RoundingMode.HALF_UP);
     }
 
     private static void validarEstado(FlightLookupResponse vuelo) {

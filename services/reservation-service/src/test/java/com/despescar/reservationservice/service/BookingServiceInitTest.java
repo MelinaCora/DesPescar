@@ -141,6 +141,33 @@ class BookingServiceInitTest {
     }
 
     @Test
+    void elHotelIdDelPedidoSeIgnora() {
+        Reservation deHotel = carrito(30L, ReservationStatus.INICIADA, AHORA.plusMinutes(5));
+        deHotel.setHotelId(null);
+        carritoActual(deHotel);
+        vueloDisponible();
+        when(bookingRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+        BookingInitRequest p = pedido(PaymentType.SINGLE_PAYMENT);
+        assertEquals(true, p.getHotelId() != null);
+
+        service.initializeBooking(p, null, 7L);
+
+        assertNull(deHotel.getHotelId());
+    }
+
+    @Test
+    void alSumarElVueloAlineaLosBloqueosDeAsientosConElCarrito() {
+        Reservation deHotel = carrito(30L, ReservationStatus.INICIADA, AHORA.plusMinutes(5));
+        carritoActual(deHotel);
+        vueloDisponible();
+        when(bookingRepository.save(any(Reservation.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.initializeBooking(pedido(PaymentType.SINGLE_PAYMENT), null, 7L);
+
+        verify(inventario).alinearBloqueos(deHotel);
+    }
+
+    @Test
     void conUnCarritoDeHotelLeSumaElVueloSinCambiarElLimite() {
         Reservation deHotel = carrito(30L, ReservationStatus.PENDIENTE_PAGO, AHORA.plusMinutes(5));
         carritoActual(deHotel);
