@@ -31,11 +31,14 @@ public class CarritoSoporte {
     private final BookingRepository bookingRepository;
     private final Clock clock;
     private final PlatformTransactionManager gestor;
+    private final InventarioCarrito inventario;
 
-    public CarritoSoporte(BookingRepository bookingRepository, Clock clock, PlatformTransactionManager gestor) {
+    public CarritoSoporte(BookingRepository bookingRepository, Clock clock, PlatformTransactionManager gestor,
+                          InventarioCarrito inventario) {
         this.bookingRepository = bookingRepository;
         this.clock = clock;
         this.gestor = gestor;
+        this.inventario = inventario;
     }
 
     public LocalDateTime ahora() {
@@ -73,7 +76,9 @@ public class CarritoSoporte {
      * Crea y guarda un carrito vacío: dura 15 minutos desde ahora. Se hace en su propia transacción:
      * un usuario tiene un solo carrito abierto (índice único), así que si otro pedido lo creó primero
      * (doble clic) se reutiliza ese. Un carrito abierto pero vencido, que el scheduler todavía no
-     * cerró, se cierra acá para no impedir el nuevo; sus retenciones y asientos vencen solos. Sus
+     * cerró, se cierra acá para no impedir el nuevo: se lo lee con la fila bloqueada, se sueltan sus
+     * asientos (los ocupados no se tocan, y se bloquean en orden después de la reserva, como el
+     * scheduler) para que el carrito nuevo pueda volver a elegirlos, y sus retenciones vencen solas. Sus
      * pasajeros quedan PENDIENTE, como en el scheduler: un pago tardío todavía coincide con el total (D6).
      */
     public Reservation crearCarrito(Long usuarioId) {
@@ -81,8 +86,9 @@ public class CarritoSoporte {
         nueva.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         try {
             return nueva.execute(estado -> {
-                carritoAbierto(usuarioId).filter(this::vencido).ifPresent(vencido -> {
+                carritoAbiertoBloqueado(usuarioId).filter(this::vencido).ifPresent(vencido -> {
                     vencido.setEstado(ReservationStatus.EXPIRADA);
+                    inventario.liberarAsientos(vencido);
                     bookingRepository.saveAndFlush(vencido);
                 });
                 return bookingRepository.saveAndFlush(Reservation.builder()

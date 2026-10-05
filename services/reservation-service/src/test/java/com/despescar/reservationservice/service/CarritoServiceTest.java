@@ -80,7 +80,7 @@ class CarritoServiceTest {
     @BeforeEach
     void setUp() {
         gestor = org.mockito.Mockito.mock(PlatformTransactionManager.class);
-        service = new CarritoService(bookingRepository, new CarritoSoporte(bookingRepository, RELOJ, gestor), hotelClient,
+        service = new CarritoService(bookingRepository, new CarritoSoporte(bookingRepository, RELOJ, gestor, inventario), hotelClient,
                 inventario, new ReservationMapper(new ReservationDetailMapper(), RELOJ),
                 Validation.buildDefaultValidatorFactory().getValidator(), new TransactionTemplate(gestor));
         carrito = Reservation.builder().id(12L).creadorId(7L).cantidadPasajeros(0)
@@ -639,7 +639,7 @@ class CarritoServiceTest {
     @Test
     void siOtroPedidoCreoElCarritoPrimeroSeReutilizaEse() {
         when(bookingRepository.findFirstByCreadorIdAndEstadoInOrderByIdDesc(eq(7L), any()))
-                .thenReturn(Optional.empty(), Optional.empty(), Optional.of(carrito));
+                .thenReturn(Optional.empty(), Optional.of(carrito));
         when(bookingRepository.saveAndFlush(any(Reservation.class)))
                 .thenThrow(new org.springframework.dao.DataIntegrityViolationException("carrito_abierto_de duplicado"))
                 .thenAnswer(inv -> inv.getArgument(0));

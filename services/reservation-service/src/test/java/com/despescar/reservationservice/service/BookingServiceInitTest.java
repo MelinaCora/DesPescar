@@ -71,7 +71,7 @@ class BookingServiceInitTest {
     void setUp() {
         service = new BookingService(bookingRepository, detailRepository, messagingTemplate,
                 new ReservationMapper(new ReservationDetailMapper(), RELOJ), flightClient, packageClient,
-                new CarritoSoporte(bookingRepository, RELOJ, org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class)), new PrecioVuelo(flightClient), inventario,
+                new CarritoSoporte(bookingRepository, RELOJ, org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class), inventario), new PrecioVuelo(flightClient), inventario,
                 new org.springframework.transaction.support.TransactionTemplate(org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class)));
     }
 

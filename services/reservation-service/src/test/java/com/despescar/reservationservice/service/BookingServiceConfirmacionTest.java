@@ -87,7 +87,7 @@ class BookingServiceConfirmacionTest {
     void setUp() {
         service = new BookingService(bookingRepository, detailRepository, messagingTemplate,
                 new ReservationMapper(new ReservationDetailMapper(), RELOJ), flightClient, packageClient,
-                new CarritoSoporte(bookingRepository, RELOJ, transactionManager), new PrecioVuelo(flightClient), inventario,
+                new CarritoSoporte(bookingRepository, RELOJ, transactionManager, inventario), new PrecioVuelo(flightClient), inventario,
                 new TransactionTemplate(transactionManager));
         reserva = carrito();
         pasajero = reserva.getDetalles().get(0);
