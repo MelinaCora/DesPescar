@@ -32,6 +32,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 @SpringBootTest
 class RetencionConcurrenciaTest {
 
+    private static final int HILOS = 8;
+    private final java.util.concurrent.atomic.AtomicInteger conflictos = new java.util.concurrent.atomic.AtomicInteger();
+
     @Autowired
     private RetencionService service;
     @Autowired
@@ -66,16 +69,20 @@ class RetencionConcurrenciaTest {
         LocalDate checkIn = LocalDate.now(ClockConfig.ZONA).plusDays(10);
 
         CountDownLatch largada = new CountDownLatch(1);
-        ExecutorService pool = Executors.newFixedThreadPool(2);
-        Callable<Boolean> intento1 = intento(largada, hotelId, tipoId, checkIn, 1L);
-        Callable<Boolean> intento2 = intento(largada, hotelId, tipoId, checkIn, 2L);
-        Future<Boolean> a = pool.submit(intento1);
-        Future<Boolean> b = pool.submit(intento2);
+        ExecutorService pool = Executors.newFixedThreadPool(HILOS);
+        List<Future<Boolean>> futuros = new ArrayList<>();
+        for (long reserva = 1; reserva <= HILOS; reserva++) {
+            futuros.add(pool.submit(intento(largada, hotelId, tipoId, checkIn, reserva)));
+        }
         largada.countDown();
-        int exitos = (a.get(20, TimeUnit.SECONDS) ? 1 : 0) + (b.get(20, TimeUnit.SECONDS) ? 1 : 0);
+        int exitos = 0;
+        for (Future<Boolean> f : futuros) {
+            exitos += f.get(60, TimeUnit.SECONDS) ? 1 : 0;
+        }
         pool.shutdown();
 
         assertEquals(1, exitos);
+        assertEquals(HILOS - 1, conflictos.get());
         assertEquals(1, retencionRepository.count());
     }
 
@@ -87,6 +94,9 @@ class RetencionConcurrenciaTest {
                         Instant.now().plus(15, ChronoUnit.MINUTES)));
                 return true;
             } catch (ConflictoException ex) {
+                if ("SIN_DISPONIBILIDAD".equals(ex.getCodigo())) {
+                    conflictos.incrementAndGet();
+                }
                 return false;
             }
         };

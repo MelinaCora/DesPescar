@@ -22,6 +22,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Retenciones de habitaciones para el carrito de reservation-service (API interna, contrato C1). */
@@ -44,7 +45,9 @@ public class RetencionService {
     }
 
     /** Toma unidades de un tipo para un rango. El lock sobre el tipo evita vender dos veces la última unidad. */
-    @Transactional
+    // READ_COMMITTED: la consulta de ocupación tiene que ver las retenciones que otras transacciones
+    // ya confirmaron; con REPEATABLE READ (InnoDB) vería la foto tomada al empezar y vendería de más.
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public RetencionResponse crear(RetencionRequest pedido) {
         TipoHabitacion tipo = tipoRepository.findByIdForUpdate(pedido.tipoHabitacionId())
                 .filter(t -> t.isActivo() && t.getHotel().isActivo()
@@ -77,10 +80,16 @@ public class RetencionService {
 
     /**
      * Confirma con el nombre del titular. Idempotente. Una RETENIDA vencida ya no ocupa lugar:
-     * se confirma solo si las unidades siguen libres (pago tardío).
+     * se confirma solo si las unidades siguen libres (pago tardío). Una ya CONFIRMADA no cambia:
+     * ignora el nombre nuevo del titular.
+     * Orden de locks: Retencion y después TipoHabitacion (crear solo toma el del tipo).
      */
-    @Transactional
+    // READ_COMMITTED: ver lo que otras transacciones ya confirmaron al contar la ocupación.
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public RetencionResponse confirmar(UUID id, String nombreTitular) {
+        if (nombreTitular == null || nombreTitular.isBlank()) {
+            throw new SolicitudInvalidaException("Indicá el nombre del titular.");
+        }
         Retencion retencion = buscar(id);
         if (retencion.getEstado() == EstadoRetencion.LIBERADA) {
             throw new ConflictoException(RETENCION_LIBERADA, "La retención ya fue liberada.");
@@ -106,7 +115,7 @@ public class RetencionService {
     }
 
     private Retencion buscar(UUID id) {
-        return retencionRepository.findById(id).orElseThrow(() -> new RetencionNoEncontradaException(id));
+        return retencionRepository.findByIdForUpdate(id).orElseThrow(() -> new RetencionNoEncontradaException(id));
     }
 
     private void exigirLugar(TipoHabitacion tipo, RangoEstadia rango, int cantidad, Instant ahora) {

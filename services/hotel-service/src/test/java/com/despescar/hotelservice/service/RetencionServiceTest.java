@@ -116,7 +116,7 @@ class RetencionServiceTest {
         r.setHuespedes(3);
         r.setEstado(estado);
         r.setExpiraEn(expira);
-        when(retencionRepository.findById(r.getId())).thenReturn(Optional.of(r));
+        when(retencionRepository.findByIdForUpdate(r.getId())).thenReturn(Optional.of(r));
         return r;
     }
 
@@ -247,9 +247,17 @@ class RetencionServiceTest {
     }
 
     @Test
+    void confirmarSinNombreResponde400() {
+        UUID id = UUID.randomUUID();
+
+        assertThrows(SolicitudInvalidaException.class, () -> service.confirmar(id, null));
+        assertThrows(SolicitudInvalidaException.class, () -> service.confirmar(id, "  "));
+    }
+
+    @Test
     void unaRetencionInexistenteResponde404() {
         UUID id = UUID.randomUUID();
-        when(retencionRepository.findById(id)).thenReturn(Optional.empty());
+        when(retencionRepository.findByIdForUpdate(id)).thenReturn(Optional.empty());
 
         assertThrows(RetencionNoEncontradaException.class, () -> service.liberar(id));
     }
