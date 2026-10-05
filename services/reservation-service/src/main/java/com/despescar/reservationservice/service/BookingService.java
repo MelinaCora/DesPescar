@@ -1,10 +1,8 @@
 package com.despescar.reservationservice.service;
 
 import com.despescar.reservationservice.client.FlightClient;
-import com.despescar.reservationservice.client.HotelClient;
 import com.despescar.reservationservice.client.PackageClient;
 import com.despescar.reservationservice.dto.flight.response.FlightLookupResponse;
-import com.despescar.reservationservice.dto.hotel.response.HotelLookupResponse;
 import com.despescar.reservationservice.dto.packagecatalog.response.PackageLookupResponse;
 import com.despescar.reservationservice.dto.reservation.request.BookingInitRequest;
 import com.despescar.reservationservice.dto.reservation.request.SplitPaymentSetupRequest;
@@ -48,7 +46,6 @@ public class BookingService {
 
     // Clientes Feign
     private final FlightClient flightClient;
-    private final HotelClient hotelClient;
     private final PackageClient packageClient;
 
 
@@ -86,16 +83,12 @@ public class BookingService {
             validarAsientosDisponibles(vuelo, request.getCantidadPasajeros());
         }
 
-        if (request.getHotelId() != null) {
-            validarYObtenerHotel(request.getHotelId());
-        }
 
         Reservation reserva = Reservation.builder()
             .creadorId(authenticatedUserId)
                 .cantidadPasajeros(request.getCantidadPasajeros())
                 .tipoPago(request.getPaymentType())
                 .flightIds(request.getFlightIds())
-                .hotelId(request.getHotelId())
                 .packageId(request.getPackageId())
                 .baggageIds(request.getBaggageIds())
                 .estado(ReservationStatus.INICIADA)
@@ -231,17 +224,11 @@ public class BookingService {
     }
 
 
-    /**
-     * Descuenta (sentido -1) o devuelve (sentido 1) asientos y habitaciones.
-     * Flight-Service ajusta por numero de vuelo, y la reserva guarda el id del vuelo: se resuelve antes.
-     */
+    /** Descuenta (sentido -1) o devuelve (sentido 1) asientos de los vuelos. */
     private void ajustarInventario(Reservation reserva, int sentido) {
         for (UUID flightId : reserva.getFlightIds()) {
             String flightNumber = flightClient.getFlightByNumber(flightId).getFlightNumber();
             flightClient.adjustSeats(flightNumber, sentido * reserva.getCantidadPasajeros());
-        }
-        if (reserva.getHotelId() != null) {
-            hotelClient.adjustRooms(reserva.getHotelId(), sentido);
         }
     }
 
@@ -271,13 +258,6 @@ public class BookingService {
         }
     }
 
-    private HotelLookupResponse validarYObtenerHotel(UUID hotelId) {
-        HotelLookupResponse hotel = hotelClient.getHotelById(hotelId);
-        if (hotel.getId() == null || hotel.getHabitacionesDisponibles() < 1) {
-            throw new BookingException("SIN_DISPONIBILIDAD_HOTEL", "El hotel no tiene disponibilidad.", HttpStatus.CONFLICT);
-        }
-        return hotel;
-    }
 
     private PackageLookupResponse validarYObtenerPaquete(Long packageId, String authHeader) {
         if (authHeader == null || authHeader.isBlank()) {

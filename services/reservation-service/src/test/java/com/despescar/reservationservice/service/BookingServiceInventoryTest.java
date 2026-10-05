@@ -1,7 +1,14 @@
 package com.despescar.reservationservice.service;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.despescar.reservationservice.client.FlightClient;
-import com.despescar.reservationservice.client.HotelClient;
 import com.despescar.reservationservice.client.PackageClient;
 import com.despescar.reservationservice.dto.flight.response.FlightLookupResponse;
 import com.despescar.reservationservice.entity.Reservation;
@@ -12,36 +19,24 @@ import com.despescar.reservationservice.exception.BookingException;
 import com.despescar.reservationservice.mapper.ReservationMapper;
 import com.despescar.reservationservice.repository.BookingDetailRepository;
 import com.despescar.reservationservice.repository.BookingRepository;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
-import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
-/** El inventario se descuenta al confirmar el pago y se devuelve al cancelar una reserva confirmada. */
+/** El inventario de vuelos se descuenta al confirmar el pago y se devuelve al cancelar una confirmada. */
 @ExtendWith(MockitoExtension.class)
 class BookingServiceInventoryTest {
 
     private static final UUID FLIGHT_ID = UUID.randomUUID();
-    private static final UUID HOTEL_ID = UUID.randomUUID();
 
     @Mock
     private BookingRepository bookingRepository;
@@ -53,8 +48,6 @@ class BookingServiceInventoryTest {
     private ReservationMapper reservationMapper;
     @Mock
     private FlightClient flightClient;
-    @Mock
-    private HotelClient hotelClient;
     @Mock
     private PackageClient packageClient;
 
@@ -69,8 +62,7 @@ class BookingServiceInventoryTest {
                 .id(7L)
                 .creadorId(1L)
                 .cantidadPasajeros(2)
-                .flightIds(List.of(FLIGHT_ID))
-                .hotelId(HOTEL_ID)
+                .flightIds(new ArrayList<>(List.of(FLIGHT_ID)))
                 .estado(ReservationStatus.PENDIENTE_PAGO)
                 .limiteTiempo(LocalDateTime.now().plusMinutes(10))
                 .build();
@@ -95,7 +87,7 @@ class BookingServiceInventoryTest {
     }
 
     @Test
-    void alConfirmarElPagoDescuentaAsientosPorNumeroDeVueloYUnaHabitacion() {
+    void alConfirmarElPagoDescuentaAsientosPorNumeroDeVuelo() {
         vueloConNumero("AR1234");
         when(detailRepository.findByReservation_IdAndPayerUserIdAndPaymentStatus(7L, 1L, PaymentStatus.PENDIENTE))
                 .thenReturn(List.of(detallePendiente(), detallePendiente()));
@@ -105,23 +97,7 @@ class BookingServiceInventoryTest {
 
         assertEquals(ReservationStatus.CONFIRMADA, reserva.getEstado());
         assertEquals("Reserva confirmada. Todos los pagos fueron realizados.", mensaje);
-        // Se pasa el numero de vuelo (no el UUID) y la cantidad de pasajeros
         verify(flightClient).adjustSeats("AR1234", -2);
-        verify(hotelClient).adjustRooms(HOTEL_ID, -1);
-    }
-
-    @Test
-    void sinHotelSoloDescuentaAsientos() {
-        reserva.setHotelId(null);
-        vueloConNumero("AR1234");
-        when(detailRepository.findByReservation_IdAndPayerUserIdAndPaymentStatus(7L, 1L, PaymentStatus.PENDIENTE))
-                .thenReturn(List.of(detallePendiente()));
-        when(detailRepository.countByReservation_IdAndPaymentStatus(7L, PaymentStatus.PENDIENTE)).thenReturn(0L);
-
-        bookingService.confirmarPagoValidado(7L, 1L, "mp-123");
-
-        verify(flightClient).adjustSeats("AR1234", -2);
-        verify(hotelClient, never()).adjustRooms(any(), anyInt());
     }
 
     @Test
@@ -134,11 +110,10 @@ class BookingServiceInventoryTest {
 
         assertEquals(ReservationStatus.PENDIENTE_PAGO, reserva.getEstado());
         verify(flightClient, never()).adjustSeats(anyString(), anyInt());
-        verify(hotelClient, never()).adjustRooms(any(), anyInt());
     }
 
     @Test
-    void cancelarUnaReservaConfirmadaDevuelveAsientosYHabitacion() {
+    void cancelarUnaReservaConfirmadaDevuelveAsientos() {
         reserva.setEstado(ReservationStatus.CONFIRMADA);
         vueloConNumero("AR1234");
         when(detailRepository.findByReservation_Id(7L)).thenReturn(List.of());
@@ -146,9 +121,7 @@ class BookingServiceInventoryTest {
         bookingService.cancelarReservaManualmente(7L, 1L);
 
         assertEquals(ReservationStatus.CANCELADA, reserva.getEstado());
-        InOrder orden = inOrder(flightClient, hotelClient);
-        orden.verify(flightClient).adjustSeats("AR1234", 2);
-        orden.verify(hotelClient).adjustRooms(HOTEL_ID, 1);
+        verify(flightClient).adjustSeats("AR1234", 2);
     }
 
     @Test
@@ -159,7 +132,6 @@ class BookingServiceInventoryTest {
 
         assertEquals(ReservationStatus.CANCELADA, reserva.getEstado());
         verify(flightClient, never()).adjustSeats(anyString(), anyInt());
-        verify(hotelClient, never()).adjustRooms(any(), anyInt());
     }
 
     @Test
