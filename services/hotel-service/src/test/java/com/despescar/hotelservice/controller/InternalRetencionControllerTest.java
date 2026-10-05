@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -14,6 +15,7 @@ import com.despescar.hotelservice.dto.TramoDto;
 import com.despescar.hotelservice.dto.internal.RetencionResponse;
 import com.despescar.hotelservice.entity.EstadoRetencion;
 import com.despescar.hotelservice.exception.ConflictoException;
+import com.despescar.hotelservice.exception.RetencionNoEncontradaException;
 import com.despescar.hotelservice.service.RetencionService;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -95,6 +97,7 @@ class InternalRetencionControllerTest {
         mockMvc.perform(post("/internal/retenciones").header(HEADER, "otro")
                         .contentType(MediaType.APPLICATION_JSON).content(PEDIDO))
                 .andExpect(status().isUnauthorized());
+        verify(service, never()).crear(any());
     }
 
     @Test
@@ -156,5 +159,55 @@ class InternalRetencionControllerTest {
         mockMvc.perform(post("/hoteles").contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error").value("Necesitás iniciar sesión."));
+    }
+
+    @Test
+    void unUsuarioSinRolDeAdminRecibe403ConCuerpo() throws Exception {
+        mockMvc.perform(post("/hoteles").header("Authorization", jwtUsuario())
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("No tenés permisos para esta acción."));
+    }
+
+    @Test
+    void elCatalogoPublicoNoPideToken() throws Exception {
+        // HotelController no se carga en este slice: un 404 prueba que la seguridad dejó pasar
+        mockMvc.perform(get("/hoteles/destinos"))
+                .andExpect(result -> {
+                    int s = result.getResponse().getStatus();
+                    if (s == 401 || s == 403) {
+                        throw new AssertionError("El catálogo debería ser público, respondió " + s);
+                    }
+                });
+    }
+
+    @Test
+    void confirmarUnaRetencionInexistenteResponde404() throws Exception {
+        when(service.confirmar(RET, "Ana Pérez")).thenThrow(new RetencionNoEncontradaException(RET));
+
+        mockMvc.perform(post("/internal/retenciones/" + RET + "/confirmar").header(HEADER, TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"nombreTitular\":\"Ana Pérez\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void confirmarUnaRetencionLiberadaResponde409() throws Exception {
+        when(service.confirmar(RET, "Ana Pérez")).thenThrow(new ConflictoException("RETENCION_LIBERADA",
+                "La retención ya fue liberada."));
+
+        mockMvc.perform(post("/internal/retenciones/" + RET + "/confirmar").header(HEADER, TOKEN)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"nombreTitular\":\"Ana Pérez\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.codigo").value("RETENCION_LIBERADA"));
+    }
+
+    @Test
+    void elTokenInternoValidoLlegaAlControladorAunqueVengaUnJwtDeUsuario() throws Exception {
+        when(service.crear(any())).thenReturn(respuesta(EstadoRetencion.RETENIDA));
+
+        mockMvc.perform(post("/internal/retenciones").header(HEADER, TOKEN)
+                        .header("Authorization", jwtUsuario())
+                        .contentType(MediaType.APPLICATION_JSON).content(PEDIDO))
+                .andExpect(status().isCreated());
     }
 }
