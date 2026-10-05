@@ -77,9 +77,11 @@ public class MercadoPagoWebhookService {
                 if (monedaCobrada != null && !"ARS".equalsIgnoreCase(monedaCobrada)) {
                     log.warn("Mercado Pago aprobo el pago {} en {}: no se aprueba solo, requiere revision manual.",
                             payment.getId(), monedaCobrada);
-                    paymentHistoryService.saveHistory(payment, actual,
-                            "Revision manual: moneda " + monedaCobrada + " en lugar de ARS (cobro "
-                                    + gatewayResponse.getTransactionId() + ").");
+                    String nota = "Revision manual: moneda " + monedaCobrada + " en lugar de ARS (cobro "
+                            + gatewayResponse.getTransactionId() + ").";
+                    if (!paymentHistoryService.existe(payment.getId(), nota)) {
+                        paymentHistoryService.saveHistory(payment, actual, nota);
+                    }
                     return payment;
                 }
                 if ((actual == PaymentStatus.APPROVED || actual == PaymentStatus.REFUNDED)

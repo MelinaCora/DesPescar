@@ -76,13 +76,52 @@ public class AprobacionPagoService {
     }
 
     /**
-     * Un segundo cobro aprobado de Mercado Pago sobre una preferencia que ya tiene pago aprobado: se
-     * reembolsa ese cobro (por su id en Mercado Pago) y el pago propio no cambia de estado.
+     * Otro cobro aprobado de Mercado Pago sobre un pago que ya estaba APPROVED o REFUNDED. Antes de
+     * devolverlo se le pregunta a reservation-service (idempotente por token): si la reserva se
+     * confirmo justamente con ese cobro, es el verdadero (su respuesta se demoro y el otro llego
+     * primero) y el pago pasa a apuntar a el; el cobro anterior se reembolsa si no lo estaba. Si
+     * reservation-service no responde lanza ReservationClientException y no se reembolsa nada: la
+     * transaccion se deshace y Mercado Pago reintenta la notificacion.
      */
     @Transactional
     public void reembolsarCobroDuplicado(Payment payment, String transactionId, BigDecimal montoPagado) {
         BigDecimal monto = (montoPagado != null ? montoPagado : payment.getAmount()).setScale(2, RoundingMode.HALF_UP);
 
+        ConfirmacionReservaResponse confirmacion = reservationClient.confirmarPago(
+                payment.getReservationId(), payment.getUserId(), transactionId, monto);
+
+        if (confirmacion.confirmada()) {
+            adoptarCobroConfirmado(payment, transactionId);
+            return;
+        }
+
+        if (reembolsarCobro(payment, transactionId, monto)) {
+            paymentHistoryService.saveHistory(payment, payment.getStatus(), recortar(
+                    "Cobro duplicado " + transactionId + " reembolsado (PAGO_DUPLICADO)."));
+        }
+    }
+
+    /** El cobro que confirmo la reserva pasa a ser el del pago; el anterior se devuelve si no se habia devuelto. */
+    private void adoptarCobroConfirmado(Payment payment, String transactionId) {
+        String anterior = payment.getTransactionId();
+        boolean anteriorReembolsado = payment.getStatus() == PaymentStatus.REFUNDED;
+
+        payment.setStatus(PaymentStatus.APPROVED);
+        payment.setTransactionId(transactionId);
+        Payment guardado = paymentRepository.save(payment);
+        paymentHistoryService.saveHistory(guardado, PaymentStatus.APPROVED, recortar(
+                "El cobro " + transactionId + " confirmo la reserva; el pago pasa a ese cobro (antes " + anterior + ")."));
+
+        if (!anteriorReembolsado && anterior != null) {
+            if (reembolsarCobro(guardado, anterior, guardado.getAmount().setScale(2, RoundingMode.HALF_UP))) {
+                paymentHistoryService.saveHistory(guardado, PaymentStatus.APPROVED, recortar(
+                        "Cobro anterior " + anterior + " reembolsado (PAGO_DUPLICADO)."));
+            }
+        }
+    }
+
+    /** Pide el reembolso del cobro; si no sale deja "Reembolso manual pendiente" y devuelve false. */
+    private boolean reembolsarCobro(Payment payment, String transactionId, BigDecimal monto) {
         RefundGatewayResponse reembolso;
         try {
             reembolso = paymentGatewayService.refund(transactionId, monto);
@@ -92,15 +131,14 @@ public class AprobacionPagoService {
         }
 
         if (reembolso != null && reembolso.isApproved()) {
-            paymentHistoryService.saveHistory(payment, payment.getStatus(), recortar(
-                    "Cobro duplicado " + transactionId + " reembolsado (PAGO_DUPLICADO)."));
-            return;
+            return true;
         }
         String detalle = reembolso == null ? "sin respuesta del proveedor" : reembolso.getMessage();
         log.warn("Reembolso manual pendiente del cobro duplicado {} del pago {}: {}",
                 transactionId, payment.getId(), detalle);
         paymentHistoryService.saveHistory(payment, payment.getStatus(), recortar(
                 "Reembolso manual pendiente del cobro duplicado " + transactionId + " (PAGO_DUPLICADO): " + detalle));
+        return false;
     }
 
     private Payment reembolsar(Payment payment, BigDecimal monto, ConfirmacionReservaResponse confirmacion) {

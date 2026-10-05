@@ -8,6 +8,8 @@ import java.util.UUID;
 
 public interface PaymentHistoryRepository extends JpaRepository<PaymentHistory, UUID> {
 
+    boolean existsByPayment_IdAndDescription(UUID paymentId, String description);
+
     List<PaymentHistory> findByPayment_IdOrderByChangedAtAsc(UUID paymentId);
 
 }

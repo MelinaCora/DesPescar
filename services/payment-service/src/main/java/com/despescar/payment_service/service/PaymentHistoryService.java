@@ -44,6 +44,11 @@ public class PaymentHistoryService {
     }
 
     @Transactional(readOnly = true)
+    public boolean existe(UUID paymentId, String description) {
+        return paymentHistoryRepository.existsByPayment_IdAndDescription(paymentId, description);
+    }
+
+    @Transactional(readOnly = true)
     public List<PaymentHistoryResponse> getHistoryByPayment(UUID paymentId, Long authenticatedUserId) {
         var payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new PaymentNotFoundException("Payment not found with id: " + paymentId));

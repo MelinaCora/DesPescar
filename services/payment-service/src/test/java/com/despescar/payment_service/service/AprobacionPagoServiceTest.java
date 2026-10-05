@@ -174,25 +174,32 @@ class AprobacionPagoServiceTest {
                 startsWith("Reembolso automatico (PAGO_DUPLICADO)"));
     }
 
+    private void reservaResponde(String token, String estado, String motivo) {
+        when(reservationClient.confirmarPago(12L, 7L, token, TOTAL))
+                .thenReturn(new ConfirmacionReservaResponse(estado, motivo, "mensaje de la reserva"));
+    }
+
     @Test
-    void unCobroDuplicadoDeMercadoPagoSeReembolsaSinTocarElPago() {
+    void unCobroDuplicadoQueLaReservaRechazaSeReembolsaSinTocarElPago() {
         pago.setStatus(PaymentStatus.APPROVED);
         pago.setTransactionId("445");
+        reservaResponde("999", "RECHAZADA", "PAGO_DUPLICADO");
         when(paymentGatewayService.refund("999", TOTAL))
                 .thenReturn(RefundGatewayResponse.builder().approved(true).build());
 
         service.reembolsarCobroDuplicado(pago, "999", new BigDecimal("1060000"));
 
         assertThat(pago.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(pago.getTransactionId()).isEqualTo("445");
         verify(paymentHistoryService).saveHistory(eq(pago), eq(PaymentStatus.APPROVED),
                 startsWith("Cobro duplicado 999 reembolsado (PAGO_DUPLICADO)"));
-        verifyNoInteractions(reservationClient);
     }
 
     @Test
     void siElReembolsoDelCobroDuplicadoNoSaleQuedaPendienteManual() {
         pago.setStatus(PaymentStatus.APPROVED);
         pago.setTransactionId("445");
+        reservaResponde("999", "RECHAZADA", "PAGO_DUPLICADO");
         when(paymentGatewayService.refund("999", TOTAL))
                 .thenReturn(RefundGatewayResponse.builder().approved(false).message("HTTP 400").build());
 
@@ -200,6 +207,50 @@ class AprobacionPagoServiceTest {
 
         verify(paymentHistoryService).saveHistory(pago, PaymentStatus.APPROVED,
                 "Reembolso manual pendiente del cobro duplicado 999 (PAGO_DUPLICADO): HTTP 400");
+    }
+
+    @Test
+    void siElOtroCobroEraElQueConfirmoLaReservaSeQuedaConEseYYaEstabaReembolsadoElAnterior() {
+        // A aprobo pero reservas tardo; B llego primero, fue duplicado y se reembolso (el pago quedo REFUNDED con B).
+        pago.setStatus(PaymentStatus.REFUNDED);
+        pago.setTransactionId("B");
+        reservaResponde("A", "CONFIRMADA", null);
+        when(paymentRepository.save(pago)).thenReturn(pago);
+
+        service.reembolsarCobroDuplicado(pago, "A", TOTAL);
+
+        assertThat(pago.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        assertThat(pago.getTransactionId()).isEqualTo("A");
+        verify(paymentGatewayService, never()).refund(any(), any());
+        verify(paymentHistoryService).saveHistory(eq(pago), eq(PaymentStatus.APPROVED), startsWith("El cobro A confirmo la reserva"));
+    }
+
+    @Test
+    void siElAnteriorNoSeHabiaReembolsadoSeReembolsaElAnteriorYNoElReal() {
+        pago.setStatus(PaymentStatus.APPROVED);
+        pago.setTransactionId("B");
+        reservaResponde("A", "CONFIRMADA", null);
+        when(paymentRepository.save(pago)).thenReturn(pago);
+        when(paymentGatewayService.refund("B", TOTAL))
+                .thenReturn(RefundGatewayResponse.builder().approved(true).build());
+
+        service.reembolsarCobroDuplicado(pago, "A", TOTAL);
+
+        assertThat(pago.getTransactionId()).isEqualTo("A");
+        assertThat(pago.getStatus()).isEqualTo(PaymentStatus.APPROVED);
+        verify(paymentGatewayService).refund("B", TOTAL);
+        verify(paymentGatewayService, never()).refund(eq("A"), any());
+    }
+
+    @Test
+    void siReservasNoRespondeAlVerificarElOtroCobroNoSeReembolsaNada() {
+        pago.setStatus(PaymentStatus.APPROVED);
+        pago.setTransactionId("B");
+        when(reservationClient.confirmarPago(12L, 7L, "A", TOTAL)).thenThrow(new ReservationClientException("caido"));
+
+        assertThatThrownBy(() -> service.reembolsarCobroDuplicado(pago, "A", TOTAL))
+                .isInstanceOf(ReservationClientException.class);
+        verify(paymentGatewayService, never()).refund(any(), any());
     }
 
     @Test

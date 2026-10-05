@@ -223,4 +223,18 @@ class MercadoPagoWebhookServiceTest {
                 startsWith("Revision manual: moneda"));
         verify(aprobacionPagoService, never()).aprobar(any(), any(), any(), any());
     }
+
+    @Test
+    void laRevisionManualDeMonedaNoSeRepiteParaElMismoCobro() {
+        when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MERCADO_PAGO);
+        when(paymentGatewayService.getPaymentStatus("445")).thenReturn(PaymentGatewayResponse.builder()
+                .approved(true).transactionId("445").externalReference(payment.getId().toString())
+                .status("approved").currency("USD").amount(new BigDecimal("1250.00")).build());
+        pagoEncontrado();
+        when(paymentHistoryService.existe(eq(payment.getId()), startsWith("Revision manual: moneda"))).thenReturn(true);
+
+        service.processPaymentNotification("445", "payment");
+
+        verify(paymentHistoryService, never()).saveHistory(any(), any(), any());
+    }
 }
