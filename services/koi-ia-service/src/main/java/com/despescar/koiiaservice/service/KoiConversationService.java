@@ -86,6 +86,7 @@ public class KoiConversationService {
             + "Probá con otro monto u otras fechas, o decime un destino.";
     public static final String SEGUIMOS_EXPLORANDO = "Si querés, decime un destino, otras fechas, cuántos viajan "
             + "o desde dónde salís, y busco de nuevo.";
+    public static final String OPCIONES_DE_ANTES = "Estas son las opciones que te había armado:";
     private static final String REINTENTAR = "Probá de nuevo en un ratito.";
     private static final String OTRA_FORMA = "¿Me lo decís de otra forma?";
     private static final String PRECIOS_ORIENTATIVOS =
@@ -178,7 +179,9 @@ public class KoiConversationService {
         ensureSessionOwner(session, userIdentifier);
 
         String mensaje = request.getMessage().trim();
-        List<KoiModeloLenguaje.Turno> historial = historialReciente(sessionId);
+        List<KoiConversationMessage> ultimosMensajes =
+                messageRepository.findTop10BySessionIdOrderByCreatedAtDescIdDesc(sessionId);
+        List<KoiModeloLenguaje.Turno> historial = historialReciente(ultimosMensajes);
         guardarMensaje(session, MessageRole.USER, mensaje, null);
 
         LocalDate hoy = LocalDate.now(clock);
@@ -200,7 +203,12 @@ public class KoiConversationService {
         // Pedir opciones sin destino después de otra búsqueda empieza una nueva: no arrastra el
         // destino, las fechas ni la intención de la anterior.
         boolean busquedaNueva = nuevos != null && nuevos.esDestinoAbierto() && !antes.esDestinoAbierto();
-        DatosViaje base = busquedaNueva ? antes.paraBusquedaNueva() : antes;
+        // Volver a pedir opciones siempre busca de nuevo; si ya estaba explorando y el mensaje no
+        // trae fechas, tampoco se usan las que habían quedado guardadas.
+        boolean pideOpciones = nuevos != null && HablaRioplatense.quiereExplorar(mensaje);
+        boolean exploraDeNuevo = pideOpciones && nuevos.esDestinoAbierto() && antes.esDestinoAbierto()
+                && !traeFechas(nuevos);
+        DatosViaje base = busquedaNueva || exploraDeNuevo ? antes.paraBusquedaNueva() : antes;
         Limpieza limpieza = limpiar(nuevos != null ? base.combinar(nuevos) : antes, hoy);
         DatosViaje datos = limpieza.datos();
         boolean viajerosDeAntes = busquedaNueva && nuevos.viajeros() == null && datos.viajeros() != null;
@@ -220,11 +228,14 @@ public class KoiConversationService {
                     unir(comentario != null ? comentario : FUERA_DE_TEMA, avisos), null);
         } else if (!faltan.isEmpty() || !listoParaRecomendar(datos)) {
             turno = preguntar(session, faltan, datos, unir(comentario, avisos), null);
-        } else if (!datos.equals(antes) || session.getStage() != ConversationStage.RECOMMENDING) {
+        } else if (pideOpciones || !datos.equals(antes) || session.getStage() != ConversationStage.RECOMMENDING) {
             turno = datos.esDestinoAbierto() ? explorar(session, datos, comentario, viajerosDeAntes)
                     : recomendar(session, datos, comentario);
         } else {
-            turno = new Turno(unir(comentario, datos.esDestinoAbierto() ? SEGUIMOS_EXPLORANDO : SEGUIMOS), List.of());
+            List<KoiRecommendationResponse> deAntes = opcionesDelUltimoMensajeDeKoi(ultimosMensajes);
+            turno = deAntes.isEmpty()
+                    ? new Turno(unir(comentario, datos.esDestinoAbierto() ? SEGUIMOS_EXPLORANDO : SEGUIMOS), List.of())
+                    : new Turno(unir(sinPrecios(comentario), OPCIONES_DE_ANTES), deAntes);
         }
 
         turno = new Turno(acotarRespuesta(turno.texto()), turno.opciones());
@@ -345,6 +356,23 @@ public class KoiConversationService {
                 ? null : comentario;
         return new Turno(unir(comentarioSinPrecios, String.join(" ", supuestos),
                 resumen(opciones, datos.presupuesto())), opciones);
+    }
+
+    private static boolean traeFechas(DatosViaje d) {
+        return d.fechaIda() != null || d.mesIda() != null || d.fechaVuelta() != null || d.noches() != null;
+    }
+
+    /** Las opciones que acompañaban a lo último que dijo KOI; vacío si ese mensaje no tenía. */
+    private List<KoiRecommendationResponse> opcionesDelUltimoMensajeDeKoi(List<KoiConversationMessage> nuevosPrimero) {
+        return nuevosPrimero.stream()
+                .filter(m -> m.getRole() == MessageRole.KOI)
+                .findFirst()
+                .map(m -> opcionesJson.leer(m.getOpcionesJson()))
+                .orElse(List.of());
+    }
+
+    private static String sinPrecios(String comentario) {
+        return comentario != null && MENCIONA_PRECIO.matcher(comentario).find() ? null : comentario;
     }
 
     static String viajerosDeAntes(int viajeros) {
@@ -523,9 +551,7 @@ public class KoiConversationService {
     }
 
     /** Los últimos turnos guardados en el servidor, del más viejo al más nuevo. */
-    private List<KoiModeloLenguaje.Turno> historialReciente(UUID sessionId) {
-        List<KoiConversationMessage> nuevosPrimero =
-                messageRepository.findTop10BySessionIdOrderByCreatedAtDescIdDesc(sessionId);
+    private static List<KoiModeloLenguaje.Turno> historialReciente(List<KoiConversationMessage> nuevosPrimero) {
         List<KoiModeloLenguaje.Turno> turnos = new ArrayList<>();
         for (int i = nuevosPrimero.size() - 1; i >= 0; i--) {
             KoiConversationMessage m = nuevosPrimero.get(i);

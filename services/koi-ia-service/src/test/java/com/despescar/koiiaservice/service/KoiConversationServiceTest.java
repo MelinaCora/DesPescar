@@ -815,7 +815,7 @@ class KoiConversationServiceTest {
         modelo.respuesta = "{\"presupuesto\":2000000,\"destinoAbierto\":true}";
         when(explorador.explorar(any())).thenReturn(opcionesExploradas());
 
-        service.handleMessage(sessionId, request("mejor con 2 palos, ofreceme algo"), null);
+        service.handleMessage(sessionId, request("mejor con 2 palos"), null);
 
         PedidoExploracion pedido = pedidoExplorado();
         assertEquals(D19, pedido.fechaIda());
@@ -830,5 +830,101 @@ class KoiConversationServiceTest {
         KoiConversationResponse r = service.handleMessage(sessionId, request("a donde sea en diciembre"), null);
 
         assertTrue(r.getReply().contains(KoiConversationService.FECHAS_CERCANAS), r.getReply());
+    }
+
+    private static final String DOS_PALOS = "che Koi tengo 2 palos, ofreceme vuelos y hoteles o algún viaje";
+
+    /** Sesión que ya estaba explorando con 2 palos, con fechas viejas guardadas. */
+    private void sesionExplorandoConFechasViejas() {
+        session.setOpenDestination(true);
+        session.setIntent(UserIntent.COMBO);
+        session.setStage(ConversationStage.RECOMMENDING);
+        session.setBudget(new BigDecimal("2000000.00"));
+        session.setTravelers(2);
+        session.setDepartureDate(LocalDate.of(2026, 11, 25));
+        session.setReturnDate(LocalDate.of(2026, 11, 27));
+    }
+
+    @Test
+    void siVuelveAPedirOpcionesBuscaDeNuevoAunqueNadaHayaCambiadoYSinLasFechasViejas() {
+        sesionExplorandoConFechasViejas();
+        modelo.respuesta = "{\"comentario\":\"¡Dale!\",\"presupuesto\":2000000,\"destinoAbierto\":true}";
+        when(explorador.explorar(any())).thenReturn(opcionesExploradas());
+
+        KoiConversationResponse r = service.handleMessage(sessionId, request(DOS_PALOS), null);
+
+        PedidoExploracion pedido = pedidoExplorado();
+        assertNull(pedido.fechaIda());
+        assertNull(pedido.noches());
+        assertEquals(2, pedido.viajeros());
+        assertNull(session.getDepartureDate());
+        assertNull(session.getReturnDate());
+        assertEquals(2, r.getRecommendations().size());
+        assertTrue(r.getReply().contains(KoiConversationService.ASUMI_FECHAS), r.getReply());
+        assertFalse(r.getReply().contains("como me dijiste antes"), r.getReply());
+    }
+
+    @Test
+    void siVuelveAPedirOpcionesConLosMismosDatosBuscaOtraVez() {
+        session.setOpenDestination(true);
+        session.setStage(ConversationStage.RECOMMENDING);
+        session.setBudget(new BigDecimal("2000000.00"));
+        modelo.respuesta = "{\"presupuesto\":2000000,\"destinoAbierto\":true}";
+        when(explorador.explorar(any())).thenReturn(opcionesExploradas());
+
+        KoiConversationResponse r = service.handleMessage(sessionId, request(DOS_PALOS), null);
+
+        verify(explorador).explorar(any());
+        assertEquals(2, r.getRecommendations().size());
+    }
+
+    @Test
+    void siPideOpcionesConFechasEnElMensajeSeUsanEsas() {
+        sesionExplorandoConFechasViejas();
+        modelo.respuesta = "{\"presupuesto\":2000000,\"destinoAbierto\":true}";
+        when(explorador.explorar(any())).thenReturn(opcionesExploradas());
+
+        service.handleMessage(sessionId, request("ofreceme algo para un finde"), null);
+
+        PedidoExploracion pedido = pedidoExplorado();
+        assertEquals(LocalDate.of(2026, 11, 6), pedido.fechaIda());
+        assertEquals(2, pedido.noches());
+    }
+
+    @Test
+    void siNoVuelveABuscarReenviaLasOpcionesDelUltimoMensajeDeKoi() {
+        session.setOpenDestination(true);
+        session.setStage(ConversationStage.RECOMMENDING);
+        session.setBudget(new BigDecimal("2000000.00"));
+        KoiConversationMessage conOpciones = mensaje(MessageRole.KOI, "Te armé 2 opciones.");
+        conOpciones.setOpcionesJson(new KoiOpcionesJson().escribir(opcionesExploradas()));
+        when(messageRepository.findTop10BySessionIdOrderByCreatedAtDescIdDesc(sessionId))
+                .thenReturn(List.of(conOpciones, mensaje(MessageRole.USER, "tengo 2 palos")));
+        modelo.respuesta = "{\"comentario\":\"¡Genial!\"}";
+
+        KoiConversationResponse r = service.handleMessage(sessionId, request("dale"), null);
+
+        assertEquals("¡Genial! " + KoiConversationService.OPCIONES_DE_ANTES, r.getReply());
+        assertEquals(opcionesExploradas(), r.getRecommendations());
+        assertEquals(r.getRecommendations(), new KoiOpcionesJson().leer(ultimoDeKoi().getOpcionesJson()));
+        verify(explorador, never()).explorar(any());
+    }
+
+    @Test
+    void siElUltimoMensajeDeKoiNoTeniaOpcionesNoReenviaLasDeMasAtras() {
+        session.setOpenDestination(true);
+        session.setStage(ConversationStage.RECOMMENDING);
+        session.setBudget(new BigDecimal("2000000.00"));
+        KoiConversationMessage conOpciones = mensaje(MessageRole.KOI, "Te armé 2 opciones.");
+        conOpciones.setOpcionesJson(new KoiOpcionesJson().escribir(opcionesExploradas()));
+        when(messageRepository.findTop10BySessionIdOrderByCreatedAtDescIdDesc(sessionId))
+                .thenReturn(List.of(mensaje(MessageRole.KOI, "No encontré nada."), mensaje(MessageRole.USER, "x"),
+                        conOpciones));
+        modelo.respuesta = "{\"comentario\":\"¡Genial!\"}";
+
+        KoiConversationResponse r = service.handleMessage(sessionId, request("dale"), null);
+
+        assertEquals("¡Genial! " + KoiConversationService.SEGUIMOS_EXPLORANDO, r.getReply());
+        assertTrue(r.getRecommendations().isEmpty());
     }
 }
