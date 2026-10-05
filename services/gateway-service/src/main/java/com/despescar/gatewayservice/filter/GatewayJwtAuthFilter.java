@@ -46,7 +46,8 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
             );
         }
 
-        if (method == HttpMethod.OPTIONS || isPublicPath(path) || isPublicFlightRead(method, path)) {
+        if (method == HttpMethod.OPTIONS || isPublicPath(path) || isPublicFlightRead(method, path)
+                || isPublicHotelRead(method, path)) {
             return chain.filter(exchange);
         }
 
@@ -140,6 +141,16 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
                 || path.equals("/api/airports")
                 || path.matches("/api/airports/code/[^/]+")
                 || path.equals("/api/fares");
+    }
+
+    // Catalogo de hoteles sin sesion; mismas rutas que hotel-service deja en permitAll.
+    private boolean isPublicHotelRead(HttpMethod method, String path) {
+        if (method != HttpMethod.GET) {
+            return false;
+        }
+        return path.equals("/api/hotels")
+                || path.equals("/api/hotels/destinos")
+                || path.matches("/api/hotels/[^/]+");
     }
 
     private boolean requiresAuthentication(String path) {

@@ -55,7 +55,7 @@ spring:
           predicates:
             - Path=/api/hotels/**
           filters:
-            - RewritePath=/api/hotels/?(?<segment>.*), /hoteles/$\{segment}
+            - RewritePath=/api/hotels(?<segment>/?.*), /hoteles$\{segment}
 
         - id: packages
           uri: http://localhost:8086

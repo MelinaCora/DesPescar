@@ -90,4 +90,23 @@ class GatewayJwtAuthFilterTest {
 
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
+
+    @Test
+    void hotelReadsShouldBePublicButWritesNeedAToken() {
+        GatewayJwtService jwtService = mock(GatewayJwtService.class);
+        GatewayJwtAuthFilter filter = new GatewayJwtAuthFilter(jwtService);
+        GatewayFilterChain chain = exchange -> Mono.empty();
+
+        for (String path : new String[] {
+                "/api/hotels", "/api/hotels/destinos", "/api/hotels/3f2b8c1e-0000-0000-0000-000000000001"}) {
+            ServerWebExchange read = MockServerWebExchange.from(MockServerHttpRequest.get(path).build());
+            filter.filter(read, chain).block();
+            assertThat(read.getResponse().getStatusCode()).as(path).isNull();
+        }
+        verify(jwtService, never()).parseToken(org.mockito.Mockito.anyString());
+
+        ServerWebExchange write = MockServerWebExchange.from(MockServerHttpRequest.post("/api/hotels").build());
+        filter.filter(write, chain).block();
+        assertThat(write.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
 }
