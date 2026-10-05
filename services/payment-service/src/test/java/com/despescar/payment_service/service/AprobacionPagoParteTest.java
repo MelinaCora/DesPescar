@@ -194,4 +194,41 @@ class AprobacionPagoParteTest {
         verify(reservationClient).confirmarPago(12L, 9L, "MOCK-1", PARTE);
         verify(reservationClient, never()).confirmarPagoParte(anyLong(), anyInt(), anyLong(), anyString(), any());
     }
+
+    @Test
+    void unaParteCanceladaAlCerrarseElGrupoQueElProveedorApruebaDespuesSeReembolsa() {
+        pago.setStatus(PaymentStatus.CANCELLED);
+        pago.setProvider(PaymentProvider.MERCADO_PAGO);
+        when(reservationClient.confirmarPagoParte(12L, 2, 9L, "MP-9", PARTE))
+                .thenReturn(new ConfirmacionReservaResponse("CANCELADA", "GRUPO_CANCELADO", "El pago en grupo se cancelo."));
+        when(paymentGatewayService.refund("MP-9", PARTE))
+                .thenReturn(RefundGatewayResponse.builder().approved(true).refundTransactionId("R-9").build());
+
+        Payment r = service.aprobar(pago, "MP-9", PaymentMethod.CREDIT_CARD, PARTE);
+
+        assertThat(r.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(r.getTransactionId()).isEqualTo("MP-9");
+        verify(paymentGatewayService).refund("MP-9", PARTE);
+        verify(paymentHistoryService).saveHistory(eq(pago), eq(PaymentStatus.REFUNDED), contains("GRUPO_CANCELADO"));
+    }
+
+    @Test
+    void elPagoEnteroCanceladoAlPagarElOrganizadorSuParteQueSeApruebaDespuesSeReembolsa() {
+        BigDecimal total = new BigDecimal("1060000.00");
+        pago.setParteNumero(null);
+        pago.setAmount(total);
+        pago.setStatus(PaymentStatus.CANCELLED);
+        pago.setProvider(PaymentProvider.MERCADO_PAGO);
+        when(reservationClient.confirmarPago(12L, 9L, "MP-9", total))
+                .thenReturn(new ConfirmacionReservaResponse("RECHAZADA", "PAGO_EN_GRUPO", "La reserva se paga en grupo."));
+        when(paymentGatewayService.refund("MP-9", total))
+                .thenReturn(RefundGatewayResponse.builder().approved(true).refundTransactionId("R-9").build());
+
+        Payment r = service.aprobar(pago, "MP-9", PaymentMethod.CREDIT_CARD, total);
+
+        assertThat(r.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        verify(paymentGatewayService).refund("MP-9", total);
+        verify(paymentHistoryService).saveHistory(eq(pago), eq(PaymentStatus.REFUNDED), contains("PAGO_EN_GRUPO"));
+        verify(reservationClient, never()).confirmarPagoParte(anyLong(), anyInt(), anyLong(), anyString(), any());
+    }
 }

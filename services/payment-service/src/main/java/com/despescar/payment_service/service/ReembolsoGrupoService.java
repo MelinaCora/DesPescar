@@ -1,7 +1,6 @@
 package com.despescar.payment_service.service;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.List;
 import java.util.UUID;
 
@@ -18,8 +17,8 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Reembolsa las partes pagadas de un pago en grupo que se canceló o venció (D-b13, CB5): cada pago
- * APPROVED con parte se devuelve entero (D-b25), cada PENDING con parte se cancela y el resto no se
- * toca. Un pago por transacción, bloqueado con findByIdParaActualizar, para que la llamada al
+ * APPROVED con parte se devuelve entero (D-b25), por lo que el proveedor cobró en ese cobro, cada
+ * PENDING con parte se cancela y el resto no se toca. Un pago por transacción, bloqueado con findByIdParaActualizar, para que la llamada al
  * proveedor no sostenga más que esa fila. Si el proveedor rechaza o falla, el pago queda APPROVED
  * con "Reembolso manual pendiente" (D6) y cuenta en fallidos: reservation-service recibe 200 y no
  * insiste; una llamada posterior volvería a intentar solo esos.
@@ -82,7 +81,7 @@ public class ReembolsoGrupoService {
         if (pago.getStatus() != PaymentStatus.APPROVED) {
             return Resultado.NADA;
         }
-        BigDecimal monto = pago.getAmount().setScale(2, RoundingMode.HALF_UP);
+        BigDecimal monto = MontoCobrado.de(paymentGatewayService, pago, pago.getTransactionId());
         RefundGatewayResponse reembolso;
         try {
             reembolso = paymentGatewayService.refund(pago.getTransactionId(), monto);

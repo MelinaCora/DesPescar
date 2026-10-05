@@ -268,10 +268,17 @@ public class PaymentService {
             previo.setStatus(PaymentStatus.CANCELLED);
             // flush: el índice de pendienteDeReserva/pendienteDeParte tiene que quedar libre antes de insertar
             paymentRepository.saveAndFlush(previo);
-            paymentHistoryService.saveHistory(previo, PaymentStatus.CANCELLED, previo.esDeParte() || parteNumero == null
-                    ? "Reemplazado por un pago nuevo: cambio el total del carrito."
-                    : "Reemplazado: la reserva ahora se paga en grupo.");
+            paymentHistoryService.saveHistory(previo, PaymentStatus.CANCELLED, motivoDelReemplazo(previo, parteNumero));
         }
         return reusable;
+    }
+
+    private static String motivoDelReemplazo(Payment previo, Integer parteNumero) {
+        if (previo.esDeParte()) {
+            return "Reemplazado por un pago nuevo: cambio el monto de la parte.";
+        }
+        return parteNumero == null
+                ? "Reemplazado por un pago nuevo: cambio el total del carrito."
+                : "Reemplazado: la reserva ahora se paga en grupo.";
     }
 }

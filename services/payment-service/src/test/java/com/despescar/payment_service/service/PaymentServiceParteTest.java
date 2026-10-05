@@ -205,6 +205,23 @@ class PaymentServiceParteTest {
     }
 
     @Test
+    void siCambioElMontoDeLaParteElPendingAnteriorSeReemplazaYElHistorialLoDice() {
+        parteResponde(parte(9L, "TOMADA", "ABIERTO", 86100, PARTE, "ARS"));
+        Payment previo = Payment.builder().id(UUID.randomUUID()).reservationId(12L).userId(9L).parteNumero(2)
+                .amount(new BigDecimal("530000.00")).currency("ARS").status(PaymentStatus.PENDING)
+                .provider(PaymentProvider.MOCK).checkoutUrl("/pago/simulado?pago=x").createdAt(LocalDateTime.now()).build();
+        when(paymentRepository.findByReservationId(12L)).thenReturn(List.of(previo));
+
+        PaymentResponse r = service.createPayment(pedido(2), 9L);
+
+        assertThat(r.getId()).isNotEqualTo(previo.getId());
+        assertThat(r.getAmount()).isEqualByComparingTo(PARTE);
+        assertThat(previo.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
+        verify(paymentHistoryService).saveHistory(previo, PaymentStatus.CANCELLED,
+                "Reemplazado por un pago nuevo: cambio el monto de la parte.");
+    }
+
+    @Test
     void elPendingDeOtraParteDelMismoUsuarioNoSeReutilizaNiSeCancela() {
         parteResponde(parte(9L, "TOMADA", "ABIERTO", 86100, PARTE, "ARS"));
         Payment otraParte = Payment.builder().id(UUID.randomUUID()).reservationId(12L).userId(9L).parteNumero(3)
@@ -230,7 +247,8 @@ class PaymentServiceParteTest {
         service.createPayment(pedido(1), 7L);
 
         assertThat(entero.getStatus()).isEqualTo(PaymentStatus.CANCELLED);
-        verify(paymentHistoryService).saveHistory(eq(entero), eq(PaymentStatus.CANCELLED), anyString());
+        verify(paymentHistoryService).saveHistory(entero, PaymentStatus.CANCELLED,
+                "Reemplazado: la reserva ahora se paga en grupo.");
     }
 
     @Test

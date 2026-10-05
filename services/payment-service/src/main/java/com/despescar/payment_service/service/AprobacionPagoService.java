@@ -9,7 +9,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.despescar.payment_service.client.ReservationClient;
 import com.despescar.payment_service.client.dto.ConfirmacionReservaResponse;
-import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
 import com.despescar.payment_service.dto.response.RefundGatewayResponse;
 import com.despescar.payment_service.entity.Payment;
 import com.despescar.payment_service.enums.PaymentMethod;
@@ -135,23 +134,11 @@ public class AprobacionPagoService {
                 "El cobro " + transactionId + " confirmo la reserva; el pago pasa a ese cobro (antes " + anterior + ")."));
 
         if (!anteriorReembolsado && anterior != null) {
-            if (reembolsarCobro(guardado, anterior, montoCobrado(guardado, anterior))) {
+            if (reembolsarCobro(guardado, anterior, MontoCobrado.de(paymentGatewayService, guardado, anterior))) {
                 paymentHistoryService.saveHistory(guardado, PaymentStatus.APPROVED, recortar(
                         "Cobro anterior " + anterior + " reembolsado (PAGO_DUPLICADO)."));
             }
         }
-    }
-
-    /** Lo que el proveedor cobro en ese cobro; si no se puede consultar, el monto del pago. */
-    private BigDecimal montoCobrado(Payment payment, String transactionId) {
-        BigDecimal monto = null;
-        try {
-            PaymentGatewayResponse cobro = paymentGatewayService.getPaymentStatus(transactionId);
-            monto = cobro == null ? null : cobro.getAmount();
-        } catch (RuntimeException ex) {
-            log.warn("No se pudo consultar el monto del cobro {}: {}", transactionId, ex.getMessage());
-        }
-        return (monto != null ? monto : payment.getAmount()).setScale(2, RoundingMode.HALF_UP);
     }
 
     /** Pide el reembolso del cobro; si no sale deja "Reembolso manual pendiente" y devuelve false. */

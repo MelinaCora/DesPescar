@@ -25,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
 import com.despescar.payment_service.dto.response.ReembolsoGrupoResponse;
 import com.despescar.payment_service.dto.response.RefundGatewayResponse;
 import com.despescar.payment_service.entity.Payment;
@@ -162,5 +163,32 @@ class ReembolsoGrupoServiceTest {
         service.reembolsarGrupo(12L, null);
 
         verify(paymentHistoryService).saveHistory(eq(aprobado), eq(PaymentStatus.REFUNDED), contains("GRUPO_CERRADO"));
+    }
+
+    @Test
+    void seDevuelveLoQueElProveedorCobroYNoElMontoDelPago() {
+        Payment aprobado = pago(1, PaymentStatus.APPROVED, "MP-1");
+        lista(aprobado);
+        when(paymentGatewayService.getPaymentStatus("MP-1"))
+                .thenReturn(PaymentGatewayResponse.builder().amount(new BigDecimal("353000")).build());
+        when(paymentGatewayService.refund("MP-1", new BigDecimal("353000.00")))
+                .thenReturn(RefundGatewayResponse.builder().approved(true).build());
+
+        ReembolsoGrupoResponse r = service.reembolsarGrupo(12L, "GRUPO_CANCELADO");
+
+        assertThat(r).isEqualTo(new ReembolsoGrupoResponse(1, 0, 0));
+        assertThat(aprobado.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        verify(paymentGatewayService).refund("MP-1", new BigDecimal("353000.00"));
+    }
+
+    @Test
+    void siNoSePuedeConsultarElCobroSeDevuelveElMontoDelPago() {
+        Payment aprobado = pago(1, PaymentStatus.APPROVED, "MP-1");
+        lista(aprobado);
+        when(paymentGatewayService.getPaymentStatus("MP-1")).thenThrow(new RuntimeException("timeout"));
+        reembolsoAprobado("MP-1");
+
+        assertThat(service.reembolsarGrupo(12L, "GRUPO_CANCELADO")).isEqualTo(new ReembolsoGrupoResponse(1, 0, 0));
+        verify(paymentGatewayService).refund("MP-1", PARTE);
     }
 }
