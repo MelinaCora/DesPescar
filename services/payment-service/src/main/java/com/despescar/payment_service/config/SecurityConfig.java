@@ -35,7 +35,7 @@ public class SecurityConfig {
         InternalServiceAuthenticationFilter reservationSyncFilter = new InternalServiceAuthenticationFilter(
                 reservationSyncToken, "reservation-service", "ROLE_SERVICE_RESERVATION",
                 request -> HttpMethod.POST.matches(request.getMethod())
-                        && request.getRequestURI().matches("^/api/payments/internal/grupos/[^/]+/reembolsos$"));
+                        && request.getRequestURI().matches("^/api/payments/internal/(grupos/[^/]+/reembolsos|reservas/[^/]+/reembolso)$"));
 
         http
             .csrf(csrf -> csrf.disable())
@@ -52,6 +52,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/refunds").denyAll()
                 // Reembolsos de un pago en grupo: los pide reservation-service con su token (CB5).
                 .requestMatchers(HttpMethod.POST, "/api/payments/internal/grupos/*/reembolsos").hasRole("SERVICE_RESERVATION")
+                // Reembolso de una reserva cancelada por su dueño: tambien lo pide reservation-service.
+                .requestMatchers(HttpMethod.POST, "/api/payments/internal/reservas/*/reembolso").hasRole("SERVICE_RESERVATION")
                 .anyRequest().authenticated()
             )
             .exceptionHandling(errores -> errores
