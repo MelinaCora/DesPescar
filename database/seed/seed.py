@@ -144,7 +144,11 @@ def grant_super_admin(email):
     if os.environ.get("MYSQL_LOCAL") == "1":
         # MySQL instalado en la maquina (sin Docker): usa el cliente mysql local.
         user = os.environ.get("DB_USER", "root")
-        cmd = ["mysql", f"-u{user}", "-e", sql]
+        cmd = ["mysql", f"-u{user}"]
+        if os.environ.get("DB_HOST"):  # base remota (por ejemplo Aiven)
+            cmd += ["-h", os.environ["DB_HOST"], "-P", os.environ.get("DB_PORT", "3306"),
+                    f"--ssl-mode={os.environ.get('DB_SSL_MODE', 'REQUIRED')}"]
+        cmd += ["-e", sql]
         env = {**os.environ, "MYSQL_PWD": DB_PASSWORD}
     else:
         cmd = ["docker", "exec", "-e", f"MYSQL_PWD={DB_PASSWORD}", DB_CONTAINER, "mysql", "-uroot", "-e", sql]
@@ -200,9 +204,12 @@ def crear_vuelos(token, by_code, airlines, fares, flight_numbers, existentes=fro
 
 def main():
     solo_vuelos = "--solo-vuelos" in sys.argv  # no toca hoteles ni paquetes (sus servicios pueden estar apagados)
+    sin_paquetes = solo_vuelos or "--sin-paquetes" in sys.argv  # package-service apagado: carga vuelos y hoteles
     services = [(IDENTITY, "identity-service"), (FLIGHT, "flightservice")]
     if not solo_vuelos:
-        services += [(HOTEL, "hotel-service"), (PACKAGE, "package-service")]
+        services.append((HOTEL, "hotel-service"))
+    if not sin_paquetes:
+        services.append((PACKAGE, "package-service"))
     for url, name in services:
         wait_port(url, name)
 
@@ -252,26 +259,12 @@ def main():
                 "wifi": wifi, "seatSelection": seat, "currency": "ARS", "baseFare": base, "taxesAndFees": tax,
                 "transparentFinalPrice": base + tax}, token)
             fares.append(f["id"])
-        routes = (  # aerolinea, origen, destino, precio por pasajero en ARS (tarifa Light), minutos
-            ("AR", "EZE", "COR", 95000, 90), ("AR", "AEP", "BRC", 160000, 150), ("AR", "AEP", "MDZ", 120000, 120),
-            ("AR", "EZE", "MAD", 1150000, 780), ("LA", "EZE", "SCL", 260000, 130), ("LA", "EZE", "MIA", 980000, 540),
-            ("LA", "AEP", "SLA", 140000, 130), ("FO", "AEP", "COR", 70000, 85), ("FO", "AEP", "BRC", 130000, 150),
-        )
-        n = 0
-        for i, (al, o, d, price, mins) in enumerate(routes):
-            for offset in (0, 3, 7):
-                for back in (False, True):
-                    a, b = (d, o) if back else (o, d)
-                    dep = start + dt.timedelta(days=offset, hours=i % 6 * 2 + (5 if back else 0))
-                    n += 1
-                    number = f"{al}{1000 + n}"
-                    flight_numbers[(al, a, b, offset)] = number
-                    call("POST", FLIGHT + "/api/flights", {
-                        "flightNumber": number, "airlineId": airlines[al], "originAirportId": by_code[a],
-                        "destinationAirportId": by_code[b], "departureTime": dep.isoformat(),
-                        "arrivalTime": (dep + dt.timedelta(minutes=mins)).isoformat(), "price": price,
-                        "availableSeats": 150, "status": "SCHEDULED", "faresId": fares}, token)
-        print(f"vuelos: {n} creados, salidas {', '.join((start + dt.timedelta(days=d)).strftime('%d/%m/%Y') for d in (0, 3, 7))}")
+
+        crear_vuelos(token, by_code, airlines, fares, flight_numbers)
+
+    if solo_vuelos:
+        print("\nListo (solo vuelos: no se cargaron hoteles ni paquetes).")
+        return
 
     # --- hoteles ---
     _, hotels = call("GET", HOTEL + "/hoteles", token=token)
@@ -280,12 +273,53 @@ def main():
         hotel_by_city = {h["ciudad"]: h["id"] for h in hotels}
     else:
         hotel_by_city = {}
-        for nombre, ciudad, direccion, estrellas, precio, hab, todo in (
-            ("Hotel Alvear Palace", "Buenos Aires", "Av. Alvear 1891", 5, 250, 40, False),
-            ("Sheraton Córdoba", "Córdoba", "Duarte Quirós 1300", 4, 120, 60, False),
-            ("Llao Llao Resort", "San Carlos de Bariloche", "Av. Ezequiel Bustillo km 25", 5, 310, 30, True),
-            ("Hotel Sheraton Mendoza", "Mendoza", "Primitivo de la Reta 989", 4, 140, 50, False),
-        ):
+        img = [
+            "https://images.unsplash.com/photo-1611892440504-42a792e24d32",
+            "https://images.unsplash.com/photo-1590490360182-c33d57733427",
+            "https://images.unsplash.com/photo-1631049307264-da0ec9d70304",
+        ]
+        flexible = [{"horasAntes": 24, "porcentajeReembolso": 100}, {"horasAntes": 0, "porcentajeReembolso": 0}]
+        escalonada = [{"horasAntes": 72, "porcentajeReembolso": 100}, {"horasAntes": 24, "porcentajeReembolso": 50},
+                      {"horasAntes": 0, "porcentajeReembolso": 0}]
+        no_reembolsable = [{"horasAntes": 0, "porcentajeReembolso": 0}]
+
+        def hab(nombre, desc, cap, precio, unidades, i):
+            return {"nombre": nombre, "descripcion": desc, "capacidad": cap, "precioPorNoche": precio,
+                    "cantidadUnidades": unidades, "imagenes": [img[i % 3]]}
+
+        hoteles = (
+            ("Alvear Palace", "Buenos Aires", "Argentina", "Av. Alvear 1891", 5, False, escalonada,
+             "America/Argentina/Buenos_Aires", "Palacio clásico en Recoleta con atención de mayordomo.",
+             ["WIFI", "DESAYUNO", "SPA", "GIMNASIO", "RESTAURANTE", "AIRE_ACONDICIONADO"],
+             [hab("Clásica doble", "Cama king o dos twin.", 2, 380000, 20, 0),
+              hab("Suite Deluxe", "Living separado y vista a la avenida.", 3, 620000, 8, 1)]),
+            ("Sheraton Córdoba", "Córdoba", "Argentina", "Duarte Quirós 1300", 4, False, flexible,
+             "America/Argentina/Buenos_Aires", "Hotel de negocios a minutos del centro.",
+             ["WIFI", "PILETA", "GIMNASIO", "ESTACIONAMIENTO", "RESTAURANTE"],
+             [hab("Doble estándar", "Dos camas o una king.", 2, 145000, 30, 2),
+              hab("Familiar", "Ideal para cuatro personas.", 4, 230000, 10, 0)]),
+            ("Llao Llao Resort", "San Carlos de Bariloche", "Argentina", "Av. Bustillo km 25", 5, True, escalonada,
+             "America/Argentina/Buenos_Aires", "Resort entre lagos y montañas, con todo incluido.",
+             ["WIFI", "PILETA", "DESAYUNO", "SPA", "GIMNASIO", "RESTAURANTE", "TRASLADO"],
+             [hab("Doble vista al bosque", "Balcón al bosque.", 2, 410000, 15, 1),
+              hab("Doble vista al lago", "Vista al Nahuel Huapi.", 2, 520000, 10, 2),
+              hab("Suite familiar", "Dos ambientes.", 4, 780000, 5, 0)]),
+            ("Sheraton Mendoza", "Mendoza", "Argentina", "Primitivo de la Reta 989", 4, False, flexible,
+             "America/Argentina/Buenos_Aires", "En el centro, cerca de bodegas y de la Peatonal.",
+             ["WIFI", "PILETA", "DESAYUNO", "ESTACIONAMIENTO", "MASCOTAS"],
+             [hab("Doble estándar", "Vista a la ciudad.", 2, 160000, 25, 2),
+              hab("Triple", "Tres camas individuales.", 3, 210000, 8, 1)]),
+            ("Hilton Madrid Airport", "Madrid", "España", "Av. de la Hispanidad 2", 4, False, no_reembolsable,
+             "Europe/Madrid", "Junto a Barajas, con traslado gratis a las terminales.",
+             ["WIFI", "GIMNASIO", "RESTAURANTE", "TRASLADO", "AIRE_ACONDICIONADO"],
+             [hab("Doble", "Insonorizada.", 2, 230000, 40, 0)]),
+            ("Fontainebleau Miami Beach", "Miami", "Estados Unidos", "4441 Collins Ave", 5, True, escalonada,
+             "America/New_York", "Resort frente al mar con todo incluido.",
+             ["WIFI", "PILETA", "SPA", "GIMNASIO", "RESTAURANTE", "AIRE_ACONDICIONADO"],
+             [hab("Doble vista al mar", "Balcón al océano.", 2, 540000, 30, 1),
+              hab("Suite junior", "Living integrado.", 3, 790000, 10, 2)]),
+        )
+        for i, (nombre, ciudad, pais, direccion, estrellas, todo, politica, zona, desc, servicios, habs) in enumerate(hoteles):
             _, h = call("POST", HOTEL + "/hoteles", {
                 "nombre": nombre, "ciudad": ciudad, "pais": pais, "direccion": direccion, "estrellas": estrellas,
                 "descripcion": desc, "allInclusive": todo, "imagenes": [img[i % 3], img[(i + 1) % 3]],
@@ -295,8 +329,14 @@ def main():
         print(f"hoteles: {len(hotel_by_city)} creados")
 
     # --- paquetes ---
-    _, packages = call("GET", PACKAGE + "/api/packages", token=token)
-    if packages:
+    if sin_paquetes:
+        print("paquetes: omitidos (--sin-paquetes)")
+        packages = None
+    else:
+        _, packages = call("GET", PACKAGE + "/api/packages", token=token)
+    if sin_paquetes:
+        pass
+    elif packages:
         print(f"paquetes: ya hay {len(packages)}, no cargo paquetes")
     else:
         for name, desc, dest, key, city, nights, price in (
