@@ -2,7 +2,6 @@ package com.despescar.reservationservice.service;
 
 import com.despescar.reservationservice.client.FlightClient;
 import com.despescar.reservationservice.client.PackageClient;
-import com.despescar.reservationservice.dto.flight.response.FlightLookupResponse;
 import com.despescar.reservationservice.dto.packagecatalog.response.PackageLookupResponse;
 import com.despescar.reservationservice.dto.reservation.request.BookingInitRequest;
 import com.despescar.reservationservice.dto.reservation.request.SplitPaymentSetupRequest;
@@ -24,20 +23,15 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class BookingService {
-
-    private static final Set<String> ESTADOS_VUELO_NO_RESERVABLES = Set.of(
-            "CANCELLED", "CANCELED", "DEPARTED", "ARRIVED", "LANDED", "COMPLETED"
-    );
 
     private final BookingRepository bookingRepository;
     private final BookingDetailRepository detailRepository;
@@ -47,9 +41,13 @@ public class BookingService {
     // Clientes Feign
     private final FlightClient flightClient;
     private final PackageClient packageClient;
+    private final CarritoSoporte soporte;
+    private final PrecioVuelo precioVuelo;
+    private final InventarioCarrito inventario;
 
     /**
-     * PASO 1: Iniciar la reserva (Crea el cascarón vacío)
+     * Suma la parte de vuelo al carrito activo del usuario o crea uno (D11). El precio por
+     * pasajero se calcula acá con flight-service y queda congelado (D1). hotelId se ignora.
      */
     @Transactional
     public BookingInitResponse initializeBooking(
@@ -57,48 +55,41 @@ public class BookingService {
             String authorizationHeader,
             Long authenticatedUserId) {
 
-        boolean carritoActivo = bookingRepository.findByEstado(ReservationStatus.INICIADA).stream()
-                .anyMatch(r -> r.getCreadorId().equals(authenticatedUserId));
-
-        if (carritoActivo) {
-            throw new BookingException("CARRITO_DUPLICADO", "Ya tienes una reserva en proceso.", HttpStatus.BAD_REQUEST);
+        if (request.getPaymentType() == PaymentType.SPLIT_PAYMENT) {
+            throw new BookingException("PAGO_DIVIDIDO_NO_DISPONIBLE",
+                    "El pago dividido todavía no está disponible.", HttpStatus.BAD_REQUEST);
         }
-
+        Optional<Reservation> activo = soporte.carritoActivo(authenticatedUserId);
+        if (activo.isPresent() && CarritoCalculo.tieneVuelo(activo.get())) {
+            throw new BookingException("CARRITO_YA_TIENE_VUELO",
+                    "Tu carrito ya tiene un vuelo. Quitalo para agregar otro.", HttpStatus.CONFLICT);
+        }
         if (request.getPackageId() != null) {
             validarYObtenerPaquete(request.getPackageId(), authorizationHeader);
         }
 
-        if (request.getFlightIds() == null || request.getFlightIds().isEmpty()) {
-            throw new BookingException("SIN_VUELOS", "Debe proporcionar al menos un vuelo.", HttpStatus.BAD_REQUEST);
-        }
+        PrecioVuelo.Cotizacion cotizacion = precioVuelo.cotizar(
+                request.getFlightIds(), request.getBaggageIds(), request.getCantidadPasajeros());
 
-        if (request.getBaggageIds() == null || request.getBaggageIds().isEmpty()) {
-            throw new BookingException("SIN_TARIFAS", "Debe proporcionar al menos una tarifa.", HttpStatus.BAD_REQUEST);
-        }
+        Reservation carrito = activo.orElseGet(() -> soporte.crearCarrito(authenticatedUserId));
+        carrito.getFlightIds().clear();
+        carrito.getFlightIds().addAll(request.getFlightIds());
+        carrito.setBaggageIds(new ArrayList<>(request.getBaggageIds()));
+        carrito.setCantidadPasajeros(request.getCantidadPasajeros());
+        carrito.setPackageId(request.getPackageId());
+        carrito.setPrecioVueloPorPasajero(cotizacion.precioPorPasajero());
+        carrito.setTarifasVuelo(cotizacion.tarifas());
+        carrito.setSalidaVuelo(cotizacion.salida());
+        carrito.setEstado(CarritoCalculo.estadoAbierto(carrito));
 
-        for (UUID flightId : request.getFlightIds()) {
-            FlightLookupResponse vuelo = flightClient.getFlightByNumber(flightId);
-            validarEstadoVueloParaReserva(vuelo.getStatus(), flightId.toString());
-            validarAsientosDisponibles(vuelo, request.getCantidadPasajeros());
-        }
-
-        Reservation reserva = Reservation.builder()
-            .creadorId(authenticatedUserId)
-                .cantidadPasajeros(request.getCantidadPasajeros())
-                .tipoPago(request.getPaymentType())
-                .flightIds(request.getFlightIds())
-                .packageId(request.getPackageId())
-                .baggageIds(request.getBaggageIds())
-                .estado(ReservationStatus.INICIADA)
-                .limiteTiempo(LocalDateTime.now().plusMinutes(15))
-                .build();
-
-        Reservation reservaGuardada = bookingRepository.save(reserva);
+        Reservation guardado = bookingRepository.save(carrito);
+        // Los asientos que el usuario eligió en el mapa vencen con el carrito (D9)
+        inventario.alinearBloqueos(guardado);
 
         return BookingInitResponse.builder()
-                .bookingId(reservaGuardada.getId())
-                .status(reservaGuardada.getEstado().name())
-                .paymentType(reservaGuardada.getTipoPago())
+                .bookingId(guardado.getId())
+                .status(guardado.getEstado().name())
+                .paymentType(guardado.getTipoPago())
                 .build();
     }
 
@@ -171,20 +162,15 @@ public class BookingService {
         return "Pago realizado correctamente. Esperando pagos del resto del grupo.";
     }
 
+    @Transactional(readOnly = true)
     public ReservationResponse obtenerReserva(Long id, Long authenticatedUserId) {
-        Reservation reserva = bookingRepository.findById(id)
-                .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
-        if (!reserva.getCreadorId().equals(authenticatedUserId)) {
-            throw new BookingException("ACCESO_DENEGADO", "No tienes acceso a esta reserva.", HttpStatus.FORBIDDEN);
-        }
-        validarExpiracion(reserva);
-        return reservationMapper.toResponse(reserva);
+        return reservationMapper.toResponse(soporte.reservaDelUsuario(id, authenticatedUserId));
     }
 
+    @Transactional(readOnly = true)
     public ReservationResponse obtenerReservaInterna(Long id) {
         Reservation reserva = bookingRepository.findById(id)
                 .orElseThrow(() -> new BookingException("RESERVA_NO_ENCONTRADA", "La reserva no existe.", HttpStatus.NOT_FOUND));
-        validarExpiracion(reserva);
         return reservationMapper.toResponse(reserva);
     }
 
@@ -230,28 +216,12 @@ public class BookingService {
     }
 
     private void validarExpiracion(Reservation reserva) {
-        if (LocalDateTime.now().isAfter(reserva.getLimiteTiempo()) &&
+        if (soporte.vencido(reserva) &&
                 (ReservationStatus.INICIADA.equals(reserva.getEstado()) || ReservationStatus.PENDIENTE_PAGO.equals(reserva.getEstado()))) {
 
             reserva.setEstado(ReservationStatus.CANCELADA);
             bookingRepository.save(reserva);
             throw new BookingException("CARRITO_EXPIRADO", "El tiempo límite de 15 minutos terminó.", HttpStatus.GONE);
-        }
-    }
-
-    private void validarEstadoVueloParaReserva(String estadoVuelo, String vueloCodigo) {
-        if (estadoVuelo == null || estadoVuelo.isBlank()) {
-            throw new BookingException("ESTADO_VUELO_INVALIDO", "Estado de vuelo inválido.", HttpStatus.BAD_GATEWAY);
-        }
-        String estadoNormalizado = estadoVuelo.trim().toUpperCase(Locale.ROOT);
-        if (ESTADOS_VUELO_NO_RESERVABLES.contains(estadoNormalizado)) {
-            throw new BookingException("VUELO_NO_RESERVABLE", "El vuelo no admite reservas.", HttpStatus.CONFLICT);
-        }
-    }
-
-    private void validarAsientosDisponibles(FlightLookupResponse vuelo, int cantidadSolicitada) {
-        if (vuelo.getAvailableSeats() != null && vuelo.getAvailableSeats() < cantidadSolicitada) {
-            throw new BookingException("SIN_DISPONIBILIDAD", "El vuelo no tiene suficientes asientos.", HttpStatus.CONFLICT);
         }
     }
 

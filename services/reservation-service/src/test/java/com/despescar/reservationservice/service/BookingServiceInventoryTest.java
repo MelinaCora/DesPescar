@@ -50,6 +50,12 @@ class BookingServiceInventoryTest {
     private FlightClient flightClient;
     @Mock
     private PackageClient packageClient;
+    @Mock
+    private CarritoSoporte soporte;
+    @Mock
+    private PrecioVuelo precioVuelo;
+    @Mock
+    private InventarioCarrito inventario;
 
     @InjectMocks
     private BookingService bookingService;
