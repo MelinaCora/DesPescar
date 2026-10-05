@@ -10,7 +10,8 @@ import java.util.UUID;
 public record BusquedaVuelosResponse(List<VueloBuscado> departureFlights, List<VueloBuscado> returnFlights) {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record VueloBuscado(UUID id, String flightNumber, Aerolinea airline, Itinerario itinerary,
+    public record VueloBuscado(UUID id, String flightNumber, Aerolinea airline, Precio price,
+                               Itinerario itinerary,
                                List<Tarifa> fares) {
     }
 
@@ -31,6 +32,6 @@ public record BusquedaVuelosResponse(List<VueloBuscado> departureFlights, List<V
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Precio(String currency, BigDecimal transparentFinalPrice) {
+    public record Precio(String currency, BigDecimal baseFare, BigDecimal transparentFinalPrice) {
     }
 }

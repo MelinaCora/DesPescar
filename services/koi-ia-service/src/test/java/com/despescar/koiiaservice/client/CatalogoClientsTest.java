@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.despescar.koiiaservice.client.dto.BusquedaVuelosResponse;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -39,6 +41,7 @@ class CatalogoClientsTest {
                         {"metadata":{"totalResults":1},
                          "departureFlights":[{"id":"00000000-0000-0000-0000-000000000001","flightNumber":"FO1045",
                            "airline":{"name":"Flybondi","logoUrl":""},
+                           "price":{"currency":"ARS","baseFare":100000,"transparentFinalPrice":100130},
                            "itinerary":{"departure":{"iata":"AEP","dateTime":"2026-11-19T08:00"},
                                         "arrival":{"iata":"BRC","dateTime":"2026-11-19T10:30"},"durationMinutes":120},
                            "fares":[{"id":"00000000-0000-0000-0000-0000000000f1","name":"Light",
@@ -50,6 +53,7 @@ class CatalogoClientsTest {
 
         server.verify();
         assertEquals(1, respuesta.departureFlights().size());
+        assertEquals(0, new BigDecimal("100000").compareTo(respuesta.departureFlights().get(0).price().baseFare()));
         assertEquals("Flybondi", respuesta.departureFlights().get(0).airline().name());
         assertEquals(0, new BigDecimal("130").compareTo(
                 respuesta.departureFlights().get(0).fares().get(0).price().transparentFinalPrice()));
@@ -92,5 +96,42 @@ class CatalogoClientsTest {
         server.expect(requestTo("http://vuelos/api/airports")).andRespond(withServerError());
 
         assertThrows(KoiCatalogUnavailableException.class, client::aeropuertos);
+    }
+
+    @Test
+    void busquedaDeSoloIdaNoEnviaReturnDate() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://vuelos");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        CatalogoVuelosClient client = new CatalogoVuelosClient(builder);
+        server.expect(requestTo(
+                        "http://vuelos/api/flights/search?origin=AEP&destination=BRC&departureDate=2026-11-19&passengers=1"))
+                .andRespond(withSuccess("{\"departureFlights\":[],\"returnFlights\":[]}", MediaType.APPLICATION_JSON));
+
+        client.buscar("AEP", "BRC", IDA, null, 1);
+
+        server.verify();
+    }
+
+    @Test
+    void unCuerpoNuloSeTraduceAVaciosYUn404AServicioNoDisponible() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://vuelos");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        CatalogoVuelosClient client = new CatalogoVuelosClient(builder);
+        server.expect(requestTo("http://vuelos/api/airports")).andRespond(withSuccess());
+        server.expect(requestTo("http://vuelos/api/airports")).andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertEquals(List.of(), client.aeropuertos());
+        assertThrows(KoiCatalogUnavailableException.class, client::aeropuertos);
+    }
+
+    @Test
+    void elDetalleDeUnHotelInexistenteSeTraduceAServicioNoDisponible() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://hoteles");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        CatalogoHotelesClient client = new CatalogoHotelesClient(builder);
+        server.expect(requestTo("http://hoteles/hoteles/" + HOTEL + "?checkIn=2026-11-19&checkOut=2026-11-22&huespedes=2"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertThrows(KoiCatalogUnavailableException.class, () -> client.detalle(HOTEL, IDA, VUELTA, 2));
     }
 }

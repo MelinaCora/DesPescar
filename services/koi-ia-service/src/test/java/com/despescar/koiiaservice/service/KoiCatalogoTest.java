@@ -1,6 +1,7 @@
 package com.despescar.koiiaservice.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -23,6 +24,7 @@ import com.despescar.koiiaservice.client.dto.BusquedaVuelosResponse.Tramo;
 import com.despescar.koiiaservice.client.dto.BusquedaVuelosResponse.VueloBuscado;
 import com.despescar.koiiaservice.client.dto.HotelDetalleResponse;
 import com.despescar.koiiaservice.client.dto.HotelResumenResponse;
+import com.despescar.koiiaservice.exception.KoiCatalogUnavailableException;
 import com.despescar.koiiaservice.recomendador.HotelCandidato;
 import com.despescar.koiiaservice.recomendador.VueloCandidato;
 import java.math.BigDecimal;
@@ -49,12 +51,21 @@ class KoiCatalogoTest {
     }
 
     private static VueloBuscado vuelo(String numero, String salida, String llegada, Tarifa... tarifas) {
-        return new VueloBuscado(UUID.randomUUID(), numero, new Aerolinea("Flybondi"),
+        return vuelo(new Precio("ARS", new BigDecimal("100000"), null), numero, salida, llegada, tarifas);
+    }
+
+    private static VueloBuscado vuelo(Precio precio, String numero, String salida, String llegada,
+                                      Tarifa... tarifas) {
+        return new VueloBuscado(UUID.randomUUID(), numero, new Aerolinea("Flybondi"), precio,
                 new Itinerario(new Tramo("AEP", salida), new Tramo("BRC", llegada)), List.of(tarifas));
     }
 
     private static Tarifa tarifa(UUID id, String precio) {
-        return new Tarifa(id, "Light", new Precio("ARS", new BigDecimal(precio)));
+        return tarifa(id, precio, "ARS");
+    }
+
+    private static Tarifa tarifa(UUID id, String precio, String moneda) {
+        return new Tarifa(id, "Light", new Precio(moneda, null, new BigDecimal(precio)));
     }
 
     @Test
@@ -76,7 +87,7 @@ class KoiCatalogoTest {
         assertEquals(1, vuelos.idas().size());
         VueloCandidato ida = vuelos.idas().get(0);
         assertEquals(barata, ida.fareId());
-        assertEquals(new BigDecimal("130"), ida.precioTarifa());
+        assertEquals(new BigDecimal("100130.00"), ida.precioTarifa());
         assertEquals(LocalDateTime.of(2026, 11, 19, 8, 0), ida.salida());
         assertEquals("FO1045", ida.numero());
         assertEquals(1, vuelos.vueltas().size());
@@ -123,5 +134,69 @@ class KoiCatalogoTest {
         assertEquals(habitacion, h.habitaciones().get(0).id());
         assertEquals(4, h.habitaciones().get(0).unidadesLibres());
         verify(hotelesClient, never()).detalle(eq(lleno), any(), any(), anyInt());
+    }
+
+    @Test
+    void elPrecioPorPasajeroEsElDelVueloMasLaTarifaElegida() {
+        VueloBuscado v = vuelo(new Precio("ARS", new BigDecimal("100000"), null), "X1", "2026-11-19T08:00",
+                "2026-11-19T10:00", tarifa(UUID.randomUUID(), "45000"), tarifa(UUID.randomUUID(), "60000"));
+
+        assertEquals(new BigDecimal("145000.00"), KoiCatalogo.candidato(v).orElseThrow().precioTarifa());
+    }
+
+    @Test
+    void sinPrecioBaseOConMonedaDistintaSeDescartaElVuelo() {
+        Tarifa t = tarifa(UUID.randomUUID(), "100");
+        assertTrue(KoiCatalogo.candidato(vuelo(null, "X1", "2026-11-19T08:00", "2026-11-19T10:00", t)).isEmpty());
+        assertTrue(KoiCatalogo.candidato(vuelo(new Precio("ARS", null, null), "X1", "2026-11-19T08:00",
+                "2026-11-19T10:00", t)).isEmpty());
+        assertTrue(KoiCatalogo.candidato(vuelo(new Precio("USD", new BigDecimal("100"), null), "X1",
+                "2026-11-19T08:00", "2026-11-19T10:00", t)).isEmpty());
+    }
+
+    @Test
+    void ignoraLasTarifasEnOtraMoneda() {
+        UUID ars = UUID.randomUUID();
+        VueloBuscado v = vuelo("X1", "2026-11-19T08:00", "2026-11-19T10:00",
+                tarifa(UUID.randomUUID(), "10", "USD"), tarifa(ars, "50"));
+
+        assertEquals(ars, KoiCatalogo.candidato(v).orElseThrow().fareId());
+        assertTrue(KoiCatalogo.candidato(vuelo("X2", "2026-11-19T08:00", "2026-11-19T10:00",
+                tarifa(UUID.randomUUID(), "10", "USD"))).isEmpty());
+    }
+
+    @Test
+    void siFallaElDetalleDeUnHotelSeSaltaEseHotel() {
+        UUID roto = UUID.randomUUID();
+        UUID bueno = UUID.randomUUID();
+        when(hotelesClient.buscar("Bariloche", IDA, VUELTA, 2)).thenReturn(List.of(
+                new HotelResumenResponse(roto, "Roto", "Bariloche", 3, null, true, new BigDecimal("1")),
+                new HotelResumenResponse(bueno, "Bueno", "Bariloche", 4, null, true, new BigDecimal("2"))));
+        when(hotelesClient.detalle(roto, IDA, VUELTA, 2)).thenThrow(new KoiCatalogUnavailableException("caido", null));
+        when(hotelesClient.detalle(bueno, IDA, VUELTA, 2)).thenReturn(new HotelDetalleResponse(bueno, "Bueno",
+                "Bariloche", 4, List.of(), 3L, List.of()));
+
+        List<HotelCandidato> hoteles = catalogo.hoteles("Bariloche", IDA, VUELTA, 2);
+
+        assertEquals(1, hoteles.size());
+        assertEquals("Bueno", hoteles.get(0).nombre());
+    }
+
+    @Test
+    void siFlightserviceEstaCaidoLaExcepcionSePropaga() {
+        when(vuelosClient.aeropuertos()).thenThrow(new KoiCatalogUnavailableException("caido", null));
+
+        assertThrows(KoiCatalogUnavailableException.class,
+                () -> catalogo.vuelos("Buenos Aires", "Bariloche", IDA, VUELTA, 2));
+    }
+
+    @Test
+    void siOrigenYDestinoSonElMismoAeropuertoNoBusca() {
+        when(vuelosClient.aeropuertos()).thenReturn(List.of(aeropuerto("AEP", "Buenos Aires")));
+
+        KoiCatalogo.VuelosCandidatos vuelos = catalogo.vuelos("AEP", "AEP", IDA, VUELTA, 1);
+
+        assertTrue(vuelos.idas().isEmpty());
+        verify(vuelosClient, never()).buscar(anyString(), anyString(), any(), any(), anyInt());
     }
 }

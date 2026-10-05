@@ -12,7 +12,9 @@ import com.despescar.koiiaservice.recomendador.AeropuertosPorLugar;
 import com.despescar.koiiaservice.recomendador.HabitacionCandidata;
 import com.despescar.koiiaservice.recomendador.HotelCandidato;
 import com.despescar.koiiaservice.recomendador.VueloCandidato;
+import com.despescar.koiiaservice.exception.KoiCatalogUnavailableException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
@@ -21,16 +23,19 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
  * Trae del catálogo público los candidatos para el recomendador. Los precios de vuelo se toman
  * de la tarifa (transparentFinalPrice, por pasajero) y se suman como ARS (spec: moneda única).
  */
+@Slf4j
 @Service
 public class KoiCatalogo {
 
     static final int MAX_HOTELES = 8;
+    private static final String ARS = "ARS";
 
     private final CatalogoVuelosClient vuelosClient;
     private final CatalogoHotelesClient hotelesClient;
@@ -68,8 +73,19 @@ public class KoiCatalogo {
                 .sorted(Comparator.comparing(HotelResumenResponse::precioTotalDesde,
                         Comparator.nullsLast(Comparator.naturalOrder())))
                 .limit(MAX_HOTELES)
-                .map(h -> candidato(h, hotelesClient.detalle(h.id(), checkIn, checkOut, viajeros)))
+                .map(h -> detalleSeguro(h, checkIn, checkOut, viajeros))
+                .flatMap(Optional::stream)
                 .toList();
+    }
+
+    private Optional<HotelCandidato> detalleSeguro(HotelResumenResponse h, LocalDate checkIn, LocalDate checkOut,
+                                                   int viajeros) {
+        try {
+            return Optional.of(candidato(h, hotelesClient.detalle(h.id(), checkIn, checkOut, viajeros)));
+        } catch (KoiCatalogUnavailableException ex) {
+            log.warn("KOI omite el hotel {}: no se pudo traer su detalle", h.id(), ex);
+            return Optional.empty();
+        }
     }
 
     /** Un vuelo con su tarifa más barata; vacío si no tiene tarifas con precio o sus fechas no se leen. */
@@ -78,8 +94,12 @@ public class KoiCatalogo {
                 || vuelo.itinerary().departure() == null || vuelo.itinerary().arrival() == null) {
             return Optional.empty();
         }
+        if (vuelo.price() == null || vuelo.price().baseFare() == null || !ARS.equals(vuelo.price().currency())) {
+            return Optional.empty();
+        }
         Optional<Tarifa> masBarata = vuelo.fares() == null ? Optional.empty() : vuelo.fares().stream()
-                .filter(t -> t.id() != null && t.price() != null && t.price().transparentFinalPrice() != null)
+                .filter(t -> t.id() != null && t.price() != null && t.price().transparentFinalPrice() != null
+                        && ARS.equals(t.price().currency()))
                 .min(Comparator.comparing(t -> t.price().transparentFinalPrice()));
         if (masBarata.isEmpty()) {
             return Optional.empty();
@@ -89,7 +109,8 @@ public class KoiCatalogo {
             LocalDateTime llegada = LocalDateTime.parse(vuelo.itinerary().arrival().dateTime());
             String aerolinea = vuelo.airline() == null || vuelo.airline().name() == null
                     ? "Aerolínea" : vuelo.airline().name();
-            BigDecimal precio = masBarata.get().price().transparentFinalPrice();
+            BigDecimal precio = vuelo.price().baseFare().add(masBarata.get().price().transparentFinalPrice())
+                    .setScale(2, RoundingMode.HALF_UP);
             return Optional.of(new VueloCandidato(vuelo.id(), masBarata.get().id(), aerolinea,
                     vuelo.flightNumber(), salida, llegada, precio));
         } catch (DateTimeParseException | NullPointerException ex) {

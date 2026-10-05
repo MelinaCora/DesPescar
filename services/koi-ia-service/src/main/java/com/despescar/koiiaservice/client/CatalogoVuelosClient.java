@@ -19,8 +19,11 @@ public class CatalogoVuelosClient {
     private final RestClient restClient;
 
     @Autowired
-    public CatalogoVuelosClient(@Value("${koi.catalog.flight-service-url}") String baseUrl) {
-        this(RestClient.builder().baseUrl(baseUrl));
+    public CatalogoVuelosClient(@Value("${koi.catalog.flight-service-url}") String baseUrl,
+            @Value("${koi.catalogo.connect-timeout-ms:2000}") long connectTimeoutMs,
+            @Value("${koi.catalogo.read-timeout-ms:5000}") long readTimeoutMs) {
+        this(RestClient.builder().baseUrl(baseUrl).requestFactory(
+                CatalogoHttp.factory(connectTimeoutMs, readTimeoutMs)));
     }
 
     CatalogoVuelosClient(RestClient.Builder builder) {

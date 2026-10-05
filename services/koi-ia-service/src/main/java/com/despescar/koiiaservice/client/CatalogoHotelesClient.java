@@ -20,8 +20,11 @@ public class CatalogoHotelesClient {
     private final RestClient restClient;
 
     @Autowired
-    public CatalogoHotelesClient(@Value("${koi.catalog.hotel-service-url}") String baseUrl) {
-        this(RestClient.builder().baseUrl(baseUrl));
+    public CatalogoHotelesClient(@Value("${koi.catalog.hotel-service-url}") String baseUrl,
+            @Value("${koi.catalogo.connect-timeout-ms:2000}") long connectTimeoutMs,
+            @Value("${koi.catalogo.read-timeout-ms:5000}") long readTimeoutMs) {
+        this(RestClient.builder().baseUrl(baseUrl).requestFactory(
+                CatalogoHttp.factory(connectTimeoutMs, readTimeoutMs)));
     }
 
     CatalogoHotelesClient(RestClient.Builder builder) {
