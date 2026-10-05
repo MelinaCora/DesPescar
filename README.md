@@ -10,7 +10,7 @@ Plataforma de reservas de viajes construida con arquitectura de microservicios e
 |---|---|---|---|
 | `identity-service` | 8080 | `despescar_identity` | Autenticación, usuarios y roles |
 | `flightservice` | 8081 | `despescar_flight` | Vuelos, aerolíneas, aeropuertos y tarifas |
-| `hotel-service` | 8083 | `despescar_hotel` | Gestión de hoteles |
+| `hotel-service` | 8083 | `despescar_hotel` | Catálogo de hoteles: búsqueda, destinos, detalle y alta |
 | `payment-service` | 8084 | `despescar_payment` | Pagos con MercadoPago, webhook, reembolsos e historial |
 | `reservation-service` | 8085 | `despescar_reservation` | Reservas, mapa de asientos y selección en tiempo real (WebSocket) |
 | `package-service` | 8086 | `despescar_package` | Paquetes turísticos (vuelo + hotel) |
@@ -37,11 +37,11 @@ El usuario envía email y contraseña a **identity-service** y recibe un `access
 ```
 GET /api/flights/search?origin=EZE&destination=COR&departureDate=2026-10-18&passengers=1   → pública
 GET /api/flights, /api/flights/{id}, /api/airports, /api/airports/code/{code}              → públicas
-GET /api/hotels, /api/hotels/{id}, /api/hotels/ciudad/{ciudad}                             → con sesión
+GET /api/hotels?destino=&checkIn=&checkOut=&huespedes=, /api/hotels/destinos, /api/hotels/{id}  → públicas
 GET /api/packages, /api/packages/{id}                                                      → con sesión
 ```
 
-Buscar y ver vuelos no exige iniciar sesión; sí hace falta para avanzar con la compra. Un paquete combina un `flightNumber` y un `hotelId` con un precio base.
+Buscar y ver vuelos y hoteles no exige iniciar sesión; sí hace falta para avanzar con la compra. Un paquete combina un `flightNumber` y un `hotelId` con un precio base.
 
 ### 3. Comprar un vuelo
 
@@ -69,7 +69,7 @@ Un proceso automático revisa cada 60 segundos las reservas y las retenciones de
 | Rol | Puede hacer |
 |---|---|
 | `USER` | Es el **cliente**: consulta, reserva y paga (en reservas y pagos equivale a `ROLE_CLIENTE`) |
-| `HOTEL_ADMIN` | Crear, editar y borrar hoteles |
+| `HOTEL_ADMIN` | Crear hoteles |
 | `AIRLINE_ADMIN` | Crear, editar y borrar vuelos, aerolíneas, aeropuertos y tarifas |
 | `SUPER_ADMIN` | Todo lo anterior, gestionar usuarios y roles, y gestionar paquetes turísticos (es el único que puede) |
 
@@ -82,7 +82,7 @@ Los roles de administrador **no heredan** los permisos de cliente: reservar y pa
 - Autenticación **JWT stateless** compartida entre todos los servicios, firmada con HMAC-SHA256 y la variable `JWT_SECRET` (obligatoria, sin valor por defecto).
 - Refresh tokens con expiración independiente. La cuenta se bloquea 15 minutos tras 5 intentos fallidos de login.
 - El `gateway-service` valida el JWT y el rol antes de enrutar; cada servicio vuelve a validar el suyo.
-- Las llamadas entre servicios usan un token compartido en el encabezado `X-Internal-Service-Token`: `RESERVATION_SERVICE_SYNC_TOKEN` (pagos ↔ reservas) e `INVENTORY_SERVICE_TOKEN` (reservas → vuelos y hoteles, para descontar asientos y habitaciones). El gateway bloquea esas rutas (`403`).
+- Las llamadas entre servicios usan un token compartido en el encabezado `X-Internal-Service-Token`: `RESERVATION_SERVICE_SYNC_TOKEN` (pagos ↔ reservas) e `INVENTORY_SERVICE_TOKEN` (reservas → vuelos, para descontar asientos; el ajuste de habitaciones de hotel-service se quitó con el nuevo catálogo). El gateway bloquea esas rutas (`403`).
 - El WebSocket de asientos valida el JWT al conectar.
 
 ## Gateway (8087)
@@ -135,14 +135,13 @@ Se indican las rutas **del servicio** (puerto propio). Entre paréntesis, cómo 
 | PUT / DELETE | `/api/airports/{id}` | Actualizar / eliminar |
 | POST / GET | `/api/fares`, `/api/fares/{id}` | Tarifas y equipaje (tabla `baggage_policies`) |
 
-### `hotel-service` (8083) — por el gateway: `/hoteles/**` y `/api/hotels/**`
+### `hotel-service` (8083) — por el gateway: `/api/hotels/**` (se reescribe a `/hoteles/**`)
 | Método | Endpoint | Para qué sirve |
 |---|---|---|
-| GET | `/test` | Comprobación simple del servicio |
-| POST | `/hoteles` | Crear hotel |
-| GET | `/hoteles`, `/hoteles/{id}`, `/hoteles/ciudad/{city}` | Listar y buscar |
-| PUT / DELETE | `/hoteles/{id}` | Actualizar / eliminar |
-| PATCH | `/hoteles/{id}/rooms?delta=` | **Interno**: ajusta habitaciones (solo `reservation-service`) |
+| GET | `/hoteles?destino=&checkIn=&checkOut=&huespedes=` | Buscar hoteles (público) |
+| GET | `/hoteles/destinos` | Destinos con hoteles (público) |
+| GET | `/hoteles/{id}?checkIn=&checkOut=&huespedes=` | Detalle con habitaciones y cotización por fechas (público) |
+| POST | `/hoteles` | Crear hotel completo con sus habitaciones (`SUPER_ADMIN` o `HOTEL_ADMIN`) |
 
 ### `package-service` (8086)
 | Método | Endpoint | Para qué sirve |
@@ -197,7 +196,7 @@ KOI usa un modelo de [Groq](https://groq.com) (`openai/gpt-oss-20b`) y consulta 
 - Java 17+
 - Maven 3.8+
 - Docker con Compose v2: levanta MySQL (con las 7 bases `despescar_*` ya creadas) y Adminer, con una contraseña común de desarrollo
-- Python 3 (solo para cargar datos de ejemplo)
+- Python 3 (solo para cargar datos de ejemplo). El seed usa `docker` para asignar el rol de administrador; sin Docker se corre con `MYSQL_LOCAL=1` (ver abajo)
 
 Funciona en **Linux** y en **Windows** (PowerShell). **Cada servicio tiene su guía** con las variables de entorno, los comandos para ambos sistemas y los problemas comunes: empezá por [`docs/README.md`](docs/README.md).
 
@@ -217,7 +216,9 @@ cd database
 docker compose up -d      # MySQL en localhost:3306, Adminer en http://localhost:8090
 ```
 
-Después, cada servicio en su terminal (ver su guía) y, con identity, flight, hotel y package en marcha, los datos de ejemplo (`./database/seed/seed.sh` en Linux; `py -3 database\seed\seed.py` en Windows).
+Después, cada servicio en su terminal (ver su guía) y, con identity, flight, hotel y package en marcha, los datos de ejemplo (`./database/seed/seed.sh` en Linux; `py -3 database\seed\seed.py` en Windows). Con un MySQL instalado y sin Docker: `MYSQL_LOCAL=1 DB_USER=<usuario> DB_PASSWORD=<clave> ./database/seed/seed.sh`.
+
+> **Si ya tenías datos de hoteles de una versión anterior**, recreá las bases `despescar_hotel` y `despescar_package` antes de volver a correr el seed: ver la sección *Migración* de [`docs/hotel-service.md`](docs/hotel-service.md#migración).
 
 Si preferís usar un MySQL 8 instalado a mano, ejecutá `database/init/01_create_databases.sql` para crear las bases y definí `DB_PASSWORD` si tu contraseña de `root` no es `despescar_dev`.
 

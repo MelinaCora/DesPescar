@@ -53,7 +53,7 @@ Hacen falta ambos: uno es el del circuit breaker y el otro el de la respuesta de
 | `/api/auth/**` (se reescribe a `/auth/**`) | [identity-service](identity-service.md) | 8080 |
 | `/api/users/**` (se reescribe a `/users/**`) | [identity-service](identity-service.md) | 8080 |
 | `/api/flights/**`, `/api/airlines/**`, `/api/airports/**`, `/api/fares/**` | [flightservice](flightservice.md) | 8081 |
-| `/hoteles/**` y `/api/hotels/**` (esta se reescribe a `/hoteles/**`) | [hotel-service](hotel-service.md) | 8083 |
+| `/hoteles/**` y `/api/hotels/**` (esta se reescribe a `/hoteles/**`: `RewritePath=/api/hotels(?<segment>/?.*)` → `/hoteles${segment}`, por ejemplo `/api/hotels/destinos` llega como `/hoteles/destinos`) | [hotel-service](hotel-service.md) | 8083 |
 | `/api/payments/**` | [payment-service](payment-service.md) | 8084 |
 | `/api/bookings/**` y `/api/extra-baggage/**` (esta se reescribe a `/extra-baggage/**`) | [reservation-service](reservation-service.md) | 8085 |
 | `/api/packages/**` | [package-service](package-service.md) | 8086 |
@@ -68,11 +68,12 @@ Hacen falta ambos: uno es el del circuit breaker y el otro el de la respuesta de
 - `/api/koi/**` (el chatbot).
 - `POST /api/payments/mercadopago/webhook` (lo llama MercadoPago).
 - Consulta de vuelos: `GET /api/flights`, `GET /api/flights/search`, `GET /api/flights/{id}`, `GET /api/airports`, `GET /api/airports/code/{code}` y `GET /api/fares`. Antes el gateway exigía sesión incluso para esto; ahora se puede buscar y ver vuelos sin iniciar sesión, y recién se pide iniciar sesión al avanzar con la compra.
+- Consulta de hoteles: `GET /api/hotels` (búsqueda con `destino`, `checkIn`, `checkOut` y `huespedes`), `GET /api/hotels/destinos` y `GET /api/hotels/{id}`. Solo `GET`; el alta (`POST /api/hotels`) sigue exigiendo rol.
 - `/actuator/**` y `/fallback/**`.
 
 **Bloqueadas siempre (`403`):** `/api/bookings/internal/**` (de `payment-service` a `reservation-service`) y los `PATCH` de ajuste de inventario `/api/flights/number/{n}/seats`, `/api/hotels/{id}/rooms` y `/hoteles/{id}/rooms` (de `reservation-service` a vuelos y hoteles). Solo se usan entre servicios y no deben alcanzarse desde afuera.
 
-**Con token Bearer válido** (sin token o con token inválido responde `401`): todo el resto de `/api/**` y `/hoteles/**`. Además, para estas rutas se exige un rol:
+**Con token Bearer válido** (sin token o con token inválido responde `401`): todo el resto de `/api/**` y `/hoteles/**` (salvo las lecturas públicas de arriba). Además, para estas rutas se exige un rol:
 
 | Ruta | Rol |
 |---|---|

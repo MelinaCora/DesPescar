@@ -74,7 +74,7 @@ Se definen **en la terminal donde arranca cada servicio** y no persisten entre t
 |---|---|---|
 | `JWT_SECRET` | identity, flight, reservation, package, payment y gateway | Sí, **el mismo valor en todos** |
 | `RESERVATION_SERVICE_SYNC_TOKEN` | reservation y payment | Imprescindible para pagar, el mismo valor en los dos |
-| `INVENTORY_SERVICE_TOKEN` | reservation, flight y hotel | Para que una reserva confirmada descuente asientos y habitaciones, el mismo valor en los tres |
+| `INVENTORY_SERVICE_TOKEN` | reservation y flight | Para que una reserva confirmada descuente asientos, el mismo valor en los dos (`hotel-service` ya no lo usa) |
 | `GROQ_API_KEY` | koi-ia-service | Sí, para el chatbot |
 | `MERCADOPAGO_ACCESS_TOKEN` y demás `MERCADOPAGO_*` | payment-service | Solo para generar el enlace de pago |
 | `DB_PASSWORD` | todos | Solo si cambiaste la contraseña de MySQL (por defecto `despescar_dev`) |

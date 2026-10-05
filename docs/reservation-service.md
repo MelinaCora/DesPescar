@@ -17,7 +17,7 @@ Reservas de vuelos (y, opcionalmente, hotel o paquete), mapa de asientos y **sel
 |---|---|---|
 | `JWT_SECRET` | **Sí** | Validar los tokens. El mismo valor en todos los servicios. |
 | `RESERVATION_SERVICE_SYNC_TOKEN` | **Para poder pagar** | Contraseña compartida con [`payment-service`](payment-service.md) (ver abajo). **El mismo valor en los dos.** |
-| `INVENTORY_SERVICE_TOKEN` | **Para descontar asientos y habitaciones** | Contraseña con la que este servicio le habla a `flightservice` y `hotel-service`. **El mismo valor en los tres.** |
+| `INVENTORY_SERVICE_TOKEN` | **Para descontar asientos (y habitaciones, cuando se rehaga)** | Contraseña con la que este servicio le habla a `flightservice`. **El mismo valor en ambos.** `hotel-service` ya no lo usa. |
 | `DB_PASSWORD` | No | Solo si cambiaste la contraseña de MySQL. |
 
 ## Levantarlo
