@@ -63,6 +63,14 @@ public record DatosViaje(
                 ida, mes, vuelta, cantidadNoches, abierto);
     }
 
+    /**
+     * Lo que queda de una búsqueda anterior cuando el usuario pide opciones sin destino: la plata,
+     * cuántos viajan y desde dónde. El destino, las fechas y la intención eran de la otra búsqueda.
+     */
+    public DatosViaje paraBusquedaNueva() {
+        return new DatosViaje(null, presupuesto, viajeros, origen, null, null, null, null, null, false);
+    }
+
     public boolean esDestinoAbierto() {
         return Boolean.TRUE.equals(destinoAbierto) && destino == null;
     }

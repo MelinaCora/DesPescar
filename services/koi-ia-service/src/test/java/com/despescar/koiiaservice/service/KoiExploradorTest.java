@@ -27,6 +27,7 @@ import com.despescar.koiiaservice.recomendador.VueloProgramado;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -153,5 +154,24 @@ class KoiExploradorTest {
 
         assertTrue(explorador.explorar(pedido("10000", 1, null, null)).isEmpty());
         verify(catalogo, never()).vuelos(anyString(), anyString(), any(), any(), anyInt());
+    }
+
+    @Test
+    void siConLasFechasPedidasNoHayNadaReintentaConLaVentanaFlexible() {
+        // del 25 al 27 de noviembre no hay vuelos ni en los 14 días siguientes: cae al 19/10 por 3 noches
+        List<KoiRecommendationResponse> opciones =
+                explorador.explorar(pedido("10000", 2, LocalDate.of(2026, 11, 25), 2));
+
+        assertEquals(List.of("Córdoba", "Mendoza"), opciones.stream().map(o -> o.hotel().ciudad()).toList());
+        verify(catalogo).vuelos("Buenos Aires", "Córdoba", D19, D22, 2);
+    }
+
+    @Test
+    void siElMesPedidoNoTieneVuelosReintentaConLaVentanaFlexible() {
+        List<KoiRecommendationResponse> opciones = explorador.explorar(new PedidoExploracion(
+                new BigDecimal("10000"), 1, "Buenos Aires", null, YearMonth.of(2026, 11), null, HOY));
+
+        assertEquals(2, opciones.size());
+        verify(catalogo).vuelos("Buenos Aires", "Córdoba", D19, D22, 1);
     }
 }

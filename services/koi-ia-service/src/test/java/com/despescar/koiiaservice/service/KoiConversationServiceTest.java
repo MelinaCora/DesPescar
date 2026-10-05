@@ -741,4 +741,94 @@ class KoiConversationServiceTest {
         assertTrue(r.getReply().endsWith(KoiConversationService.CATALOGO_CAIDO), r.getReply());
         assertEquals(ConversationStage.READY_TO_RECOMMEND, r.getStage());
     }
+
+    /** Sesión que ya pidió un hotel en Córdoba del 25 al 27 para 2 personas y recibió opciones. */
+    private void sesionConHotelEnCordoba() {
+        session.setIntent(UserIntent.SOLO_HOTEL);
+        session.setStage(ConversationStage.RECOMMENDING);
+        session.setBudget(new BigDecimal("800000.00"));
+        session.setTravelers(2);
+        session.setDestination("Córdoba");
+        session.setDepartureDate(LocalDate.of(2026, 11, 25));
+        session.setReturnDate(LocalDate.of(2026, 11, 27));
+    }
+
+    private PedidoExploracion pedidoExplorado() {
+        ArgumentCaptor<PedidoExploracion> captor = ArgumentCaptor.forClass(PedidoExploracion.class);
+        verify(explorador).explorar(captor.capture());
+        return captor.getValue();
+    }
+
+    @Test
+    void abrirElDestinoDespuesDeBuscarUnHotelEmpiezaUnaBusquedaNueva() {
+        sesionConHotelEnCordoba();
+        modelo.respuesta = "{\"comentario\":\"¡Dale!\",\"presupuesto\":2000000,\"destinoAbierto\":true}";
+        when(explorador.explorar(any())).thenReturn(opcionesExploradas());
+
+        KoiConversationResponse r = service.handleMessage(sessionId,
+                request("che Koi tengo 2 palos, ofreceme vuelos y hoteles o algún viaje"), null);
+
+        PedidoExploracion pedido = pedidoExplorado();
+        assertEquals(new BigDecimal("2000000.00"), pedido.presupuesto());
+        assertEquals(2, pedido.viajeros());
+        assertNull(pedido.fechaIda());
+        assertNull(pedido.mesIda());
+        assertNull(pedido.noches());
+        assertNull(session.getDestination());
+        assertNull(session.getDepartureDate());
+        assertNull(session.getReturnDate());
+        assertEquals(UserIntent.UNKNOWN, session.getIntent());
+        assertEquals(Boolean.TRUE, session.getOpenDestination());
+        assertTrue(r.getReply().contains("Lo armé para 2 personas como me dijiste antes."), r.getReply());
+        assertFalse(r.getReply().contains(KoiConversationService.ASUMI_VIAJEROS), r.getReply());
+        assertTrue(r.getReply().contains(KoiConversationService.ASUMI_FECHAS), r.getReply());
+        assertFalse(r.getReply().contains(KoiConversationService.FECHAS_CERCANAS), r.getReply());
+        assertEquals(2, r.getRecommendations().size());
+    }
+
+    @Test
+    void laBusquedaNuevaConservaLaPlataAnteriorYLoQueElMensajeVuelveADecir() {
+        sesionConHotelEnCordoba();
+        modelo.respuesta = "{\"comentario\":\"¡Dale!\"}";
+        when(explorador.explorar(any())).thenReturn(opcionesExploradas());
+
+        KoiConversationResponse r = service.handleMessage(sessionId,
+                request("somos 3, ofreceme algún viaje para un finde"), null);
+
+        PedidoExploracion pedido = pedidoExplorado();
+        assertEquals(new BigDecimal("800000.00"), pedido.presupuesto());
+        assertEquals(3, pedido.viajeros());
+        assertEquals(LocalDate.of(2026, 11, 6), pedido.fechaIda());
+        assertEquals(2, pedido.noches());
+        assertNull(session.getReturnDate());
+        assertFalse(r.getReply().contains("como me dijiste antes"), r.getReply());
+        assertFalse(r.getReply().contains(KoiConversationService.ASUMI_VIAJEROS), r.getReply());
+    }
+
+    @Test
+    void siYaEstabaExplorandoNoSePierdenLasFechasAlPedirOtraVez() {
+        session.setOpenDestination(true);
+        session.setStage(ConversationStage.RECOMMENDING);
+        session.setBudget(PRESUPUESTO);
+        session.setDepartureDate(D19);
+        session.setNights(3);
+        modelo.respuesta = "{\"presupuesto\":2000000,\"destinoAbierto\":true}";
+        when(explorador.explorar(any())).thenReturn(opcionesExploradas());
+
+        service.handleMessage(sessionId, request("mejor con 2 palos, ofreceme algo"), null);
+
+        PedidoExploracion pedido = pedidoExplorado();
+        assertEquals(D19, pedido.fechaIda());
+        assertEquals(3, pedido.noches());
+    }
+
+    @Test
+    void siElMesPedidoNoTeniaVuelosAvisaQueMuestraLasFechasMasCercanas() {
+        modelo.respuesta = "{\"presupuesto\":2000000,\"fechaIda\":\"2026-12\",\"destinoAbierto\":true}";
+        when(explorador.explorar(any())).thenReturn(opcionesExploradas());
+
+        KoiConversationResponse r = service.handleMessage(sessionId, request("a donde sea en diciembre"), null);
+
+        assertTrue(r.getReply().contains(KoiConversationService.FECHAS_CERCANAS), r.getReply());
+    }
 }

@@ -196,9 +196,14 @@ public class KoiConversationService {
         }
 
         DatosViaje antes = datosDe(session);
-        Limpieza limpieza = limpiar(extraccion.map(e -> antes.combinar(enCriollo(e.aDatos(), mensaje, hoy)))
-                .orElse(antes), hoy);
+        DatosViaje nuevos = extraccion.map(e -> enCriollo(e.aDatos(), mensaje, hoy)).orElse(null);
+        // Pedir opciones sin destino después de otra búsqueda empieza una nueva: no arrastra el
+        // destino, las fechas ni la intención de la anterior.
+        boolean busquedaNueva = nuevos != null && nuevos.esDestinoAbierto() && !antes.esDestinoAbierto();
+        DatosViaje base = busquedaNueva ? antes.paraBusquedaNueva() : antes;
+        Limpieza limpieza = limpiar(nuevos != null ? base.combinar(nuevos) : antes, hoy);
         DatosViaje datos = limpieza.datos();
+        boolean viajerosDeAntes = busquedaNueva && nuevos.viajeros() == null && datos.viajeros() != null;
         guardarDatos(session, datos);
         List<MissingInfoField> faltan = DatosFaltantes.calcular(datos, hoy);
         String comentario = extraccion.map(KoiExtraccion::comentario)
@@ -216,7 +221,8 @@ public class KoiConversationService {
         } else if (!faltan.isEmpty() || !listoParaRecomendar(datos)) {
             turno = preguntar(session, faltan, datos, unir(comentario, avisos), null);
         } else if (!datos.equals(antes) || session.getStage() != ConversationStage.RECOMMENDING) {
-            turno = datos.esDestinoAbierto() ? explorar(session, datos, comentario) : recomendar(session, datos, comentario);
+            turno = datos.esDestinoAbierto() ? explorar(session, datos, comentario, viajerosDeAntes)
+                    : recomendar(session, datos, comentario);
         } else {
             turno = new Turno(unir(comentario, datos.esDestinoAbierto() ? SEGUIMOS_EXPLORANDO : SEGUIMOS), List.of());
         }
@@ -298,7 +304,8 @@ public class KoiConversationService {
      * Destino abierto: propone combos de distintos destinos con los supuestos que el usuario no
      * dio (origen, viajeros, fechas), y se los dice para que los pueda corregir.
      */
-    private Turno explorar(KoiConversationSession session, DatosViaje datos, String comentario) {
+    private Turno explorar(KoiConversationSession session, DatosViaje datos, String comentario,
+                           boolean viajerosDeAntes) {
         session.setAwaitingField(null);
         String origen = datos.origen() != null ? recortar(datos.origen(), MAX_TEXTO_CIUDAD) : ORIGEN_POR_DEFECTO;
         int viajeros = datos.viajeros() != null ? datos.viajeros() : VIAJEROS_POR_DEFECTO;
@@ -312,6 +319,8 @@ public class KoiConversationService {
         }
         if (datos.viajeros() == null) {
             supuestos.add(ASUMI_VIAJEROS);
+        } else if (viajerosDeAntes) {
+            supuestos.add(viajerosDeAntes(viajeros));
         }
         if (datos.fechaIda() == null && datos.mesIda() == null) {
             supuestos.add(ASUMI_FECHAS);
@@ -329,14 +338,28 @@ public class KoiConversationService {
         if (opciones.isEmpty()) {
             return new Turno(unir(comentario, String.join(" ", supuestos), SIN_OPCIONES_EXPLORANDO), List.of());
         }
-        if (datos.fechaIda() != null && opciones.stream()
-                .anyMatch(o -> o.hotel() != null && !datos.fechaIda().equals(o.hotel().checkIn()))) {
+        if (opciones.stream().anyMatch(o -> o.hotel() != null && fueraDeLoPedido(datos, o.hotel().checkIn()))) {
             supuestos.add(FECHAS_CERCANAS);
         }
         String comentarioSinPrecios = comentario != null && MENCIONA_PRECIO.matcher(comentario).find()
                 ? null : comentario;
         return new Turno(unir(comentarioSinPrecios, String.join(" ", supuestos),
                 resumen(opciones, datos.presupuesto())), opciones);
+    }
+
+    static String viajerosDeAntes(int viajeros) {
+        return "Lo armé para " + (viajeros == 1 ? "1 persona" : viajeros + " personas") + " como me dijiste antes.";
+    }
+
+    /** La opción cae en otra fecha (o en otro mes) que la que pidió el usuario. */
+    private static boolean fueraDeLoPedido(DatosViaje datos, LocalDate checkIn) {
+        if (checkIn == null) {
+            return false;
+        }
+        if (datos.fechaIda() != null) {
+            return !datos.fechaIda().equals(checkIn);
+        }
+        return datos.mesIda() != null && !datos.mesIda().equals(YearMonth.from(checkIn));
     }
 
     /**
