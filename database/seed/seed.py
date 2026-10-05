@@ -101,10 +101,13 @@ def construir_rutas():
 
 
 
-def call(method, url, body=None, token=None, ok=(200, 201, 204)):
+_AUTH = {"token": None, "relogin": None}  # token vigente y como renovarlo (el access token dura 15 minutos)
+
+
+def call(method, url, body=None, token=None, ok=(200, 201, 204), _reintento=True):
     headers = {"Content-Type": "application/json"}
     if token:
-        headers["Authorization"] = "Bearer " + token
+        headers["Authorization"] = "Bearer " + (_AUTH["token"] or token)
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
@@ -113,6 +116,9 @@ def call(method, url, body=None, token=None, ok=(200, 201, 204)):
             return res.status, (json.loads(raw) if raw else None)
     except urllib.error.HTTPError as err:
         raw = err.read().decode(errors="replace")
+        if err.code == 401 and token and _reintento and _AUTH["relogin"]:
+            _AUTH["token"] = _AUTH["relogin"]()
+            return call(method, url, body, token, ok, _reintento=False)
         if err.code in ok:
             return err.code, None
         sys.exit(f"ERROR {method} {url} -> {err.code}: {raw[:300]}")
@@ -169,6 +175,8 @@ def crear_vuelos(token, by_code, airlines, fares, flight_numbers, existentes=fro
     # Del dia de hoy al fin de mes (o, si queda poco, al menos 14 dias): siempre hay fechas para buscar.
     month_end = (today.replace(day=28) + dt.timedelta(days=4)).replace(day=1) - dt.timedelta(days=1)
     last_day = max(month_end, today + dt.timedelta(days=14))
+    if os.environ.get("SEED_DIAS"):  # solo los proximos N dias (cargar todo el mes tarda mucho con una base remota)
+        last_day = today + dt.timedelta(days=int(os.environ["SEED_DIAS"]))
     now = dt.datetime.now()
     rutas = construir_rutas()
     n = ultimo_numero
@@ -223,6 +231,12 @@ def main():
     grant_super_admin(ADMIN[0])  # antes del login: el rol viaja dentro del token
     _, login = call("POST", IDENTITY + "/auth/login", {"email": ADMIN[0], "password": ADMIN[1]})
     token = login["accessToken"]
+    _AUTH["token"] = token
+
+    def relogin():
+        _, nuevo = call("POST", IDENTITY + "/auth/login", {"email": ADMIN[0], "password": ADMIN[1]})
+        return nuevo["accessToken"]
+    _AUTH["relogin"] = relogin
 
     # --- vuelos ---
     _, airports = call("GET", FLIGHT + "/api/airports")
