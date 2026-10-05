@@ -5,9 +5,11 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.web.ErrorResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -53,8 +55,25 @@ public class GlobalExceptionHandler {
         if (ex instanceof AccessDeniedException || ex instanceof AuthenticationException) {
             throw ex;
         }
+        // 404, 405, 415, parámetro faltante...: Spring MVC ya sabe su código; no es un 500
+        if (ex instanceof ErrorResponse errorResponse) {
+            HttpStatusCode status = errorResponse.getStatusCode();
+            return ResponseEntity.status(status)
+                    .headers(errorResponse.getHeaders())
+                    .body(Map.of("error", mensajeHttp(status)));
+        }
         log.error("Error inesperado", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("error", "Ocurrió un error inesperado."));
+    }
+
+    private static String mensajeHttp(HttpStatusCode status) {
+        return switch (status.value()) {
+            case 404 -> "El recurso no existe.";
+            case 405 -> "Método no permitido para este recurso.";
+            case 406 -> "No se puede responder en el formato pedido.";
+            case 415 -> "Tipo de contenido no soportado.";
+            default -> "No se pudo procesar el pedido.";
+        };
     }
 }
