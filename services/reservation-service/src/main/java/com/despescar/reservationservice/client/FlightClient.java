@@ -162,27 +162,27 @@ public class FlightClient {
      * Ajusta asientos disponibles en flight-service.
      * delta negativo para reservar, positivo para liberar.
      */
-    public void adjustSeats(String flightNumber, int delta) {
+    public void adjustSeats(UUID flightId, int delta) { // Cambia String flightNumber por UUID flightId
         try {
             restTemplate.exchange(
-                    flightServiceUrl + "/api/flights/number/{flightNumber}/seats?delta={delta}",
+                    flightServiceUrl + "/api/flights/number/{flightId}/seats?delta={delta}", // Quitamos el "/number/"
                     HttpMethod.PATCH,
                     new HttpEntity<>(new HttpHeaders()),
                     Void.class,
-                    flightNumber, delta
+                    flightId, delta
             );
         } catch (HttpClientErrorException ex) {
-            log.error("Flight-Service rechazo el ajuste de asientos para vuelo {}: {}", flightNumber, ex.getMessage());
+            log.error("Flight-Service rechazo el ajuste de asientos para vuelo {}: {}", flightId, ex.getMessage());
             throw new BookingException(
                     "FLIGHT_SEATS_ADJUST_ERROR",
-                    "No se pudo actualizar la disponibilidad del vuelo " + flightNumber + ".",
+                    "No se pudo actualizar la disponibilidad del vuelo " + flightId + ".",
                     HttpStatus.BAD_GATEWAY
             );
         } catch (Exception ex) {
-            log.error("Error ajustando asientos del vuelo {}", flightNumber, ex);
+            log.error("Error ajustando asientos del vuelo {}", flightId, ex);
             throw new BookingException(
                     "FLIGHT_SEATS_ADJUST_ERROR",
-                    "No se pudo actualizar la disponibilidad del vuelo " + flightNumber + ".",
+                    "No se pudo actualizar la disponibilidad del vuelo " + flightId + ".",
                     HttpStatus.BAD_GATEWAY
             );
         }
@@ -199,6 +199,9 @@ public class FlightClient {
                 headers.set("Authorization", token);
             }
         }
+
+        // Asegurar que las llamadas internas desde hilos de procesamiento (como pagos) lleven el token de servicio
+        headers.set("X-Internal-Service-Token", "despescar-secreto-interno-9876"); // O lee esto desde @Value(${reservation-service.sync-token}) si lo configuras en las propiedades del reservation-service
 
         return headers;
     }

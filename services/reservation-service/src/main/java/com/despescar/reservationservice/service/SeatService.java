@@ -64,6 +64,18 @@ public class SeatService {
     }
 
     @Transactional
+    public void markSeatAsSoldByNumber(UUID flightId, String seatNumber) {
+        Seat seat = seatRepository.findByFlightIdAndNumberSeatForUpdate(flightId, seatNumber)
+                .orElseThrow(() -> new RuntimeException("El asiento " + seatNumber + " no existe para el vuelo " + flightId));
+
+        seat.setStatusSeat("BLOQUEADO");
+        seat.setBlockedByUserId(null);   // Limpiamos el bloqueo temporal
+        seat.setBloqueadoHasta(null);    // Limpiamos la expiración
+
+        seatRepository.save(seat);
+    }
+
+    @Transactional
     public Seat unblockSeat(UUID seatUuid, Long userId) {
         Seat seat = seatRepository.findByIdForUpdate(seatUuid)
                 .orElseThrow(() -> new RuntimeException("El asiento no existe en este vuelo"));

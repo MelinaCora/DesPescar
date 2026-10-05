@@ -149,12 +149,12 @@ public class FlightController {
      * Ajustar asientos disponibles (uso interno del reservation-service).
      * delta negativo para reservar asientos, positivo para liberarlos.
      */
-    @PatchMapping("/number/{flightNumber}/seats")
+    @PatchMapping("/number/{flightId}/seats")
     public ResponseEntity<Void> adjustSeats(
-            @PathVariable String flightNumber,
+            @PathVariable UUID flightId,
             @RequestParam int delta) {
 
-        flightService.adjustSeats(flightNumber, delta);
+        flightService.adjustSeats(flightId, delta); // Asegúrate de que tu servicio interno soporte UUID
         return ResponseEntity.noContent().build();
     }
 }

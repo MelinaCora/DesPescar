@@ -261,14 +261,14 @@ public class FlightService {
      * delta negativo para reservar, positivo para liberar.
      */
     @Transactional
-    public void adjustSeats(String flightNumber, int delta) {
-        Flight flight = flightRepository.findByFlightNumber(flightNumber)
+    public void adjustSeats(UUID flightId, int delta) {
+        Flight flight = flightRepository.findById(flightId)
                 .orElseThrow(FlightNotFoundException::new);
 
         int nuevosAsientos = flight.getAvailableSeats() + delta;
         if (nuevosAsientos < 0) {
             throw new IllegalStateException(
-                    "No hay suficientes asientos disponibles en het vuelo " + flightNumber +
+                    "No hay suficientes asientos disponibles en het vuelo " + flightId +
                             ". Disponibles: " + flight.getAvailableSeats() + ", solicitados: " + (-delta)
             );
         }

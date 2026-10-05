@@ -55,6 +55,8 @@ public class ReservationClient {
         } catch (HttpClientErrorException.NotFound ex) {
             throw new ReservationClientException("La reserva " + reservationId + " no existe.");
         } catch (HttpClientErrorException ex) {
+            System.out.println("STATUS CODE RECHAZO: " + ex.getStatusCode());
+            System.out.println("BODY DEL RECHAZO: " + ex.getResponseBodyAsString());
             throw new ReservationClientException("Reservation-Service rechazo la consulta de la reserva.", ex);
         } catch (HttpServerErrorException ex) {
             throw new ReservationClientException("Reservation-Service no pudo procesar la consulta de la reserva.", ex);
@@ -85,6 +87,9 @@ public class ReservationClient {
                     reservationId
             );
         } catch (HttpClientErrorException ex) {
+            System.out.println("--- ERROR AL SINCRONIZAR PAGO ---");
+            System.out.println("STATUS CODE: " + ex.getStatusCode());
+            System.out.println("BODY: " + ex.getResponseBodyAsString());
             throw new ReservationClientException("Reservation-Service rechazo la sincronizacion del pago.", ex);
         } catch (HttpServerErrorException ex) {
             throw new ReservationClientException("Reservation-Service no pudo sincronizar el pago.", ex);

@@ -45,6 +45,7 @@ public class BookingService {
     private final BookingDetailRepository detailRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final ReservationMapper reservationMapper;
+    private final SeatService seatService;
 
     // Clientes Feign
     private final FlightClient flightClient;
@@ -169,9 +170,34 @@ public class BookingService {
         if (pendientes == 0) {
             reserva.setEstado(ReservationStatus.CONFIRMADA);
 
-            for (UUID flightId : reserva.getFlightIds()) {
-                flightClient.adjustSeats(flightId.toString(), -reserva.getCantidadPasajeros());
+            List<UUID> flightIds = reserva.getFlightIds();
+
+            for (ReservationDetail detalle : reserva.getDetalles()) {
+                // Asiento de ida (pertenece al primer vuelo)
+                if (detalle.getOutboundSeatNumber() != null && !detalle.getOutboundSeatNumber().isBlank()) {
+                    if (!reserva.getFlightIds().isEmpty()) {
+                        UUID outboundFlightId = reserva.getFlightIds().get(0);
+                        // Aseguramos que los asientos del vuelo existan antes de buscar/actualizar
+                        seatService.fetchSeatByFlight(outboundFlightId);
+                        seatService.markSeatAsSoldByNumber(outboundFlightId, detalle.getOutboundSeatNumber());
+                    }
+                }
+
+                // Asiento de vuelta (si existe y hay un segundo vuelo)
+                if (detalle.getReturnSeatNumber() != null && !detalle.getReturnSeatNumber().isBlank()) {
+                    if (reserva.getFlightIds().size() > 1) {
+                        UUID returnFlightId = reserva.getFlightIds().get(1);
+                        seatService.fetchSeatByFlight(returnFlightId);
+                        seatService.markSeatAsSoldByNumber(returnFlightId, detalle.getReturnSeatNumber());
+                    }
+                }
             }
+
+            // Actualizar contadores globales en el flight-service
+            for (UUID flightId : reserva.getFlightIds()) {
+                flightClient.adjustSeats(flightId, -reserva.getCantidadPasajeros());
+            }
+
             if (reserva.getHotelId() != null) {
                 hotelClient.adjustRooms(reserva.getHotelId(), -1);
             }

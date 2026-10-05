@@ -1,5 +1,7 @@
 package com.despescar.payment_service.service;
 
+import com.despescar.payment_service.client.ReservationClient;
+import com.despescar.payment_service.client.dto.ReservationResponse;
 import com.despescar.payment_service.dto.request.PaymentAuthRequestDTO;
 import com.despescar.payment_service.dto.response.FractionResponseDTO;
 import com.despescar.payment_service.dto.response.PaymentGroupResponseDTO;
@@ -10,8 +12,6 @@ import com.despescar.payment_service.repository.PaymentFractionRepository;
 import com.despescar.payment_service.repository.PaymentGroupRepository;
 import com.mercadopago.MercadoPagoConfig;
 import com.mercadopago.client.payment.PaymentClient;
-import com.mercadopago.client.payment.PaymentCreateRequest;
-import com.mercadopago.client.payment.PaymentPayerRequest;
 import com.mercadopago.exceptions.MPApiException;
 import com.mercadopago.exceptions.MPException;
 import com.mercadopago.resources.payment.Payment;
@@ -26,128 +26,107 @@ import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class PaymentService {
 
+    // 1. Declaración limpia (Sin duplicados)
     private final PaymentFractionRepository fractionRepository;
     private final PaymentGroupRepository groupRepository;
+    private final ReservationClient reservationClient;
 
     @Value("${mercadopago.access-token}")
     private String mpAccessToken;
 
     @PostConstruct
     public void init() {
-        // Inicializa el SDK con tu credencial de producción/test
         MercadoPagoConfig.setAccessToken(mpAccessToken);
     }
 
-
-    @Value("${mercadopago.access-token}")
-    private String mercadoPagoAccessToken;
-
     @Transactional
-    public void authorizeFractionPayment(PaymentAuthRequestDTO request) throws MPException, MPApiException {
-
-        // 1. Validar que la fracción existe y está pendiente
+    public boolean authorizeFractionPayment(PaymentAuthRequestDTO request) {
         PaymentFraction fraction = fractionRepository.findById(request.getFractionId())
-                .orElseThrow(() -> new RuntimeException("Fracción de pago no encontrada"));
+                .orElseThrow(() -> new RuntimeException("Fracción no encontrada"));
 
-        if (!fraction.getStatus().equals(PaymentStatus.PENDING)) {
-            throw new RuntimeException("Esta fracción ya fue procesada.");
-        }
+        // --- MOCK DE MERCADO PAGO (TEMPORAL) ---
+        log.info("SIMULANDO PAGO EN MP CON TOKEN: {}", request.getToken());
+        Long fakeMpPaymentId = (long) (Math.random() * 10000000000L);
 
-        PaymentGroup group = fraction.getPaymentGroup();
+        fraction.setMpPaymentId(fakeMpPaymentId.toString());
+        fraction.setStatus(PaymentStatus.AUTHORIZED);
+        fractionRepository.save(fraction);
 
-        MercadoPagoConfig.setAccessToken(mercadoPagoAccessToken);
+        log.info("Fracción {} autorizada exitosamente (MOCK).", fraction.getId());
 
-        // 2. Configurar el request para Mercado Pago reteniendo los fondos
-        PaymentClient client = new PaymentClient();
-        PaymentCreateRequest paymentCreateRequest = PaymentCreateRequest.builder()
-                .transactionAmount(fraction.getAmount())
-                .token(request.getToken()) // Token seguro desde React
-                .description("Reserva de vuelo #" + group.getReservationId() + " - Parte de pasajero")
-                .installments(request.getInstallments())
-                .paymentMethodId(request.getPaymentMethodId())
-                .issuerId(request.getIssuerId())
-                .payer(PaymentPayerRequest.builder()
-                        .email(request.getPayerEmail())
-                        .build())
-                .capture(false) // ESTA ES LA CLAVE: Congela, no cobra.
-                .externalReference(group.getId().toString())
-                .build();
-
-        // 3. Ejecutar la llamada a la API
-        Payment mpPayment = client.create(paymentCreateRequest);
-
-        // 4. Evaluar el resultado
-        if ("authorized".equals(mpPayment.getStatus())) {
-            fraction.setStatus(PaymentStatus.AUTHORIZED);
-            fraction.setMpPaymentId(mpPayment.getId().toString());
-            fractionRepository.save(fraction);
-
-            log.info("Pago autorizado retenido en tarjeta. MP ID: {}", mpPayment.getId());
-
-            // 5. Verificar si todo el grupo ya está autorizado
-            checkAndUpdateGroupStatus(group);
-        } else {
-            // Manejar tarjetas rechazadas o sin fondos
-            fraction.setStatus(PaymentStatus.CANCELLED);
-            fractionRepository.save(fraction);
-            throw new RuntimeException("El pago fue rechazado por el banco. Estado MP: " + mpPayment.getStatusDetail());
-        }
+        // 3. Ejecuta lógica de negocio, mandando el ID del usuario y el token de pago simulado
+        return checkAndUpdateGroupStatus(fraction.getPaymentGroup(), fraction.getUserId(), fakeMpPaymentId.toString());
     }
 
-    private void checkAndUpdateGroupStatus(PaymentGroup group) {
-        // Verifica si TODAS las fracciones del grupo están autorizadas
+    private boolean checkAndUpdateGroupStatus(PaymentGroup group, Long lastPayerId, String mpToken) {
         boolean allAuthorized = group.getFractions().stream()
                 .allMatch(f -> f.getStatus().equals(PaymentStatus.AUTHORIZED));
 
         if (allAuthorized) {
             group.setStatus(PaymentStatus.AUTHORIZED_READY);
             groupRepository.save(group);
-            log.info("El grupo de pago para la reserva {} está completo. Listo para CAPTURA FINAL.", group.getReservationId());
+            log.info("El grupo {} está completo. Sincronizando con Reservation-Service.", group.getReservationId());
 
-            // Aquí puedes disparar un Evento en Spring o llamar directamente al método de captura
-            // captureFullGroup(group);
+            // 4. Llama a tu cliente para confirmar el pago en el microservicio de reservas
+            reservationClient.markReservationPaymentPaid(group.getReservationId(), lastPayerId, mpToken);
         }
+
+        return allAuthorized;
     }
 
     @Transactional
-    public PaymentGroup createPaymentGroup(Long reservationId, BigDecimal totalAmount, List<Long> userIds) {
-        // 1. Validar que no exista un grupo activo para esta reserva
+    public PaymentGroup createPaymentGroup(Long reservationId, List<Long> userIds) {
+
+        // 1. Validar que no exista un grupo activo
         groupRepository.findByReservationId(reservationId).ifPresent(g -> {
             throw new RuntimeException("Ya existe un grupo de pago para esta reserva.");
         });
 
-        // 2. Crear el Grupo Maestro
+        // 2. Traer la reserva real SÓLO para validar existencia y obtener el monto inalterable
+        ReservationResponse reservation = reservationClient.getReservation(reservationId);
+
+        if (reservation == null || reservation.getMontoTotal() == null) {
+            throw new RuntimeException("La reserva no es válida o no tiene monto.");
+        }
+
+        if (userIds == null || userIds.isEmpty()) {
+            throw new RuntimeException("Debe haber al menos un usuario para procesar el pago.");
+        }
+
+        // 3. Crear el Grupo Maestro
         PaymentGroup group = PaymentGroup.builder()
                 .reservationId(reservationId)
-                .totalAmount(totalAmount)
+                .totalAmount(reservation.getMontoTotal())
                 .status(PaymentStatus.PENDING)
-                // Damos 15 minutos exactos para que todos paguen
                 .expiresAt(LocalDateTime.now().plusMinutes(15))
                 .build();
 
-        group = groupRepository.save(group);
+        // 4. Dividir el monto real por la cantidad de amigos
+        BigDecimal fractionAmount = reservation.getMontoTotal().divide(
+                new BigDecimal(userIds.size()),
+                2,
+                java.math.RoundingMode.HALF_UP
+        );
 
-        // 3. Dividir el monto y crear las fracciones
-        BigDecimal fractionAmount = totalAmount.divide(new BigDecimal(userIds.size()), 2, java.math.RoundingMode.HALF_UP);
+        // 5. Crear fracciones basándose en la lista de usuarios del frontend
+        List<PaymentFraction> fractions = userIds.stream().map(userId ->
+                PaymentFraction.builder()
+                        .paymentGroup(group)
+                        .userId(userId)
+                        .amount(fractionAmount)
+                        .status(PaymentStatus.PENDING)
+                        .build()
+        ).collect(Collectors.toList());
 
-        for (Long userId : userIds) {
-            PaymentFraction fraction = PaymentFraction.builder()
-                    .paymentGroup(group)
-                    .userId(userId)
-                    .amount(fractionAmount)
-                    .status(PaymentStatus.PENDING)
-                    .build();
+        group.setFractions(fractions);
 
-            group.getFractions().add(fraction);
-        }
-
-        // Guarda el grupo completo con sus fracciones en cascada
         return groupRepository.save(group);
     }
 
@@ -182,10 +161,7 @@ public class PaymentService {
         for (PaymentFraction fraction : group.getFractions()) {
             if (fraction.getStatus().equals(PaymentStatus.AUTHORIZED)) {
                 try {
-                    // MP Payment IDs son números grandes, los parseamos a Long
                     Long mpId = Long.valueOf(fraction.getMpPaymentId());
-
-                    // Ejecutamos la captura del dinero congelado
                     Payment capturedPayment = client.capture(mpId);
 
                     if ("approved".equals(capturedPayment.getStatus())) {
@@ -194,7 +170,6 @@ public class PaymentService {
                         log.info("Cobro capturado con éxito para la fracción {}", fraction.getId());
                     } else {
                         log.error("Fallo al capturar fracción {}: {}", fraction.getId(), capturedPayment.getStatusDetail());
-                        // Aquí podrías implementar una reversión manual si falla la captura de uno
                     }
                 } catch (MPException | MPApiException e) {
                     log.error("Excepción de MP al capturar el pago {}: {}", fraction.getMpPaymentId(), e.getMessage());
@@ -202,7 +177,6 @@ public class PaymentService {
             }
         }
 
-        // Validar si TODAS las fracciones pasaron a CAPTURED
         boolean allCaptured = group.getFractions().stream()
                 .allMatch(f -> f.getStatus().equals(PaymentStatus.CAPTURED));
 
@@ -210,9 +184,6 @@ public class PaymentService {
             group.setStatus(PaymentStatus.CAPTURED);
             groupRepository.save(group);
             log.info("¡ÉXITO! Se ha cobrado el 100% de la reserva {}.", group.getReservationId());
-
-            // ---> AQUÍ ES DONDE LLAMAS A TU MICROSERVICIO DE RESERVAS <---
-            // Ej: reservationClient.confirmAndEmitTickets(group.getReservationId());
         } else {
             log.warn("ATENCIÓN: El grupo {} no se pudo capturar por completo.", group.getId());
         }
