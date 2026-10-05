@@ -125,19 +125,20 @@ def main():
             _, a = call("POST", FLIGHT + "/api/airlines", {"name": name, "code": code, "country": country, "logoUrl": None}, token)
             airlines[code] = a["id"]
         fares = []
+        # Precios en pesos. Light no suma nada: el precio del vuelo ya es la tarifa mas barata.
         for name, kind, carry, checked, wifi, seat, base, tax in (
-            ("Light", "LIGHT", True, False, False, "PAID", 100, 30),
-            ("Standard", "STANDARD", True, True, True, "FREE", 130, 40),
+            ("Light", "LIGHT", True, False, False, "PAID", 0, 0),
+            ("Standard", "STANDARD", True, True, True, "FREE", 40000, 5000),
         ):
             _, f = call("POST", FLIGHT + "/api/fares", {
                 "name": name, "type": kind, "personalItem": True, "carryOn": carry, "checkedBaggage": checked,
-                "wifi": wifi, "seatSelection": seat, "currency": "USD", "baseFare": base, "taxesAndFees": tax,
+                "wifi": wifi, "seatSelection": seat, "currency": "ARS", "baseFare": base, "taxesAndFees": tax,
                 "transparentFinalPrice": base + tax}, token)
             fares.append(f["id"])
-        routes = (  # aerolinea, origen, destino, precio, minutos
-            ("AR", "EZE", "COR", 60, 90), ("AR", "AEP", "BRC", 150, 150), ("AR", "AEP", "MDZ", 110, 120),
-            ("AR", "EZE", "MAD", 900, 780), ("LA", "EZE", "SCL", 180, 130), ("LA", "EZE", "MIA", 700, 540),
-            ("LA", "AEP", "SLA", 130, 130), ("FO", "AEP", "COR", 45, 85), ("FO", "AEP", "BRC", 120, 150),
+        routes = (  # aerolinea, origen, destino, precio por pasajero en ARS (tarifa Light), minutos
+            ("AR", "EZE", "COR", 95000, 90), ("AR", "AEP", "BRC", 160000, 150), ("AR", "AEP", "MDZ", 120000, 120),
+            ("AR", "EZE", "MAD", 1150000, 780), ("LA", "EZE", "SCL", 260000, 130), ("LA", "EZE", "MIA", 980000, 540),
+            ("LA", "AEP", "SLA", 140000, 130), ("FO", "AEP", "COR", 70000, 85), ("FO", "AEP", "BRC", 130000, 150),
         )
         n = 0
         for i, (al, o, d, price, mins) in enumerate(routes):
