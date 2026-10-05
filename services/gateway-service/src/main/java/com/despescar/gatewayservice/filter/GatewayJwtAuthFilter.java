@@ -119,9 +119,10 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
 
     // Rutas que solo usan los servicios entre si (payment-service llama directo a reservation-service).
     // No deben alcanzarse desde el exterior: solo las protege un token compartido.
+    // Cualquier segmento /internal queda cerrado, aunque hoy no haya una ruta del gateway que lo alcance.
     // Tambien el ajuste de inventario (asientos y habitaciones) que reservation-service hace directo.
     private boolean isInternalOnlyPath(HttpMethod method, String path) {
-        if (path.equals("/api/bookings/internal") || path.startsWith("/api/bookings/internal/")) {
+        if (path.contains("/internal/") || path.endsWith("/internal")) {
             return true;
         }
         return method == HttpMethod.PATCH

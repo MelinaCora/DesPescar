@@ -5,6 +5,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.http.HttpStatus;
@@ -108,5 +110,33 @@ class GatewayJwtAuthFilterTest {
         ServerWebExchange write = MockServerWebExchange.from(MockServerHttpRequest.post("/api/hotels").build());
         filter.filter(write, chain).block();
         assertThat(write.getResponse().getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void internalPathsShouldBeBlockedFromOutside() {
+        GatewayJwtService jwtService = mock(GatewayJwtService.class);
+        GatewayJwtAuthFilter filter = new GatewayJwtAuthFilter(jwtService);
+        GatewayFilterChain chain = exchange -> Mono.empty();
+
+        for (MockServerHttpRequest request : List.of(
+                MockServerHttpRequest.post("/internal/retenciones").build(),
+                MockServerHttpRequest.post("/internal/retenciones/abc/liberar").build(),
+                MockServerHttpRequest.get("/api/bookings/internal/5").build(),
+                MockServerHttpRequest.post("/hoteles/internal/retenciones")
+                        .header("Authorization", "Bearer cualquiera").build(),
+                MockServerHttpRequest.get("/api/payments/internal").build())) {
+            ServerWebExchange exchange = MockServerWebExchange.from(request);
+
+            filter.filter(exchange, chain).block();
+
+            assertThat(exchange.getResponse().getStatusCode())
+                    .as(request.getPath().value())
+                    .isEqualTo(HttpStatus.FORBIDDEN);
+        }
+        verify(jwtService, never()).parseToken(org.mockito.Mockito.anyString());
+
+        ServerWebExchange publica = MockServerWebExchange.from(MockServerHttpRequest.get("/api/hotels/destinos").build());
+        filter.filter(publica, chain).block();
+        assertThat(publica.getResponse().getStatusCode()).isNull();
     }
 }
