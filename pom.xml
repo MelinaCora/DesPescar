@@ -3,5 +3,20 @@
   <groupId>DesPescar</groupId>
   <artifactId>DesPescar</artifactId>
   <version>0.0.1-SNAPSHOT</version>
-  <name>flight-service</name>
+  <packaging>pom</packaging>
+  <name>DesPescar</name>
+  <description>Backend de DesPescar: agrega los microservicios para compilarlos y probarlos juntos</description>
+
+  <!-- Agregador: no es el padre de los servicios (cada uno conserva su propio parent de Spring Boot). -->
+  <modules>
+    <module>services/common-security</module>
+    <module>services/identity-service</module>
+    <module>services/flightservice</module>
+    <module>services/hotel-service</module>
+    <module>services/package-service</module>
+    <module>services/payment-service</module>
+    <module>services/reservation-service</module>
+    <module>services/koi-ia-service</module>
+    <module>services/gateway-service</module>
+  </modules>
 </project>

@@ -20,6 +20,8 @@ Catálogo de hoteles: nombre, ciudad, estrellas, precio por noche y habitaciones
 
 ## Levantarlo
 
+> **Primero:** instalá el [módulo común](README.md#antes-de-levantar-los-servicios-instalar-el-módulo-común) (`mvn -q -f services/common-security/pom.xml install`, una sola vez).
+
 Con MySQL arriba ([`mysql-docker.md`](mysql-docker.md)), desde la raíz del repositorio:
 
 **Linux**
@@ -82,6 +84,7 @@ Para crear hoteles hay que usar el token del administrador (`admin@despescar.com
 
 | Síntoma | Causa y solución |
 |---|---|
+| `Could not find artifact com.despescar:common-security` | Falta instalar el [módulo común](README.md#antes-de-levantar-los-servicios-instalar-el-módulo-común). |
 | `403` al consultar hoteles | Falta el encabezado `Authorization: Bearer <token>`, o el token venció (duran 15 minutos). |
 | `403` al crear o editar | El usuario no es `SUPER_ADMIN` ni `HOTEL_ADMIN`; si cambió de rol, volver a iniciar sesión. |
 | Lista vacía | No se cargaron datos: ver [`datos-de-ejemplo.md`](datos-de-ejemplo.md). |

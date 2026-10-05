@@ -1,17 +1,18 @@
-package com.despescar.reservationservice.config;
+package com.despescar.common.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import javax.crypto.SecretKey;
+import org.springframework.beans.factory.annotation.Value;
 
-@Service
+/**
+ * Lee y valida los tokens JWT que firma identity-service con {@code jwt.secret}.
+ * Los tokens traen el correo como subject y los claims {@code role} y {@code userId}.
+ */
 public class JwtService {
 
     private final SecretKey key;
@@ -23,32 +24,34 @@ public class JwtService {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    public String extractUsername(String token) {
-        return extractAllClaims(token).getSubject();
-    }
-
-    public String extractRole(String token) {
-        return extractAllClaims(token).get("role", String.class);
-    }
-
-    public Long extractUserId(String token) {
-        return extractAllClaims(token).get("userId", Long.class);
-    }
-
-    public boolean isTokenValid(String token, String email) {
-        try {
-            Claims claims = extractAllClaims(token);
-            return email.equals(claims.getSubject()) && !claims.getExpiration().before(new Date());
-        } catch (JwtException e) {
-            return false;
-        }
-    }
-
-    private Claims extractAllClaims(String token) {
+    /** Verifica la firma y el vencimiento; lanza {@link JwtException} si el token no sirve. */
+    public Claims extractClaims(String token) {
         return Jwts.parser()
                 .verifyWith(key)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
+    }
+
+    public String extractUsername(String token) {
+        return extractClaims(token).getSubject();
+    }
+
+    public String extractRole(String token) {
+        return extractClaims(token).get("role", String.class);
+    }
+
+    public Long extractUserId(String token) {
+        Object userId = extractClaims(token).get("userId");
+        return userId instanceof Number number ? number.longValue() : null;
+    }
+
+    public boolean isTokenValid(String token, String email) {
+        try {
+            Claims claims = extractClaims(token);
+            return email.equals(claims.getSubject()) && !claims.getExpiration().before(new Date());
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
+        }
     }
 }

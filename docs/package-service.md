@@ -19,6 +19,8 @@ Paquetes turísticos: un destino con un vuelo y un hotel asociados, la cantidad 
 
 ## Levantarlo
 
+> **Primero:** instalá el [módulo común](README.md#antes-de-levantar-los-servicios-instalar-el-módulo-común) (`mvn -q -f services/common-security/pom.xml install`, una sola vez).
+
 Con MySQL arriba ([`mysql-docker.md`](mysql-docker.md)), desde la raíz del repositorio:
 
 **Linux**
@@ -93,5 +95,6 @@ Crear, editar o borrar paquetes exige el token del administrador (`admin@despesc
 | `401` o `403` al consultar | Falta el encabezado `Authorization: Bearer <token>`, o el token venció (duran 15 minutos). |
 | `403` al crear | El usuario no es `SUPER_ADMIN`; si cambió de rol, volver a iniciar sesión. |
 | Un paquete "borrado" sigue en la lista | `DELETE` lo desactiva. Filtrá por `active=true` o reactivalo con `activate`. |
+| `Could not find artifact com.despescar:common-security` | Falta instalar el [módulo común](README.md#antes-de-levantar-los-servicios-instalar-el-módulo-común). |
 | `Could not resolve placeholder 'JWT_SECRET'` | Falta definir la variable **en esa terminal**. |
 | `Port 8086 was already in use` | **Linux:** `ss -ltnp \| grep 8086`. **Windows:** `netstat -ano \| findstr :8086`. |

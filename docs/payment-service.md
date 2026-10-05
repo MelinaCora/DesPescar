@@ -26,6 +26,8 @@ Para pruebas conviene usar una **credencial de prueba** de MercadoPago (se obtie
 
 ## Levantarlo
 
+> **Primero:** instalá el [módulo común](README.md#antes-de-levantar-los-servicios-instalar-el-módulo-común) (`mvn -q -f services/common-security/pom.xml install`, una sola vez).
+
 Con MySQL arriba ([`mysql-docker.md`](mysql-docker.md)), desde la raíz del repositorio:
 
 **Linux**
@@ -110,6 +112,7 @@ La rama `features/payment-service-update` reemplaza `POST /api/payments` por un 
 
 | Síntoma | Causa y solución |
 |---|---|
+| `Could not find artifact com.despescar:common-security` | Falta instalar el [módulo común](README.md#antes-de-levantar-los-servicios-instalar-el-módulo-común). |
 | `Could not resolve placeholder 'JWT_SECRET'` | Falta definir la variable **en esa terminal**. |
 | `502` al pagar | Ver la tabla de errores: el token compartido no coincide con el de `reservation-service`. |
 | `500` al pagar | Falta o es inválida la credencial de MercadoPago (`MERCADOPAGO_ACCESS_TOKEN`). |

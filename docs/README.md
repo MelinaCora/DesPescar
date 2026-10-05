@@ -37,6 +37,18 @@ Comprobá las versiones con `java -version`, `mvn -v`, `docker compose version` 
 
 Recomendado: **8 GB de RAM**. Con menos, levantá solo los servicios que necesites.
 
+## Antes de levantar los servicios: instalar el módulo común
+
+`flightservice`, `hotel-service`, `package-service`, `payment-service` y `reservation-service` comparten el código de validación de tokens y de autenticación entre servicios, que está en `services/common-security`. Hay que **instalarlo una vez** en el repositorio local de Maven (y de nuevo si alguien lo modifica). Desde la raíz del repositorio, igual en Linux y en Windows:
+
+```bash
+mvn -q -f services/common-security/pom.xml install
+```
+
+Sin este paso, esos cinco servicios fallan al arrancar con `Could not find artifact com.despescar:common-security`. `identity-service`, `gateway-service` y `koi-ia-service` no lo necesitan.
+
+Para compilar y probar **todo junto** (módulo común incluido), basta con `mvn test` en la raíz del repositorio: el `pom.xml` raíz agrupa los módulos.
+
 ## Orden de arranque
 
 Cada servicio va en **su propia terminal**, desde la raíz del repositorio:

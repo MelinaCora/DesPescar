@@ -20,6 +20,8 @@ Aeropuertos, aerolíneas, tarifas (Light, Standard…) y vuelos, incluida la bú
 
 ## Levantarlo
 
+> **Primero:** instalá el [módulo común](README.md#antes-de-levantar-los-servicios-instalar-el-módulo-común) (`mvn -q -f services/common-security/pom.xml install`, una sola vez).
+
 Con MySQL arriba ([`mysql-docker.md`](mysql-docker.md)), desde la raíz del repositorio:
 
 **Linux**
@@ -91,6 +93,7 @@ Si corriste el script otro día, usá la fecha que imprimió. Para probar por el
 
 | Síntoma | Causa y solución |
 |---|---|
+| `Could not find artifact com.despescar:common-security` | Falta instalar el [módulo común](README.md#antes-de-levantar-los-servicios-instalar-el-módulo-común). |
 | `Could not resolve placeholder 'JWT_SECRET'` | Falta definir la variable **en esa terminal**. |
 | La lista de aeropuertos viene vacía (`[]`) | No se cargaron los datos: ver [`datos-de-ejemplo.md`](datos-de-ejemplo.md). |
 | La búsqueda devuelve `500` con "Required request parameter ... is not present" | Falta un parámetro obligatorio (`departureDate` o `passengers`). |

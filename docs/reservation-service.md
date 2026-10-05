@@ -22,6 +22,8 @@ Reservas de vuelos (y, opcionalmente, hotel o paquete), mapa de asientos y **sel
 
 ## Levantarlo
 
+> **Primero:** instalá el [módulo común](README.md#antes-de-levantar-los-servicios-instalar-el-módulo-común) (`mvn -q -f services/common-security/pom.xml install`, una sola vez).
+
 Con MySQL arriba ([`mysql-docker.md`](mysql-docker.md)), desde la raíz del repositorio:
 
 **Linux**
@@ -134,6 +136,7 @@ Una respuesta correcta es `{ "bookingId": N, "paymentType": "SINGLE_PAYMENT", "s
 
 | Síntoma | Causa y solución |
 |---|---|
+| `Could not find artifact com.despescar:common-security` | Falta instalar el [módulo común](README.md#antes-de-levantar-los-servicios-instalar-el-módulo-común). |
 | `401` o `403` al crear la reserva | Falta el token, venció (15 minutos), o el usuario no es cliente (`USER`). |
 | `409 ASIENTO_NO_BLOQUEADO` al cargar pasajeros | El asiento no está retenido por ese usuario: hay que elegirlo primero en el mapa, y la retención dura 15 minutos. |
 | `502 Reservation-Service rechazo la consulta de la reserva` al pagar | `RESERVATION_SERVICE_SYNC_TOKEN` vacía o distinta entre reservas y pagos. Definí el mismo valor en las dos terminales y reiniciá ambos. |

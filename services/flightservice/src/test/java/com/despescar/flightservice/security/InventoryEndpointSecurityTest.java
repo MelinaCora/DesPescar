@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.despescar.common.security.JwtService;
 import com.despescar.flightservice.config.SecurityConfig;
 import com.despescar.flightservice.controller.FlightController;
 import com.despescar.flightservice.service.FlightService;
@@ -24,7 +25,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 /** Recorre la cadena de seguridad real: el ajuste de inventario solo lo puede hacer reservation-service. */
 @WebMvcTest(FlightController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class, InternalServiceAuthenticationFilter.class, JwtService.class})
+@Import({SecurityConfig.class, JwtService.class})
 @TestPropertySource(properties = {
         "jwt.secret=test-secret-key-for-inventory-security-1234567890",
         "inventory.sync-token=token-interno"

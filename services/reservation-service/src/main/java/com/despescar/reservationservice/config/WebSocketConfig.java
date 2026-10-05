@@ -1,5 +1,6 @@
 package com.despescar.reservationservice.config;
 
+import com.despescar.common.security.JwtService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.Message;

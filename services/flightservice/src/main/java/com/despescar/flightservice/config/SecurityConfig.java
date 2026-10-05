@@ -1,9 +1,10 @@
 package com.despescar.flightservice.config;
 
-import com.despescar.flightservice.security.InternalServiceAuthenticationFilter;
-import com.despescar.flightservice.security.JwtAuthenticationFilter;
+import com.despescar.common.security.InternalServiceAuthenticationFilter;
+import com.despescar.common.security.JwtAuthenticationFilter;
+import com.despescar.common.security.JwtService;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -13,14 +14,19 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
-@RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final JwtAuthenticationFilter jwtAuthenticationFilter;
-    private final InternalServiceAuthenticationFilter internalServiceAuthenticationFilter;
-
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain securityFilterChain(
+            HttpSecurity http,
+            JwtService jwtService,
+            @Value("${inventory.sync-token:}") String inventoryToken) throws Exception {
+
+        // Ajuste de asientos: solo reservation-service, con X-Internal-Service-Token
+        InternalServiceAuthenticationFilter inventoryFilter = new InternalServiceAuthenticationFilter(
+                inventoryToken, "reservation-service", "ROLE_SERVICE_RESERVATION",
+                request -> HttpMethod.PATCH.matches(request.getMethod())
+                        && request.getRequestURI().matches("^/api/flights/number/[^/]+/seats$"));
 
         http
                 .csrf(csrf -> csrf.disable())
@@ -35,7 +41,6 @@ public class SecurityConfig {
                                 "/swagger-ui/**",
                                 "/v3/api-docs/**"
                         ).permitAll()
-                        // Ajuste de asientos: solo reservation-service, con X-Internal-Service-Token
                         .requestMatchers(HttpMethod.PATCH, "/api/flights/number/*/seats").hasRole("SERVICE_RESERVATION")
                         .requestMatchers(HttpMethod.GET, "/api/flights/search").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/flights").permitAll()
@@ -48,8 +53,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.DELETE, "/api/**").hasAnyRole("SUPER_ADMIN", "AIRLINE_ADMIN")
                         .anyRequest().authenticated()
                 )
-                .addFilterBefore(internalServiceAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(inventoryFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(new JwtAuthenticationFilter(jwtService), UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

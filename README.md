@@ -15,6 +15,7 @@ Plataforma de reservas de viajes construida con arquitectura de microservicios e
 | `reservation-service` | 8085 | `despescar_reservation` | Reservas, mapa de asientos y selección en tiempo real (WebSocket) |
 | `package-service` | 8086 | `despescar_package` | Paquetes turísticos (vuelo + hotel) |
 | `gateway-service` | 8087 | — | Entrada única para el frontend: valida JWT y rol, limita peticiones |
+| `common-security` | — | — | Librería (no es un servicio): validación de JWT y autenticación entre servicios, compartida por flight, hotel, package, payment y reservation |
 | `koi-ia-service` | 8088 | `despescar_koiia` | Chatbot KOI (IA de Groq) para orientar y recomendar viajes |
 
 Cada servicio tiene su guía en [`docs/`](docs/README.md), con variables de entorno, comandos y problemas comunes. Las rutas de abajo se llaman por el gateway (`http://localhost:8087`) salvo que se indique otra cosa.
@@ -220,11 +221,18 @@ Después, cada servicio en su terminal (ver su guía) y, con identity, flight, h
 
 Si preferís usar un MySQL 8 instalado a mano, ejecutá `database/init/01_create_databases.sql` para crear las bases y definí `DB_PASSWORD` si tu contraseña de `root` no es `despescar_dev`.
 
+Antes, una sola vez, instalá el módulo común que comparten flight, hotel, package, payment y reservation:
+```bash
+mvn -q -f services/common-security/pom.xml install
+```
+
 Cada servicio levanta con:
 ```bash
 cd services/<nombre-servicio>
 mvn spring-boot:run
 ```
+
+`mvn test` en la raíz compila y prueba todos los módulos juntos.
 
 La documentación Swagger de cada servicio está disponible en:
 ```
