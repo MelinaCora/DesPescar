@@ -63,7 +63,7 @@ class KoiConversationServiceTest {
         session.setId(sessionId);
         session.setUserIdentifier(userIdentifier);
         session.setStage(ConversationStage.COLLECTING_INFO);
-        session.setIntent(UserIntent.VACATION);
+        session.setIntent(UserIntent.UNKNOWN);
         return session;
     }
 
@@ -87,7 +87,7 @@ class KoiConversationServiceTest {
         assertTrue(response.getReply().startsWith("¡Hola! Soy KOI"));
         assertFalse(response.isNeedsMoreInfo());
         assertEquals(ConversationStage.COLLECTING_INFO, response.getStage());
-        assertEquals(UserIntent.VACATION, response.getIntent());
+        assertEquals(UserIntent.UNKNOWN, response.getIntent());
         assertTrue(response.getRecommendations().isEmpty());
 
         ArgumentCaptor<KoiConversationSession> savedSession = ArgumentCaptor.forClass(KoiConversationSession.class);
@@ -190,7 +190,7 @@ class KoiConversationServiceTest {
         assertEquals(sessionId, response.getSessionId());
         assertEquals("test@example.com", response.getUserIdentifier());
         assertEquals(ConversationStage.COLLECTING_INFO, response.getStage());
-        assertEquals(UserIntent.VACATION, response.getIntent());
+        assertEquals(UserIntent.UNKNOWN, response.getIntent());
     }
 
     @Test

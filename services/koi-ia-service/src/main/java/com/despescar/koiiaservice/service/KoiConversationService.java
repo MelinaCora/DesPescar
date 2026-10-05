@@ -34,7 +34,7 @@ public class KoiConversationService {
         KoiConversationSession session = new KoiConversationSession();
         session.setUserIdentifier(normalizeUserIdentifier(userIdentifier));
         session.setStage(ConversationStage.COLLECTING_INFO);
-        session.setIntent(UserIntent.VACATION);
+        session.setIntent(UserIntent.UNKNOWN);
         session = sessionRepository.save(session);
 
         String reply = "¡Hola! Soy KOI ✨ Tu asistente de viajes en DesPescar. ¿A dónde te gustaría viajar y con qué presupuesto cuentas?";
