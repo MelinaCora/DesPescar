@@ -43,7 +43,7 @@ spring:
         - id: flights
           uri: http://localhost:8081
           predicates:
-            - Path=/api/flights/**,/api/airlines/**,/api/airports/**,/api/baggage-policies/**
+            - Path=/api/flights/**,/api/airlines/**,/api/airports/**,/api/fares/**
 
         - id: hotels-direct
           uri: http://localhost:8083

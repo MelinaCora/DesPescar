@@ -90,7 +90,7 @@ Los roles de administrador **no heredan** los permisos de cliente: reservar y pa
 - Tiempo de espera de 5 segundos (`504` si se supera) y circuit breaker con respuesta `/fallback/unavailable`.
 - Límite de 120 peticiones por minuto por IP (no cuenta `/api/auth`, `/actuator` ni `/fallback`).
 - Errores unificados con `requestId` y encabezado `X-Request-Id`.
-- No pasan por él: `/api/fares`, `/api/refunds`, `/api/payment-history` y el WebSocket.
+- No pasan por él: `/api/refunds`, `/api/payment-history` y el WebSocket.
 
 Detalle en [`docs/gateway-service.md`](docs/gateway-service.md).
 
@@ -132,7 +132,7 @@ Se indican las rutas **del servicio** (puerto propio). Entre paréntesis, cómo 
 | PUT / DELETE | `/api/airlines/{id}` | Actualizar / eliminar |
 | POST / GET | `/api/airports`, `/api/airports/{id}`, `/api/airports/code/{code}`, `/country/{country}`, `/city/{city}` | Crear y consultar aeropuertos |
 | PUT / DELETE | `/api/airports/{id}` | Actualizar / eliminar |
-| POST / GET | `/api/fares`, `/api/fares/{id}` | Tarifas y equipaje (tabla `baggage_policies`). **Sin ruta en el gateway** |
+| POST / GET | `/api/fares`, `/api/fares/{id}` | Tarifas y equipaje (tabla `baggage_policies`) |
 
 ### `hotel-service` (8083) — por el gateway: `/hoteles/**` y `/api/hotels/**`
 | Método | Endpoint | Para qué sirve |

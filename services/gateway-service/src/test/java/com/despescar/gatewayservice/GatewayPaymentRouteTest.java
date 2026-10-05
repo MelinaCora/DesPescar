@@ -17,6 +17,20 @@ class GatewayPaymentRouteTest {
     private RouteDefinitionLocator routeDefinitionLocator;
 
     @Test
+    void faresRouteShouldBeExposedAndBaggagePoliciesRouteShouldNotExist() {
+        List<RouteDefinition> routes = routeDefinitionLocator.getRouteDefinitions().collectList().block();
+
+        RouteDefinition flightsRoute = routes.stream()
+                .filter(route -> "flights".equals(route.getId()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(flightsRoute.getPredicates())
+                .anySatisfy(predicate -> assertThat(predicate.getArgs().values())
+                        .anyMatch(value -> value.contains("/api/fares/**") && !value.contains("baggage-policies")));
+    }
+
+    @Test
     void paymentsRouteShouldPreserveApiPaymentsPrefix() {
         List<RouteDefinition> routes = routeDefinitionLocator.getRouteDefinitions().collectList().block();
 

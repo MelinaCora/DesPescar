@@ -65,7 +65,6 @@ public class KoiConversationService {
         return toConversationResponse(session, respuestaIa, false, null, List.of());
     }
 
-    // (Conserva tus métodos auxiliares de carga de sesión, seguridad y mapeo DTO tal como los tienes)
     private KoiConversationSession loadSession(UUID sessionId) {
         return sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new KoiSessionNotFoundException(sessionId));

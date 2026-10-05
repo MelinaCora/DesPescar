@@ -165,7 +165,7 @@ public class GatewayJwtAuthFilter implements GlobalFilter, Ordered {
         if (path.startsWith("/api/flights")
                 || path.startsWith("/api/airlines")
                 || path.startsWith("/api/airports")
-                || path.startsWith("/api/baggage-policies")) {
+                || path.startsWith("/api/fares")) {
             if (method == HttpMethod.POST || method == HttpMethod.PUT || method == HttpMethod.DELETE) {
                 return AIRLINE_ROLES;
             }

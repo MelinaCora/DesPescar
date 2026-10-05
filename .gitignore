@@ -14,3 +14,9 @@ spring.log
 
 .mvn/wrapper/maven-wrapper.jar
 database/.env
+
+# Archivos de IDE (Eclipse e IntelliJ)
+.classpath
+.project
+.settings/
+*.iml

@@ -33,7 +33,7 @@ public class AirlineMapper {
                 .build();
     }
 
-    // ¡ESTE ERA EL MÉTODO QUE TE FALTABA CREAR!
+    // Copia los datos del request sobre una aerolínea existente.
     public static void updateEntity(Airline airline, AirlineRequest request) {
         if (airline == null || request == null) {
             return;

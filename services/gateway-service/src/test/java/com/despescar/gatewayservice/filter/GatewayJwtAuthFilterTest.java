@@ -55,6 +55,27 @@ class GatewayJwtAuthFilterTest {
     }
 
     @Test
+    void faresShouldBePublicToReadButRequireAnAdminRoleToWrite() {
+        GatewayJwtService jwtService = mock(GatewayJwtService.class);
+        GatewayJwtAuthFilter filter = new GatewayJwtAuthFilter(jwtService);
+        GatewayFilterChain chain = exchange -> Mono.empty();
+
+        ServerWebExchange read = MockServerWebExchange.from(MockServerHttpRequest.get("/api/fares").build());
+        filter.filter(read, chain).block();
+        assertThat(read.getResponse().getStatusCode()).isNull();
+
+        io.jsonwebtoken.Claims claims = mock(io.jsonwebtoken.Claims.class);
+        org.mockito.Mockito.when(claims.getSubject()).thenReturn("cliente@mail.com");
+        org.mockito.Mockito.when(claims.get("role", String.class)).thenReturn("USER");
+        org.mockito.Mockito.when(jwtService.parseToken("token-usuario")).thenReturn(claims);
+
+        ServerWebExchange write = MockServerWebExchange.from(MockServerHttpRequest.post("/api/fares")
+                .header("Authorization", "Bearer token-usuario").build());
+        filter.filter(write, chain).block();
+        assertThat(write.getResponse().getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
     void protectedPathShouldRejectMissingBearerToken() {
         GatewayJwtService jwtService = mock(GatewayJwtService.class);
         GatewayJwtAuthFilter filter = new GatewayJwtAuthFilter(jwtService);

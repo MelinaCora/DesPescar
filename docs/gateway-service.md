@@ -52,14 +52,14 @@ Hacen falta ambos: uno es el del circuit breaker y el otro el de la respuesta de
 |---|---|---|
 | `/api/auth/**` (se reescribe a `/auth/**`) | [identity-service](identity-service.md) | 8080 |
 | `/api/users/**` (se reescribe a `/users/**`) | [identity-service](identity-service.md) | 8080 |
-| `/api/flights/**`, `/api/airlines/**`, `/api/airports/**` (y `/api/baggage-policies/**`, que **no existe** en flightservice: las tarifas están en `/api/fares`, sin ruta) | [flightservice](flightservice.md) | 8081 |
+| `/api/flights/**`, `/api/airlines/**`, `/api/airports/**`, `/api/fares/**` | [flightservice](flightservice.md) | 8081 |
 | `/hoteles/**` y `/api/hotels/**` (esta se reescribe a `/hoteles/**`) | [hotel-service](hotel-service.md) | 8083 |
 | `/api/payments/**` | [payment-service](payment-service.md) | 8084 |
 | `/api/bookings/**` y `/api/extra-baggage/**` (esta se reescribe a `/extra-baggage/**`) | [reservation-service](reservation-service.md) | 8085 |
 | `/api/packages/**` | [package-service](package-service.md) | 8086 |
 | `/api/koi/**` | [koi-ia-service](koi-ia-service.md) | 8088 |
 
-**No pasan por el gateway:** `/api/fares` (devuelve 404 por el 8087), `/api/refunds`, `/api/payment-history` y el WebSocket de asientos (`ws://localhost:8085/ws-despescar`, que el frontend abre directo).
+**No pasan por el gateway:** `/api/refunds`, `/api/payment-history` y el WebSocket de asientos (`ws://localhost:8085/ws-despescar`, que el frontend abre directo).
 
 ## Quién puede qué
 
@@ -67,7 +67,7 @@ Hacen falta ambos: uno es el del circuit breaker y el otro el de la respuesta de
 - `/api/auth/**` (registro, login, renovar).
 - `/api/koi/**` (el chatbot).
 - `POST /api/payments/mercadopago/webhook` (lo llama MercadoPago).
-- Consulta de vuelos: `GET /api/flights`, `GET /api/flights/search`, `GET /api/flights/{id}`, `GET /api/airports` y `GET /api/airports/code/{code}`. Antes el gateway exigía sesión incluso para esto; ahora se puede buscar y ver vuelos sin iniciar sesión, y recién se pide iniciar sesión al avanzar con la compra.
+- Consulta de vuelos: `GET /api/flights`, `GET /api/flights/search`, `GET /api/flights/{id}`, `GET /api/airports`, `GET /api/airports/code/{code}` y `GET /api/fares`. Antes el gateway exigía sesión incluso para esto; ahora se puede buscar y ver vuelos sin iniciar sesión, y recién se pide iniciar sesión al avanzar con la compra.
 - `/actuator/**` y `/fallback/**`.
 
 **Bloqueadas siempre (`403`):** `/api/bookings/internal/**` (de `payment-service` a `reservation-service`) y los `PATCH` de ajuste de inventario `/api/flights/number/{n}/seats`, `/api/hotels/{id}/rooms` y `/hoteles/{id}/rooms` (de `reservation-service` a vuelos y hoteles). Solo se usan entre servicios y no deben alcanzarse desde afuera.
@@ -78,7 +78,7 @@ Hacen falta ambos: uno es el del circuit breaker y el otro el de la respuesta de
 |---|---|
 | `/api/users/**` (salvo `/api/users/me` y `/api/users/me/roles`) | `SUPER_ADMIN` |
 | `/api/packages/**` con `POST`, `PUT` o `DELETE` | `SUPER_ADMIN` |
-| `/api/flights`, `/api/airlines`, `/api/airports` con `POST`, `PUT` o `DELETE` | `SUPER_ADMIN` o `AIRLINE_ADMIN` |
+| `/api/flights`, `/api/airlines`, `/api/airports`, `/api/fares` con `POST`, `PUT` o `DELETE` | `SUPER_ADMIN` o `AIRLINE_ADMIN` |
 | `/api/hotels` y `/hoteles` con `POST`, `PUT` o `DELETE` | `SUPER_ADMIN` o `HOTEL_ADMIN` |
 | Cualquier otra ruta con token | Cualquier usuario con sesión |
 
