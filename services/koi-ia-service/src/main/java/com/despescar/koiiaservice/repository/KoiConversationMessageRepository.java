@@ -7,5 +7,8 @@ import java.util.List;
 import java.util.UUID;
 
 public interface KoiConversationMessageRepository extends JpaRepository<KoiConversationMessage, UUID> {
-    List<KoiConversationMessage> findBySessionIdOrderByCreatedAtAsc(UUID sessionId);
+    List<KoiConversationMessage> findBySessionIdOrderByCreatedAtAscIdAsc(UUID sessionId);
+
+    /** Los 10 últimos, del más nuevo al más viejo. */
+    List<KoiConversationMessage> findTop10BySessionIdOrderByCreatedAtDescIdDesc(UUID sessionId);
 }

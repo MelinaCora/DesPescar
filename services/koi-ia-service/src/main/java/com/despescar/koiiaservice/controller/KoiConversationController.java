@@ -35,8 +35,11 @@ public class KoiConversationController {
     }
 
     @GetMapping("/sessions/{sessionId}")
-    public ResponseEntity<KoiSessionResponse> getSession(@PathVariable UUID sessionId) {
-        return ResponseEntity.ok(koiConversationService.getSession(sessionId));
+    public ResponseEntity<KoiSessionResponse> getSession(
+            @PathVariable UUID sessionId,
+            @RequestHeader(value = "X-Authenticated-User", required = false) String userIdentifier
+    ) {
+        return ResponseEntity.ok(koiConversationService.getSession(sessionId, userIdentifier));
     }
 
     @GetMapping("/sessions/{sessionId}/messages")

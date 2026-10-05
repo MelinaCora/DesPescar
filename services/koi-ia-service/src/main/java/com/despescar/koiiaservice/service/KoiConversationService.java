@@ -18,7 +18,7 @@ import com.despescar.koiiaservice.enums.MessageRole;
 import com.despescar.koiiaservice.enums.MissingInfoField;
 import com.despescar.koiiaservice.enums.TipoOpcion;
 import com.despescar.koiiaservice.enums.UserIntent;
-import com.despescar.koiiaservice.exception.KoiCatalogUnavailableException;
+import com.despescar.koiiaservice.exception.KoiSessionForbiddenException;
 import com.despescar.koiiaservice.exception.KoiSessionNotFoundException;
 import com.despescar.koiiaservice.recomendador.HotelCandidato;
 import com.despescar.koiiaservice.recomendador.Motivos;
@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -77,6 +78,16 @@ public class KoiConversationService {
     static final int TURNOS_DE_HISTORIAL = 10;
     private static final int MAX_TEXTO_CIUDAD = 120;
     private static final int MAX_ULTIMO_MENSAJE = 2000;
+    private static final int MAX_RESPUESTA = 4000;
+    private static final int MAX_COMENTARIO = 300;
+    /** Plata o ids en el texto libre del modelo: el modelo nunca produce precios ni IDs. */
+    private static final Pattern PLATA_O_ID = Pattern.compile(
+            "(\\$|\\bars\\b|\\busd\\b|\\bpesos?\\b)\\s*\\d|\\d\\s*(\\$|\\bars\\b|\\busd\\b|\\bpesos?\\b)"
+                    + "|\\bid\\b\\W{0,3}\\d",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final Pattern MENCIONA_PRECIO = Pattern.compile(
+            "\\$|\\bars\\b|\\busd\\b|\\bpesos?\\b|\\bprecios?\\b|\\bcuest\\w*|\\bcost\\w*|\\btotal\\b|\\bsale\\b",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
     private final KoiConversationSessionRepository sessionRepository;
     private final KoiConversationMessageRepository messageRepository;
@@ -127,8 +138,10 @@ public class KoiConversationService {
     }
 
     @Transactional(readOnly = true)
-    public KoiSessionResponse getSession(UUID sessionId) {
-        return toSessionResponse(loadSession(sessionId));
+    public KoiSessionResponse getSession(UUID sessionId, String userIdentifier) {
+        KoiConversationSession session = loadSession(sessionId);
+        ensureSessionOwner(session, userIdentifier);
+        return toSessionResponse(session);
     }
 
     /** Historial completo de la sesión, para que el chat siga después de /login o de recargar. */
@@ -136,7 +149,7 @@ public class KoiConversationService {
     public List<KoiMensajeResponse> historial(UUID sessionId, String userIdentifier) {
         KoiConversationSession session = loadSession(sessionId);
         ensureSessionOwner(session, userIdentifier);
-        return messageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId).stream()
+        return messageRepository.findBySessionIdOrderByCreatedAtAscIdAsc(sessionId).stream()
                 .map(m -> new KoiMensajeResponse(m.getRole(), m.getContent(), opcionesJson.leer(m.getOpcionesJson())))
                 .toList();
     }
@@ -171,7 +184,7 @@ public class KoiConversationService {
         guardarDatos(session, datos);
         List<MissingInfoField> faltan = DatosFaltantes.calcular(datos, hoy);
         String comentario = extraccion.map(KoiExtraccion::comentario)
-                .filter(c -> !c.isBlank()).map(String::trim).orElse(null);
+                .map(KoiConversationService::sanearComentario).orElse(null);
         String avisos = limpieza.avisos().isEmpty() ? null : String.join(" ", limpieza.avisos());
 
         Turno turno;
@@ -190,6 +203,7 @@ public class KoiConversationService {
             turno = new Turno(unir(comentario, SEGUIMOS), List.of());
         }
 
+        turno = new Turno(acotarRespuesta(turno.texto()), turno.opciones());
         session.setLastAssistantMessage(recortar(turno.texto(), MAX_ULTIMO_MENSAJE));
         session = sessionRepository.save(session);
         guardarMensaje(session, MessageRole.KOI, turno.texto(), opcionesJson.escribir(turno.opciones()));
@@ -230,23 +244,25 @@ public class KoiConversationService {
         };
         LocalDate vuelta = datos.vueltaEfectiva();
         int viajeros = datos.viajeros();
+        String origen = recortar(datos.origen(), MAX_TEXTO_CIUDAD);
+        String destino = recortar(datos.destino(), MAX_TEXTO_CIUDAD);
         List<KoiRecommendationResponse> opciones;
         try {
             List<VueloCandidato> idas = List.of();
             List<VueloCandidato> vueltas = List.of();
             if (tipo != TipoOpcion.HOTEL) {
                 KoiCatalogo.VuelosCandidatos vuelos =
-                        catalogo.vuelos(datos.origen(), datos.destino(), datos.fechaIda(), vuelta, viajeros);
+                        catalogo.vuelos(origen, destino, datos.fechaIda(), vuelta, viajeros);
                 idas = vuelos.idas();
                 vueltas = vuelos.vueltas();
             }
             List<HotelCandidato> hoteles = tipo == TipoOpcion.VUELO ? List.of()
-                    : catalogo.hoteles(datos.destino(), datos.fechaIda(), vuelta, viajeros);
+                    : catalogo.hoteles(destino, datos.fechaIda(), vuelta, viajeros);
             opciones = Recomendador.recomendar(
                     new PedidoRecomendacion(tipo, datos.presupuesto(), viajeros, datos.fechaIda(), vuelta),
                     idas, vueltas, hoteles);
-        } catch (KoiCatalogUnavailableException ex) {
-            log.warn("KOI: el catálogo no respondió: {}", ex.getMessage());
+        } catch (RuntimeException ex) {
+            log.warn("KOI: no pude consultar el catálogo o armar las opciones: {}", ex.toString());
             session.setStage(ConversationStage.READY_TO_RECOMMEND);
             return new Turno(unir(comentario, CATALOGO_CAIDO), List.of());
         }
@@ -255,7 +271,21 @@ public class KoiConversationService {
         if (opciones.isEmpty()) {
             return new Turno(unir(comentario, SIN_OPCIONES), List.of());
         }
-        return new Turno(unir(comentario, resumen(opciones, datos.presupuesto())), opciones);
+        String comentarioSinPrecios = comentario != null && MENCIONA_PRECIO.matcher(comentario).find()
+                ? null : comentario;
+        return new Turno(unir(comentarioSinPrecios, resumen(opciones, datos.presupuesto())), opciones);
+    }
+
+    /** Texto libre del modelo: sin precios ni ids y de largo acotado; null si no sirve. */
+    static String sanearComentario(String comentario) {
+        if (comentario == null || comentario.isBlank()) {
+            return null;
+        }
+        String limpio = comentario.trim();
+        if (PLATA_O_ID.matcher(limpio).find()) {
+            return null;
+        }
+        return recortar(limpio, MAX_COMENTARIO);
     }
 
     private static String resumen(List<KoiRecommendationResponse> opciones, BigDecimal presupuesto) {
@@ -335,6 +365,11 @@ public class KoiConversationService {
         return String.join(" ", presentes);
     }
 
+    /** La columna `content` admite 4000 caracteres; una respuesta más larga rompería el guardado. */
+    static String acotarRespuesta(String texto) {
+        return recortar(texto, MAX_RESPUESTA);
+    }
+
     private static String recortar(String texto, int max) {
         if (texto == null) {
             return null;
@@ -373,10 +408,14 @@ public class KoiConversationService {
 
     /** Los últimos turnos guardados en el servidor, del más viejo al más nuevo. */
     private List<KoiModeloLenguaje.Turno> historialReciente(UUID sessionId) {
-        List<KoiConversationMessage> todos = messageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
-        return todos.subList(Math.max(0, todos.size() - TURNOS_DE_HISTORIAL), todos.size()).stream()
-                .map(m -> new KoiModeloLenguaje.Turno(m.getRole(), m.getContent()))
-                .toList();
+        List<KoiConversationMessage> nuevosPrimero =
+                messageRepository.findTop10BySessionIdOrderByCreatedAtDescIdDesc(sessionId);
+        List<KoiModeloLenguaje.Turno> turnos = new ArrayList<>();
+        for (int i = nuevosPrimero.size() - 1; i >= 0; i--) {
+            KoiConversationMessage m = nuevosPrimero.get(i);
+            turnos.add(new KoiModeloLenguaje.Turno(m.getRole(), m.getContent()));
+        }
+        return turnos;
     }
 
     private void guardarMensaje(KoiConversationSession session, MessageRole rol, String texto, String opciones) {
@@ -395,9 +434,8 @@ public class KoiConversationService {
 
     private void ensureSessionOwner(KoiConversationSession session, String userIdentifier) {
         String normalizedUser = normalizeUserIdentifier(userIdentifier);
-        if (normalizedUser != null && session.getUserIdentifier() != null
-                && !session.getUserIdentifier().equals(normalizedUser)) {
-            throw new IllegalArgumentException("La sesión KOI no pertenece al usuario autenticado.");
+        if (session.getUserIdentifier() != null && !session.getUserIdentifier().equals(normalizedUser)) {
+            throw new KoiSessionForbiddenException();
         }
     }
 

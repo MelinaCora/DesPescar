@@ -22,6 +22,7 @@ import com.despescar.koiiaservice.enums.MessageRole;
 import com.despescar.koiiaservice.enums.TipoOpcion;
 import com.despescar.koiiaservice.enums.UserIntent;
 import com.despescar.koiiaservice.exception.KoiGlobalExceptionHandler;
+import com.despescar.koiiaservice.exception.KoiSessionForbiddenException;
 import com.despescar.koiiaservice.exception.KoiSessionNotFoundException;
 import com.despescar.koiiaservice.service.KoiConversationService;
 import java.math.BigDecimal;
@@ -114,5 +115,19 @@ class KoiConversationControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.reply").value("¿Cuántas personas viajan?"))
                 .andExpect(jsonPath("$.recommendations.length()").value(0));
+    }
+
+    @Test
+    void unaSesionDeOtroUsuarioResponde403EnLasTresRutas() throws Exception {
+        when(service.historial(eq(sessionId), any())).thenThrow(new KoiSessionForbiddenException());
+        when(service.getSession(eq(sessionId), any())).thenThrow(new KoiSessionForbiddenException());
+        when(service.handleMessage(eq(sessionId), any(KoiConversationMessageRequest.class), any()))
+                .thenThrow(new KoiSessionForbiddenException());
+
+        mvc.perform(get("/api/koi/sessions/{id}/messages", sessionId)).andExpect(status().isForbidden());
+        mvc.perform(get("/api/koi/sessions/{id}", sessionId)).andExpect(status().isForbidden());
+        mvc.perform(post("/api/koi/sessions/{id}/messages", sessionId)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"message\":\"hola\"}"))
+                .andExpect(status().isForbidden());
     }
 }
