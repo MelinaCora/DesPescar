@@ -250,6 +250,42 @@ public class InventarioCarrito {
     }
 
     /**
+     * Pago en grupo (D-b4, D-b5): las retenciones de las estadías activas pasan a vencer en `nuevo`.
+     * Son llamadas HTTP: llamar sin transacción abierta. Todo o nada: si una falla, las ya cambiadas
+     * vuelven a `anterior` y se propaga el error.
+     */
+    public void cambiarVencimientoRetenciones(Reservation reserva, Instant nuevo, Instant anterior) {
+        List<UUID> cambiadas = new ArrayList<>();
+        for (EstadiaHotel estadia : CarritoCalculo.estadiasActivas(reserva)) {
+            try {
+                hotelClient.cambiarVencimiento(estadia.getRetencionId(), nuevo);
+                cambiadas.add(estadia.getRetencionId());
+            } catch (RuntimeException ex) {
+                cambiadas.forEach(id -> volverAlVencimiento(id, anterior));
+                throw ex;
+            }
+        }
+    }
+
+    /** Compensación de {@link #cambiarVencimientoRetenciones}: todas las estadías activas vuelven a `anterior`. */
+    public void volverAlVencimiento(Reservation reserva, Instant anterior) {
+        CarritoCalculo.estadiasActivas(reserva).forEach(e -> volverAlVencimiento(e.getRetencionId(), anterior));
+    }
+
+    /** Mejor esfuerzo. Si `anterior` ya pasó, el carrito venció: la retención se libera. */
+    public void volverAlVencimiento(UUID retencionId, Instant anterior) {
+        if (!anterior.isAfter(Instant.now(clock))) {
+            liberarRetencion(retencionId);
+            return;
+        }
+        try {
+            hotelClient.cambiarVencimiento(retencionId, anterior);
+        } catch (RuntimeException ex) {
+            log.warn("No se pudo devolver la retención {} a su vencimiento anterior: {}", retencionId, ex.getMessage());
+        }
+    }
+
+    /**
      * Libre, o ya de esta reserva (reintento idempotente), o bloqueado por el creador desde el mapa sin
      * carrito. Esto último no vale para una reserva EXPIRADA (pago tardío): el usuario puede tener ese
      * bloqueo para otra compra.

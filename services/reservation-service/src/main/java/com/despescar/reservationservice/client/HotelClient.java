@@ -3,6 +3,7 @@ package com.despescar.reservationservice.client;
 import com.despescar.reservationservice.dto.hotel.RetencionHotelRequest;
 import com.despescar.reservationservice.dto.hotel.RetencionHotelResponse;
 import com.despescar.reservationservice.exception.BookingException;
+import java.time.Instant;
 import java.util.Map;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -66,6 +67,15 @@ public class HotelClient {
         }
         return llamar(hotelServiceUrl + "/internal/retenciones/" + retencionId + "/confirmar",
                 Map.of("nombreTitular", nombreTitular), RetencionHotelResponse.class);
+    }
+
+    /**
+     * Cambia el vencimiento de una retención RETENIDA (CB1): la alarga hasta el plazo de un pago en
+     * grupo o la devuelve a su vencimiento anterior. El instante viaja en ISO (UTC).
+     */
+    public RetencionHotelResponse cambiarVencimiento(UUID retencionId, Instant expiraEn) {
+        return llamar(hotelServiceUrl + "/internal/retenciones/" + retencionId + "/vencimiento",
+                Map.of("expiraEn", expiraEn.toString()), RetencionHotelResponse.class);
     }
 
     public void liberarRetencion(UUID retencionId) {
