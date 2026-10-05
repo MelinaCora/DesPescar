@@ -3,11 +3,21 @@ package com.despescar.payment_service.service;
 import java.math.BigDecimal;
 import java.util.UUID;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Service;
+
 import com.despescar.payment_service.dto.response.PaymentCheckoutResponse;
-import com.despescar.payment_service.dto.response.RefundGatewayResponse;
-
 import com.despescar.payment_service.dto.response.PaymentGatewayResponse;
+import com.despescar.payment_service.dto.response.RefundGatewayResponse;
+import com.despescar.payment_service.enums.PaymentProvider;
 
+/**
+ * Proveedor simulado para desarrollo local (payments.provider=mock, el valor por defecto).
+ * El checkout es una pagina del front (/pago/simulado) que aprueba o rechaza con
+ * POST /api/payments/{id}/simulacion; los reembolsos se aprueban siempre.
+ */
+@Service
+@ConditionalOnProperty(name = "payments.provider", havingValue = "mock", matchIfMissing = true)
 public class MockPaymentGatewayService implements PaymentGatewayService {
 
     @Override
@@ -21,9 +31,9 @@ public class MockPaymentGatewayService implements PaymentGatewayService {
         }
 
         return PaymentCheckoutResponse.builder()
-                .preferenceId("MOCK-PREF-" + UUID.randomUUID())
-                .checkoutUrl("https://mock-gateway.test/checkout/" + paymentId)
-                .message("Checkout created successfully.")
+                .preferenceId("MOCK-PREF-" + paymentId)
+                .checkoutUrl("/pago/simulado?pago=" + paymentId)
+                .message("Checkout simulado creado.")
                 .build();
     }
 
@@ -54,7 +64,6 @@ public class MockPaymentGatewayService implements PaymentGatewayService {
             BigDecimal amount) {
 
         if (transactionId == null || transactionId.isBlank()) {
-
             return RefundGatewayResponse.builder()
                     .approved(false)
                     .refundTransactionId(null)
@@ -63,7 +72,6 @@ public class MockPaymentGatewayService implements PaymentGatewayService {
         }
 
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-
             return RefundGatewayResponse.builder()
                     .approved(false)
                     .refundTransactionId(null)
@@ -71,13 +79,15 @@ public class MockPaymentGatewayService implements PaymentGatewayService {
                     .build();
         }
 
-        String refundTransactionId =
-                "MOCK-REFUND-" + UUID.randomUUID();
-
         return RefundGatewayResponse.builder()
                 .approved(true)
-                .refundTransactionId(refundTransactionId)
-                .message("Refund approved successfully.")
+                .refundTransactionId("MOCK-REFUND-" + UUID.randomUUID())
+                .message("Reembolso simulado aprobado.")
                 .build();
+    }
+
+    @Override
+    public PaymentProvider provider() {
+        return PaymentProvider.MOCK;
     }
 }

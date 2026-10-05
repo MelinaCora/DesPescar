@@ -115,6 +115,19 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(ProveedorPagoException.class)
+    public ResponseEntity<ErrorResponse> handleProveedorPago(
+            ProveedorPagoException ex,
+            HttpServletRequest request) {
+
+        log.warn("Fallo el proveedor de pagos en {}: {}", request.getRequestURI(), ex.getMessage(), ex);
+        return buildErrorResponse(
+                HttpStatus.BAD_GATEWAY,
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+    }
+
     @ExceptionHandler(InvalidWebhookSignatureException.class)
     public ResponseEntity<ErrorResponse> handleInvalidWebhookSignature(
             InvalidWebhookSignatureException ex,

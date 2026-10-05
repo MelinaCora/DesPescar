@@ -89,10 +89,12 @@ class PaymentServiceTest {
                         .build());
         when(paymentMapper.toResponse(any(Payment.class))).thenReturn(mappedResponse);
 
+        when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MOCK);
         PaymentResponse response = paymentService.createPayment(request, 55L);
 
         assertThat(response.getCheckoutUrl()).isEqualTo("https://checkout.test/payments/123");
         assertThat(mappedPayment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(mappedPayment.getProvider()).isEqualTo(PaymentProvider.MOCK);
         assertThat(mappedPayment.getPreferenceId()).isEqualTo("pref-123");
         assertThat(mappedPayment.getCheckoutUrl()).isEqualTo("https://checkout.test/payments/123");
         verify(paymentRepository, times(2)).save(any(Payment.class));

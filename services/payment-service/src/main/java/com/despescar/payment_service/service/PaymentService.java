@@ -51,6 +51,7 @@ public class PaymentService {
         );
 
         payment.setStatus(PaymentStatus.PENDING);
+        payment.setProvider(paymentGatewayService.provider());
 
         Payment savedPayment = paymentRepository.save(payment);
 
