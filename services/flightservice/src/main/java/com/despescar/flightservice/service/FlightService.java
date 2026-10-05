@@ -7,6 +7,7 @@ import com.despescar.flightservice.entity.Airline;
 import com.despescar.flightservice.entity.Airport;
 import com.despescar.flightservice.entity.Fare;
 import com.despescar.flightservice.entity.Flight;
+import com.despescar.flightservice.enums.FlightStatus;
 import com.despescar.flightservice.exception.AirlineNotFoundException;
 import com.despescar.flightservice.exception.AirportNotFoundException;
 import com.despescar.flightservice.exception.FlightNotFoundException;
@@ -30,6 +31,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class FlightService {
+
+    public static final int MAX_DIAS_FECHAS = 90;
 
     private final FlightRepository flightRepository;
     private final AirlineRepository airlineRepository;
@@ -81,6 +84,24 @@ public class FlightService {
         return flightRepository.findAll()
                 .stream()
                 .map(FlightMapper::toResponse)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Días con vuelos programados y con lugar de una ruta, entre dos fechas (ambas incluidas).
+     * El rango se acota a MAX_DIAS_FECHAS días desde la primera.
+     */
+    @Transactional(readOnly = true)
+    public List<LocalDate> fechasConVuelos(String origin, String destination, LocalDate desde, LocalDate hasta) {
+        LocalDate tope = desde.plusDays(MAX_DIAS_FECHAS);
+        LocalDate ultima = hasta.isAfter(tope) ? tope : hasta;
+        return flightRepository.findSalidasConLugar(origin.trim().toUpperCase(Locale.ROOT),
+                        destination.trim().toUpperCase(Locale.ROOT), FlightStatus.SCHEDULED,
+                        desde.atStartOfDay(), ultima.plusDays(1).atStartOfDay())
+                .stream()
+                .map(LocalDateTime::toLocalDate)
+                .distinct()
+                .sorted()
                 .collect(Collectors.toList());
     }
 
