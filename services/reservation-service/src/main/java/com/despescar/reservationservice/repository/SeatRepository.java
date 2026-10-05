@@ -29,8 +29,8 @@ public interface SeatRepository extends JpaRepository<Seat, UUID> {
 
     List<Seat> findByStatusSeatAndBloqueadoHastaBefore(String statusSeat, LocalDateTime time);
 
-    /** Solo los ids: cada asiento se relee bloqueado (FOR UPDATE) antes de soltarlo. */
-    @Query("SELECT s.seatUuid FROM Seat s WHERE s.statusSeat = :statusSeat AND s.bloqueadoHasta < :limite")
+    /** Solo los ids, ordenados (vuelo, número) como el resto de los flujos que bloquean asientos: cada asiento se relee bloqueado (FOR UPDATE) antes de soltarlo. */
+    @Query("SELECT s.seatUuid FROM Seat s WHERE s.statusSeat = :statusSeat AND s.bloqueadoHasta < :limite ORDER BY s.flightId, s.numberSeat")
     List<UUID> findIdsByStatusSeatAndBloqueadoHastaBefore(@Param("statusSeat") String statusSeat,
                                                          @Param("limite") LocalDateTime limite);
 
