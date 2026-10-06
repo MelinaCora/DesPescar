@@ -121,11 +121,19 @@ class MercadoPagoOrdersGatewayServiceTest {
         assertThat(MercadoPagoOrdersGatewayService.claveDeOrden(PAGO_ID, "otro-token")).isNotEqualTo(clave);
     }
 
+    /** El 402 real de Mercado Pago: la orden viene anidada en "data" junto a la lista de errores. */
+    private static String rechazoReal(String ordenJson) {
+        return """
+                {"errors":[{"code":"failed","message":"The following transactions failed",
+                  "details":["PAY01: insufficient_amount"]}],"data":%s}
+                """.formatted(ordenJson);
+    }
+
     @Test
     void unaTarjetaRechazadaLlegaComo402YSeDevuelveComoOrdenFallida() {
         servidor.expect(requestTo(BASE + "/v1/orders"))
                 .andRespond(withStatus(HttpStatus.PAYMENT_REQUIRED).contentType(MediaType.APPLICATION_JSON)
-                        .body(orden("ORD02", "failed", "failed", "failed", "insufficient_amount")));
+                        .body(rechazoReal(orden("ORD02", "failed", "failed", "failed", "insufficient_amount"))));
 
         OrdenMercadoPago orden = gateway.crearOrden(pedido());
 
@@ -133,6 +141,19 @@ class MercadoPagoOrdersGatewayServiceTest {
         assertThat(orden.detalle()).isEqualTo("insufficient_amount");
         assertThat(orden.toGatewayResponse().getStatus()).isEqualTo("rejected");
         assertThat(orden.toGatewayResponse().getMessage()).isEqualTo("insufficient_amount");
+    }
+
+    @Test
+    void elRechazoConLaOrdenEnElNivelSuperiorTambienSeEntiende() {
+        servidor.expect(requestTo(BASE + "/v1/orders"))
+                .andRespond(withStatus(HttpStatus.PAYMENT_REQUIRED).contentType(MediaType.APPLICATION_JSON)
+                        .body(orden("ORD04", "failed", "failed", "failed", "rejected_by_issuer")));
+
+        OrdenMercadoPago orden = gateway.crearOrden(pedido());
+
+        assertThat(orden.id()).isEqualTo("ORD04");
+        assertThat(orden.rechazada()).isTrue();
+        assertThat(orden.detalle()).isEqualTo("rejected_by_issuer");
     }
 
     @Test

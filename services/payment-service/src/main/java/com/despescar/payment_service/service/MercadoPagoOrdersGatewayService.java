@@ -277,8 +277,14 @@ public class MercadoPagoOrdersGatewayService implements PaymentGatewayService, M
         return error == null ? null : error.toString();
     }
 
+    /**
+     * Una orden que Mercado Pago crea pero cuya transaccion falla (tarjeta rechazada) llega como HTTP 402
+     * con {"errors":[...],"data":{<la orden>}}: la orden va anidada en "data", no en el nivel superior.
+     */
     @SuppressWarnings("unchecked")
-    static OrdenMercadoPago leerOrden(Map<String, Object> cuerpo) {
+    static OrdenMercadoPago leerOrden(Map<String, Object> respuesta) {
+        Map<String, Object> cuerpo = respuesta.get("id") == null && respuesta.get("data") instanceof Map<?, ?> data
+                ? (Map<String, Object>) data : respuesta;
         Map<String, Object> pago = Map.of();
         Object transacciones = cuerpo.get("transactions");
         if (transacciones instanceof Map<?, ?> t && t.get("payments") instanceof List<?> pagos && !pagos.isEmpty()
