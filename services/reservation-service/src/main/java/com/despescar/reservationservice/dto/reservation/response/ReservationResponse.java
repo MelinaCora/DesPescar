@@ -49,6 +49,10 @@ public class ReservationResponse {
 
     private List<AsientoDetalleDTO> asientos;
 
+    /** Contacto de quien compra (null si todavía no se cargó). */
+    private String contactoEmail;
+    private String contactoTelefono;
+
     private LocalDateTime creadoEn;
 
     /** Solo en reservas canceladas. */
@@ -76,6 +80,10 @@ public class ReservationResponse {
 
         private String nombrePasajero;
         private String dniPasaporte;
+        private String tipoDocumento;
+        private LocalDate fechaNacimiento;
+        private String genero;
+        private String nacionalidad;
 
         private String tarifaNombre;
     }

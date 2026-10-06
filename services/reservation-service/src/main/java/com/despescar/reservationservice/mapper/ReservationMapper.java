@@ -37,6 +37,8 @@ public class ReservationMapper {
                 .vuelo(conVuelo ? vuelo(reserva) : null)
                 .estadias(lista(reserva.getEstadias()).stream().map(this::estadia).toList())
                 .asientos(lista(reserva.getDetalles()).stream().map(detailMapper::toResponse).toList())
+                .contactoEmail(reserva.getContactoEmail())
+                .contactoTelefono(reserva.getContactoTelefono())
                 .creadoEn(reserva.getCreadoEn())
                 .motivoCancelacion(reserva.getMotivoCancelacion())
                 .canceladaEn(reserva.getCanceladaEn())

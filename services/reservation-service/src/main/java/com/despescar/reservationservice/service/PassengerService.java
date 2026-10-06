@@ -101,6 +101,10 @@ public class PassengerService {
                     .reservation(reserva)
                     .passengerName(pasajero.getNombreCompleto().trim())
                     .passengerDni(pasajero.getDniPasaporte().trim())
+                    .passengerDocumentType(pasajero.getTipoDocumento())
+                    .passengerBirthDate(pasajero.getFechaNacimiento())
+                    .passengerGender(pasajero.getGenero())
+                    .passengerNationality(pasajero.getNacionalidad() == null ? null : pasajero.getNacionalidad().trim())
                     .fareId(reserva.getBaggageIds().isEmpty() ? null : reserva.getBaggageIds().get(0))
                     .fareName(reserva.getTarifasVuelo())
                     .priceCharged(reserva.getPrecioVueloPorPasajero())
@@ -121,6 +125,13 @@ public class PassengerService {
         reserva.getDetalles().clear();
         reserva.getDetalles().addAll(nuevos);
         soltados.forEach(numero -> soltar(bloqueados.get(numero), authenticatedUserId, reserva.getId()));
+
+        if (request.getContactoEmail() != null) {
+            reserva.setContactoEmail(request.getContactoEmail().trim());
+        }
+        if (request.getContactoTelefono() != null) {
+            reserva.setContactoTelefono(request.getContactoTelefono().trim());
+        }
 
         reserva.setEstado(CarritoCalculo.estadoAbierto(reserva));
         bookingRepository.save(reserva);

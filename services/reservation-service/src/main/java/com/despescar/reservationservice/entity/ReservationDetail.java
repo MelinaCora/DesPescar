@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Entity
@@ -29,6 +30,20 @@ public class ReservationDetail {
 
     @Column(name = "passenger_id")
     private String passengerDni;
+
+    /** DNI o PASAPORTE. Los datos siguientes son los que pide una aerolinea para emitir el pasaje. */
+    @Column(name = "passenger_document_type", length = 20)
+    private String passengerDocumentType;
+
+    @Column(name = "passenger_birth_date")
+    private LocalDate passengerBirthDate;
+
+    /** F, M o X (el DNI argentino admite las tres). */
+    @Column(name = "passenger_gender", length = 1)
+    private String passengerGender;
+
+    @Column(name = "passenger_nationality", length = 60)
+    private String passengerNationality;
 
     @Column(name = "fare_id")
     private UUID fareId;

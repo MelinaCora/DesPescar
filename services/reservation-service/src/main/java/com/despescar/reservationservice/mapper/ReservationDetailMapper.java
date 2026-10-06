@@ -27,6 +27,10 @@ public class ReservationDetailMapper {
 
                 .nombrePasajero(detalle.getPassengerName())
                 .dniPasaporte(detalle.getPassengerDni())
+                .tipoDocumento(detalle.getPassengerDocumentType())
+                .fechaNacimiento(detalle.getPassengerBirthDate())
+                .genero(detalle.getPassengerGender())
+                .nacionalidad(detalle.getPassengerNationality())
 
                 .tarifaNombre(detalle.getFareName())
 

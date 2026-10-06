@@ -92,6 +92,13 @@ public class Reservation {
     @Column(name = "salida_vuelo")
     private LocalDateTime salidaVuelo;
 
+    /** Contacto de quien compra (lo pide la aerolinea para avisar cambios del vuelo). */
+    @Column(name = "contacto_email", length = 120)
+    private String contactoEmail;
+
+    @Column(name = "contacto_telefono", length = 30)
+    private String contactoTelefono;
+
     @Column(name = "motivo_cancelacion", length = 60)
     private String motivoCancelacion;
 

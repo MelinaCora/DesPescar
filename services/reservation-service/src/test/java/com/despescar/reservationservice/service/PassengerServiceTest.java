@@ -127,6 +127,51 @@ class PassengerServiceTest {
     }
 
     @Test
+    void guardaLosDatosDelPasajeroYElContactoDeQuienCompra() {
+        PassengerAssignationRequest pedido = pedido(mio("1A"), mio("1B"));
+        PassengerAssignationRequest.PassengerItemDTO p = pedido.getPasajeros().get(0);
+        p.setTipoDocumento("PASAPORTE");
+        p.setFechaNacimiento(java.time.LocalDate.of(1990, 5, 17));
+        p.setGenero("X");
+        p.setNacionalidad(" Argentina ");
+        pedido.setContactoEmail(" ana@correo.com ");
+        pedido.setContactoTelefono("+54 11 5555-1234");
+
+        service.assignPassengersToSeats(12L, pedido, 7L);
+
+        ReservationDetail d = carrito.getDetalles().get(0);
+        assertEquals("PASAPORTE", d.getPassengerDocumentType());
+        assertEquals(java.time.LocalDate.of(1990, 5, 17), d.getPassengerBirthDate());
+        assertEquals("X", d.getPassengerGender());
+        assertEquals("Argentina", d.getPassengerNationality());
+        assertEquals("ana@correo.com", carrito.getContactoEmail());
+        assertEquals("+54 11 5555-1234", carrito.getContactoTelefono());
+    }
+
+    @Test
+    void sinLosDatosNuevosSigueFuncionandoComoAntes() {
+        service.assignPassengersToSeats(12L, pedido(mio("1A"), mio("1B")), 7L);
+
+        ReservationDetail d = carrito.getDetalles().get(0);
+        assertNull(d.getPassengerDocumentType());
+        assertNull(d.getPassengerBirthDate());
+        assertNull(d.getPassengerGender());
+        assertNull(d.getPassengerNationality());
+        assertNull(carrito.getContactoEmail());
+    }
+
+    @Test
+    void unSegundoPutSinContactoConservaElQueYaTenia() {
+        PassengerAssignationRequest primero = pedido(mio("1A"), mio("1B"));
+        primero.setContactoEmail("ana@correo.com");
+        service.assignPassengersToSeats(12L, primero, 7L);
+
+        service.assignPassengersToSeats(12L, pedido(mio("1A"), mio("1B")), 7L);
+
+        assertEquals("ana@correo.com", carrito.getContactoEmail());
+    }
+
+    @Test
     void conUnaEstadiaSinTitularElCarritoSigueIniciado() {
         EstadiaHotel e = new EstadiaHotel();
         e.setReservation(carrito);
