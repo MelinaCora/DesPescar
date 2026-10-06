@@ -59,10 +59,22 @@ public class GoogleAuthService {
         if (Boolean.FALSE.equals(user.getIsActive())) {
             throw new GoogleLoginException("Tu cuenta está desactivada.");
         }
+        // Una cuenta con permisos de administración solo entra con su contraseña: si no, quien controle
+        // ese correo en una cuenta de Google (verificado por Google, no por nosotros) entraría como admin.
+        if (tieneRolDeAdministracion(user)) {
+            throw new GoogleLoginException(
+                    "Esta cuenta tiene permisos de administración: ingresá con tu correo y contraseña.");
+        }
 
         String accessToken = jwtService.generateToken(user.getId(), user.getEmail(), user.getPrimaryRoleName());
         String refreshToken = refreshTokenService.createRefreshToken(user);
         return new LoginResponse(accessToken, refreshToken, "Bearer", jwtService.getAccessTokenExpirationSeconds());
+    }
+
+    private static boolean tieneRolDeAdministracion(User user) {
+        return user.getRoles().stream().anyMatch(userRole -> userRole.getRole() != null
+                && userRole.getRole().getName() != null
+                && !"USER".equalsIgnoreCase(userRole.getRole().getName()));
     }
 
     private User crearUsuario(GoogleIdentity identity) {

@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.despescar.identityservice.dto.response.LoginResponse;
 import com.despescar.identityservice.entity.Role;
 import com.despescar.identityservice.entity.User;
+import com.despescar.identityservice.entity.UserRole;
 import com.despescar.identityservice.exception.GoogleLoginException;
 import com.despescar.identityservice.google.GoogleIdentity;
 import com.despescar.identityservice.google.GoogleTokenVerifier;
@@ -86,6 +87,44 @@ class GoogleAuthServiceTest {
         service.login("tok");
 
         verify(userRepository, never()).save(any());
+    }
+
+    private static User conRoles(String... nombres) {
+        User u = new User();
+        u.setId(9L);
+        u.setEmail("ana@gmail.com");
+        for (String nombre : nombres) {
+            Role rol = new Role();
+            rol.setName(nombre);
+            UserRole ur = new UserRole();
+            ur.setRole(rol);
+            u.addRole(ur);
+        }
+        return u;
+    }
+
+    @Test
+    void unaCuentaDeAdministracionNoEntraConGoogle() {
+        for (String[] roles : new String[][] {{"SUPER_ADMIN"}, {"USER", "SUPER_ADMIN"}, {"HOTEL_ADMIN"}, {"AIRLINE_ADMIN", "USER"}}) {
+            when(userRepository.findByEmail("ana@gmail.com")).thenReturn(Optional.of(conRoles(roles)));
+
+            assertThatThrownBy(() -> service.login("tok"))
+                    .as("roles %s", String.join("+", roles))
+                    .isInstanceOf(GoogleLoginException.class)
+                    .hasMessageContaining("contraseña");
+        }
+        verify(jwtService, never()).generateToken(any(), anyString(), anyString());
+        verify(refreshTokenService, never()).createRefreshToken(any());
+    }
+
+    @Test
+    void unaCuentaConSoloRolUserSiEntra() {
+        User existente = conRoles("USER");
+        when(userRepository.findByEmail("ana@gmail.com")).thenReturn(Optional.of(existente));
+        when(jwtService.generateToken(9L, "ana@gmail.com", "USER")).thenReturn("access");
+        when(refreshTokenService.createRefreshToken(existente)).thenReturn("refresh");
+
+        assertThat(service.login("tok").getAccessToken()).isEqualTo("access");
     }
 
     @Test
