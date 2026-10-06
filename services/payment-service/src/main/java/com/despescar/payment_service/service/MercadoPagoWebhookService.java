@@ -60,6 +60,35 @@ public class MercadoPagoWebhookService {
     }
 
     /**
+     * Notificacion del topic "order" (Checkout API via Orders). Nunca se confia en el cuerpo: se
+     * relee la orden en Mercado Pago y se aplica su estado al pago cuyo id es la external_reference.
+     */
+    @Transactional
+    public void processOrderNotification(String ordenId) {
+        if (paymentGatewayService.provider() != PaymentProvider.MERCADO_PAGO_ORDERS) {
+            log.warn("Notificacion de orden de Mercado Pago ignorada: el proveedor activo es {}.",
+                    paymentGatewayService.provider());
+            return;
+        }
+        if (ordenId == null || ordenId.isBlank()) {
+            return;
+        }
+
+        PaymentGatewayResponse gatewayResponse = paymentGatewayService.getPaymentStatus(ordenId);
+
+        Optional<Payment> payment = parseUuid(gatewayResponse.getExternalReference())
+                .flatMap(paymentRepository::findByIdParaActualizar)
+                .filter(p -> p.getProvider() == PaymentProvider.MERCADO_PAGO_ORDERS);
+        if (payment.isEmpty()) {
+            log.warn("Orden {} de Mercado Pago con referencia desconocida: {}",
+                    ordenId, gatewayResponse.getExternalReference());
+            return;
+        }
+
+        aplicarEstado(payment.get(), gatewayResponse);
+    }
+
+    /**
      * Llamar con el pago leido por {@code PaymentRepository.findByIdParaActualizar}, dentro de la
      * transaccion que lo bloqueo.
      * Aplica al pago el estado informado por Mercado Pago. approved confirma la reserva (una sola

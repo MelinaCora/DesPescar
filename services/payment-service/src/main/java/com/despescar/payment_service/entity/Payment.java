@@ -4,6 +4,8 @@ import com.despescar.payment_service.enums.PaymentMethod;
 import com.despescar.payment_service.enums.PaymentProvider;
 import com.despescar.payment_service.enums.PaymentStatus;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.*;
 
 import java.math.BigDecimal;
@@ -37,11 +39,13 @@ public class Payment {
     private BigDecimal amount;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(nullable = false, length = 40)
     private PaymentStatus status;
 
     @Enumerated(EnumType.STRING)
-    @Column
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(length = 40)
     private PaymentMethod paymentMethod;
 
     @Column(unique = true)
@@ -59,8 +63,10 @@ public class Payment {
     @Column(length = 3)
     private String currency;
 
+    // Como VARCHAR y no ENUM de MySQL: con ENUM, un proveedor nuevo rompía el insert ("Data truncated").
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(nullable = false, length = 40)
     private PaymentProvider provider;
 
     /**

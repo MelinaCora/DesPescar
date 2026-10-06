@@ -55,8 +55,10 @@ Todas tienen un valor por defecto pensado para desarrollo local, así que sin de
 | `CORS_ALLOWED_ORIGINS` | gateway, koi | `*` (gateway), `http://localhost:5173` (koi) | Origen del front permitido (el compose usa `FRONTEND_URL`) |
 | `GATEWAY_TRUSTED_PROXIES` | gateway | vacío | IP de Caddy: el gateway solo acepta `X-Forwarded-For` de esas IPs (ver más abajo) |
 | `JWT_SECRET`, `INVENTORY_SERVICE_TOKEN`, `RESERVATION_SERVICE_SYNC_TOKEN`, `PAYMENT_SERVICE_SYNC_TOKEN` | varios | sin valor | Secretos: valores propios y largos (`openssl rand -base64 48`) |
-| `PAYMENT_PROVIDER` | payment | `mock` | `mock` = pago simulado desde el front; `mercadopago` = cobro real |
-| `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET` | payment | vacío | Solo con `PAYMENT_PROVIDER=mercadopago` |
+| `PAYMENT_PROVIDER` | payment | `mock` | `mock` = pago simulado desde el front; `mercadopago_orders` = tarjeta en `/pago/mercadopago` (Checkout API); `mercadopago` = Checkout Pro (redirige a Mercado Pago). Es global: un solo modo a la vez |
+| `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_PUBLIC_KEY` | payment | vacío | Credenciales de Mercado Pago. Con `mercadopago_orders` el servicio **no arranca** sin las dos. La public key se entrega al front por `GET /api/payments/config` (no va en Vercel) |
+| `MERCADOPAGO_WEBHOOK_SECRET` | payment | vacío | Secreto del webhook; lo genera Mercado Pago al registrarlo (ver Pagos) |
+| `GOOGLE_CLIENT_ID` | identity | vacío | Client id OAuth de tipo Web (público). Vacío = el botón de Google queda deshabilitado. El front lo recibe por `GET /api/auth/google/config` |
 | `GROQ_API_KEY` | koi | `sin-clave` | Sin clave KOI arranca, pero responde que el modelo no está disponible |
 
 ### Por qué Caddy tiene una IP fija
@@ -173,7 +175,51 @@ sudo docker compose -f docker-compose.prod.yml up -d --build
 
 ## Pagos
 
-Con `PAYMENT_PROVIDER=mock` (el valor por defecto) el pago se aprueba o rechaza desde una página simulada del front y no se cobra nada. Para cobrar con Mercado Pago: `PAYMENT_PROVIDER=mercadopago`, completa `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_WEBHOOK_SECRET`, y configura en tu cuenta de Mercado Pago la URL de notificaciones `https://<tu-subdominio>.duckdns.org/api/payments/mercadopago/webhook`. Las URLs de retorno se arman con `FRONTEND_URL` (`<front>/pago/resultado`).
+Hay tres modos, elegidos con `PAYMENT_PROVIDER` (un solo modo a la vez para todo el sitio):
+
+| Modo | Qué hace |
+|---|---|
+| `mock` (por defecto) | El pago se aprueba o rechaza desde una página simulada del front. No se cobra nada |
+| `mercadopago_orders` | Tarjeta en una página propia (`/pago/mercadopago`) con el formulario oficial de Mercado Pago (Checkout API). Los datos de la tarjeta nunca pasan por el servidor |
+| `mercadopago` | Checkout Pro: redirige a Mercado Pago |
+
+### Activar `mercadopago_orders` con credenciales de prueba
+
+Con credenciales de **prueba** no se mueve dinero real: se paga con tarjetas de prueba. La cuenta tiene que ser de Argentina (el sitio cobra solo en ARS).
+
+1. **Cambiar el tipo de las columnas de `payments` (una sola vez, solo si la base ya existía).** Hibernate crea las columnas como `ENUM` de MySQL y `ddl-auto=update` no cambia el tipo de las que ya existen. Sin este paso, crear un pago con el proveedor nuevo falla con `Data truncated`. Una base creada desde cero con esta versión ya viene bien.
+   ```sql
+   ALTER TABLE despescar_payment.payments
+     MODIFY provider       VARCHAR(40) NOT NULL,
+     MODIFY status         VARCHAR(40) NOT NULL,
+     MODIFY payment_method VARCHAR(40) NULL;
+   ```
+   (Revisa antes con `SHOW CREATE TABLE payments` cuáles son nulables.)
+2. **Credenciales en el `.env` del servidor:** `MERCADOPAGO_ACCESS_TOKEN` y `MERCADOPAGO_PUBLIC_KEY` (de la misma aplicación de prueba) y `PAYMENT_PROVIDER=mercadopago_orders`. Nunca se suben a git.
+3. **Recrear el servicio:** `sudo docker compose -f docker-compose.prod.yml up -d payment-service`. Si las credenciales faltan o no corresponden, el servicio no arranca y se ve en `logs payment-service`.
+4. **Webhook (recomendado):** en el panel de Mercado Pago, *Webhooks → Configurar notificaciones*, con el evento **Orders** y la URL `https://<tu-subdominio>.duckdns.org/api/payments/mercadopago/webhook`. Al guardar se genera el secreto, que va en `MERCADOPAGO_WEBHOOK_SECRET`. Sin webhook, un pago aprobado se resuelve igual en la misma llamada, pero uno que queda "en proceso" solo se resuelve con la conciliación desde `/pago/resultado`.
+
+### Cómo se prueba
+
+En `/pago/mercadopago`:
+- **Tarjeta:** Mastercard `5031 7557 3453 0604`, código `123`, vencimiento `11/30`, DNI `12345678`. Hay más en la lista oficial de tarjetas de prueba de Mercado Pago.
+- **Nombre del titular:** decide el resultado. `APRO` aprobado, `FUND` fondos insuficientes, `CALL` rechazo con validación, `SECU` código inválido, `OTHE` rechazo general y `CONT` queda pendiente.
+- **Correo del pagador:** con credenciales de prueba tiene que ser el de la **cuenta de prueba compradora** (termina en `@testuser.com`). Con otro correo, Mercado Pago responde `invalid_email_for_sandbox`.
+
+Los reembolsos (cancelar una reserva, un pago en grupo o una reserva que el sistema rechaza) van a `POST /v1/orders/{id}/refund`, total o parcial.
+
+### Volver al pago simulado
+
+`PAYMENT_PROVIDER=mock` y recrear `payment-service`. Los pagos pendientes creados con otro proveedor no se pueden completar con el nuevo: hay que recrear el carrito.
+
+## Ingreso con Google
+
+El login y el registro muestran el botón oficial de Google cuando identity-service tiene `GOOGLE_CLIENT_ID`. El front manda el ID token a `POST /api/auth/google`; el servicio lo verifica contra Google (destinatario y correo verificado) y busca al usuario por correo o lo crea con rol `USER`.
+
+1. En Google Cloud Console, crear un *ID de cliente de OAuth* de tipo **Aplicación web**.
+2. En *Orígenes de JavaScript autorizados* agregar la URL del front (`https://<tu-proyecto>.vercel.app`) y, para desarrollo, `http://localhost:5173`. Solo funciona desde los orígenes registrados: las direcciones temporales de despliegue de Vercel no sirven.
+3. Pantalla de consentimiento: en modo *Pruebas* solo ingresan los correos agregados como usuarios de prueba; para el resto hay que publicarla.
+4. Poner el client id en `GOOGLE_CLIENT_ID` del `.env` y recrear `identity-service`. El *client secret* no se usa en este flujo: no hace falta compartirlo ni guardarlo.
 
 ## Problemas comunes
 
@@ -183,6 +229,10 @@ Con `PAYMENT_PROVIDER=mock` (el valor por defecto) el pago se aprueba o rechaza 
 | Respuestas `503` con `/fallback/unavailable` | El gateway corta a los 5 segundos. Casi siempre es latencia alta hacia la base de datos (servidor lejos de Aiven) o un servicio todavía arrancando |
 | `Communications link failure` / `UnknownHostException` al arrancar | DNS o red momentáneos al conectar con Aiven; el reinicio automático lo resuelve. Si persiste, revisa que el servicio de Aiven esté encendido y la lista de IPs permitidas |
 | Caddy no consigue el certificado | El subdominio no apunta a la IP, o los puertos 80/443 están cerrados (Security List de Oracle o `iptables`) |
+| Crear el pago falla con `Data truncated` | Las columnas de `payments` siguen siendo `ENUM` de MySQL: aplicar el `ALTER TABLE` de la sección Pagos |
+| `payment-service` no arranca con `mercadopago_orders` | Falta `MERCADOPAGO_ACCESS_TOKEN` o `MERCADOPAGO_PUBLIC_KEY` (o no son de la misma aplicación): ver `logs payment-service` |
+| `502` al pagar con `invalid_email_for_sandbox` | Con credenciales de prueba el correo del pagador debe ser el de la cuenta de prueba compradora (`@testuser.com`) |
+| El botón de Google no aparece o da error de origen | `GOOGLE_CLIENT_ID` vacío, o el origen del front no figura en *Orígenes de JavaScript autorizados* de Google Cloud |
 | El front carga pero el login o los vuelos fallan | CORS: `FRONTEND_URL` no coincide con la URL de Vercel (sin barra final) o no se recrearon gateway y koi |
 | El límite de peticiones afecta a todos los usuarios a la vez | `GATEWAY_TRUSTED_PROXIES` no coincide con la IP de Caddy |
 | El seed falla con `401` a mitad de la carga | Token vencido en una versión vieja del seed; actualiza el repo (ahora renueva el token) |

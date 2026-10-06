@@ -22,6 +22,7 @@ import com.despescar.payment_service.exception.InvalidPaymentStateException;
 import com.despescar.payment_service.exception.ReservationAmountResolutionException;
 import com.despescar.payment_service.service.PaymentConciliationService;
 import com.despescar.payment_service.service.PaymentService;
+import com.despescar.payment_service.service.MercadoPagoOrdenService;
 import com.despescar.payment_service.service.PaymentSimulationService;
 
 /** El mapeo de excepciones del servicio a respuestas HTTP, sin levantar el contexto. */
@@ -35,7 +36,7 @@ class GlobalExceptionHandlerTest {
     void setUp() {
         paymentService = mock(PaymentService.class);
         mockMvc = MockMvcBuilders.standaloneSetup(new PaymentController(paymentService, mock(PaymentSimulationService.class),
-                mock(PaymentConciliationService.class)))
+                mock(PaymentConciliationService.class), mock(MercadoPagoOrdenService.class)))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }

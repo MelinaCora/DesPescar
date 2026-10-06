@@ -24,6 +24,8 @@ services:
     environment:
       <<: [*java-env, *db]
       JWT_SECRET: ${JWT_SECRET}
+      # Ingreso con Google: client id OAuth de tipo Web (publico). Vacio = el boton queda deshabilitado.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
 
   flightservice:
     <<: *java
@@ -64,11 +66,14 @@ services:
       RESERVATION_SERVICE_URL: http://reservation-service:8085
       RESERVATION_SERVICE_SYNC_TOKEN: ${RESERVATION_SERVICE_SYNC_TOKEN}
       PAYMENT_SERVICE_SYNC_TOKEN: ${PAYMENT_SERVICE_SYNC_TOKEN}
-      # mock = pago simulado desde el front; mercadopago = cobro real (necesita las credenciales de abajo)
+      # mock = pago simulado desde el front; mercadopago = Checkout Pro (redirige a Mercado Pago);
+      # mercadopago_orders = tarjeta en /pago/mercadopago del front (necesita las credenciales de abajo)
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
       # Las URLs de retorno de Mercado Pago salen de FRONT_URL (<front>/pago/resultado)
       FRONT_URL: ${FRONTEND_URL}
       MERCADOPAGO_ACCESS_TOKEN: ${MERCADOPAGO_ACCESS_TOKEN:-}
+      # Solo con PAYMENT_PROVIDER=mercadopago_orders: se entrega al front en GET /api/payments/config
+      MERCADOPAGO_PUBLIC_KEY: ${MERCADOPAGO_PUBLIC_KEY:-}
       MERCADOPAGO_WEBHOOK_SECRET: ${MERCADOPAGO_WEBHOOK_SECRET:-}
       MERCADOPAGO_NOTIFICATION_URL: https://${DOMAIN}/api/payments/mercadopago/webhook
     depends_on: [reservation-service]

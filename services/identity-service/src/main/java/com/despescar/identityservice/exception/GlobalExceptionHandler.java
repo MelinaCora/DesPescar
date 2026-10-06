@@ -99,6 +99,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
     }
 
+    @ExceptionHandler(GoogleLoginException.class)
+    public ResponseEntity<ErrorResponse> handleGoogleLogin(GoogleLoginException ex) {
+        return buildErrorResponse(HttpStatus.UNAUTHORIZED, ex.getMessage());
+    }
+
+    @ExceptionHandler(GoogleLoginNotConfiguredException.class)
+    public ResponseEntity<ErrorResponse> handleGoogleNotConfigured(GoogleLoginNotConfiguredException ex) {
+        return buildErrorResponse(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage());
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException ex) {
         ErrorResponse errorResponse = new ErrorResponse(

@@ -16,9 +16,13 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 
 import com.despescar.payment_service.dto.request.ConciliacionPagoRequest;
+import com.despescar.payment_service.dto.request.OrdenPagoRequest;
 import com.despescar.payment_service.dto.request.PaymentRequest;
 import com.despescar.payment_service.dto.request.SimulacionPagoRequest;
+import com.despescar.payment_service.dto.response.OrdenPagoResponse;
+import com.despescar.payment_service.dto.response.PaymentConfigResponse;
 import com.despescar.payment_service.dto.response.PaymentResponse;
+import com.despescar.payment_service.service.MercadoPagoOrdenService;
 import com.despescar.payment_service.service.PaymentConciliationService;
 import com.despescar.payment_service.service.PaymentService;
 import com.despescar.payment_service.service.PaymentSimulationService;
@@ -34,6 +38,14 @@ public class PaymentController {
 	private final PaymentService paymentService;
 	private final PaymentSimulationService paymentSimulationService;
 	private final PaymentConciliationService paymentConciliationService;
+	private final MercadoPagoOrdenService mercadoPagoOrdenService;
+
+	/** Proveedor activo y, con Mercado Pago (Orders), la public key con la que el front carga MercadoPago.js. */
+	@GetMapping("/config")
+	@PreAuthorize("hasRole('ROLE_CLIENTE')")
+	public ResponseEntity<PaymentConfigResponse> configuracion() {
+		return ResponseEntity.ok(mercadoPagoOrdenService.configuracion());
+	}
 
 	/**
 	 * Creates a new payment.
@@ -143,5 +155,20 @@ public class PaymentController {
 
 		return ResponseEntity.ok(paymentConciliationService.conciliar(
 				paymentId, request.mpPaymentId(), Long.valueOf(authentication.getName())));
+	}
+
+	/**
+	 * Cobra un pago PENDING con el token de tarjeta de MercadoPago.js creando una orden en Mercado
+	 * Pago (pagina /pago/mercadopago). 404 si el proveedor activo no es mercadopago_orders.
+	 */
+	@PostMapping("/{paymentId}/orden")
+	@PreAuthorize("hasRole('ROLE_CLIENTE')")
+	public ResponseEntity<OrdenPagoResponse> cobrarConOrden(
+			@PathVariable UUID paymentId,
+			@Valid @RequestBody OrdenPagoRequest request,
+			Authentication authentication) {
+
+		return ResponseEntity.ok(mercadoPagoOrdenService.cobrar(
+				paymentId, request, Long.valueOf(authentication.getName())));
 	}
 }

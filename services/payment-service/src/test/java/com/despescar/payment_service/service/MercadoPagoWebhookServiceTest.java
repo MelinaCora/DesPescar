@@ -237,4 +237,57 @@ class MercadoPagoWebhookServiceTest {
 
         verify(paymentHistoryService, never()).saveHistory(any(), any(), any());
     }
+
+    // ----- topic "order" (Checkout API via Orders) -----
+
+    private void ordenInformada(String estadoComoPago, String externalReference) {
+        when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MERCADO_PAGO_ORDERS);
+        when(paymentGatewayService.getPaymentStatus("ORD01")).thenReturn(PaymentGatewayResponse.builder()
+                .approved("approved".equals(estadoComoPago))
+                .transactionId("ORD01")
+                .externalReference(externalReference)
+                .status(estadoComoPago)
+                .currency("ARS")
+                .amount(new BigDecimal("1250.00"))
+                .paymentTypeId("debit_card")
+                .build());
+    }
+
+    @Test
+    void laNotificacionDeOrdenReleeLaOrdenYApruebaElPago() {
+        payment.setProvider(PaymentProvider.MERCADO_PAGO_ORDERS);
+        ordenInformada("approved", payment.getId().toString());
+        pagoEncontrado();
+
+        service.processOrderNotification("ORD01");
+
+        verify(aprobacionPagoService).aprobar(payment, "ORD01", PaymentMethod.DEBIT_CARD, new BigDecimal("1250.00"));
+    }
+
+    @Test
+    void laNotificacionDeOrdenRechazadaDejaElPagoRejected() {
+        payment.setProvider(PaymentProvider.MERCADO_PAGO_ORDERS);
+        ordenInformada("rejected", payment.getId().toString());
+        pagoEncontrado();
+        when(paymentRepository.save(any(Payment.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.processOrderNotification("ORD01");
+
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REJECTED);
+        assertThat(payment.getTransactionId()).isEqualTo("ORD01");
+        verify(aprobacionPagoService, never()).aprobar(any(), any(), any(), any());
+    }
+
+    @Test
+    void laNotificacionDeOrdenSeIgnoraConOtroProveedorOConUnPagoDeCheckoutPro() {
+        when(paymentGatewayService.provider()).thenReturn(PaymentProvider.MERCADO_PAGO);
+        service.processOrderNotification("ORD01");
+        verify(paymentGatewayService, never()).getPaymentStatus(any());
+
+        // El pago es de Checkout Pro (provider MERCADO_PAGO): no se le aplica una orden.
+        ordenInformada("approved", payment.getId().toString());
+        pagoEncontrado();
+        service.processOrderNotification("ORD01");
+        verify(aprobacionPagoService, never()).aprobar(any(), any(), any(), any());
+    }
 }
